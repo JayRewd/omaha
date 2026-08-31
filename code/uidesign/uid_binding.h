@@ -76,6 +76,9 @@ uid_result_t UID_WriteBinding(uid_document_t *doc, uid_node_id_t nodeId, const u
 /* Write every apply-mode cvar bind and every keybind node. */
 uid_result_t UID_WriteAllBindings(uid_document_t *doc, const uid_backend_t *backend);
 
+/* Added in Omaha: clear commit=apply staged runtime so sync can pull again (defaults). */
+void UID_ClearApplyStagedBindings(uid_document_t *doc);
+
 /* Added in OPM: collection scope bind helpers. */
 std::string UID_TransformCvarToUi(
 	const uid_node_def_t &node,

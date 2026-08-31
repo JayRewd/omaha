@@ -426,6 +426,56 @@ void fake_fontDraw(void *, float x, float y, const char *text, const float *rgba
 	g_fake->fontDrawLog.push_back(buf);
 }
 
+/* Added in Omaha: log rotated text draws for unit tests. */
+void fake_fontDrawRotated(
+	void *,
+	float x,
+	float y,
+	const char *text,
+	const float *rgba,
+	float tracking,
+	float rotationDeg,
+	float pivotX,
+	float pivotY
+)
+{
+	(void)tracking;
+	if (!g_fake) {
+		return;
+	}
+	char buf[256];
+	if (rgba) {
+		std::snprintf(
+			buf,
+			sizeof(buf),
+			"textrot %.1f,%.1f '%s' rot=%.1f pivot=%.1f,%.1f rgba=%.2f,%.2f,%.2f,%.2f",
+			x,
+			y,
+			text ? text : "",
+			rotationDeg,
+			pivotX,
+			pivotY,
+			rgba[0],
+			rgba[1],
+			rgba[2],
+			rgba[3]
+		);
+	} else {
+		std::snprintf(
+			buf,
+			sizeof(buf),
+			"textrot %.1f,%.1f '%s' rot=%.1f pivot=%.1f,%.1f",
+			x,
+			y,
+			text ? text : "",
+			rotationDeg,
+			pivotX,
+			pivotY
+		);
+	}
+	g_fake->fontDrawLog.push_back(buf);
+}
+
 void fake_drawPath(
 	const char *svgD,
 	float x,
@@ -1306,6 +1356,7 @@ uid_backend_t MakeFakeBackend(FakeBackendState *state)
 	b.fontMeasure = fake_fontMeasure;
 	b.fontResolve = fake_fontResolve;
 	b.fontDraw = fake_fontDraw;
+	b.fontDrawRotated = fake_fontDrawRotated;
 	b.queryOptions = fake_queryOptions;
 	b.queryCollectionItems = fake_queryCollectionItems;
 	b.keyNameToNum = fake_keyNameToNum;
@@ -3438,7 +3489,7 @@ const char *kCanvasPointerDoc = R"(
   <definitions>
     <defaults type="vertical" width="100%" height="100%"/>
   </definitions>
-  <canvas pointer="{cvar.ui_om_intermission == 1 or cvar.ui_om_spectator == 1 or cvar.ui_om_scoreboard_cursor == 1}">
+  <canvas pointer="{cvar.ui_om_scoreboard_disable_cursor != 1 and (cvar.ui_om_intermission == 1 or cvar.ui_om_spectator == 1 or cvar.ui_om_scoreboard_cursor == 1)}">
     <container id="root" width="100%" height="100%"/>
   </canvas>
 </ui>
@@ -3477,7 +3528,9 @@ void TestCanvasPointerAttr(void)
 		CHECK(UID_ParseXml("pointer.xml", kCanvasPointerDoc, std::strlen(kCanvasPointerDoc), &lim, nullptr, doc, &diags)
 		      == UID_OK);
 		CHECK(!diags.HasErrors());
-		CHECK(doc->pointerExpr == "cvar.ui_om_intermission == 1 or cvar.ui_om_spectator == 1 or cvar.ui_om_scoreboard_cursor == 1");
+		CHECK(doc->pointerExpr
+		      == "cvar.ui_om_scoreboard_disable_cursor != 1 and (cvar.ui_om_intermission == 1 or cvar.ui_om_spectator == "
+		         "1 or cvar.ui_om_scoreboard_cursor == 1)");
 		UID_DestroyDocument(doc);
 	}
 	{
@@ -4881,6 +4934,63 @@ void TestSettingsOnOffButtons(void)
 	UID_DestroyDocument(doc);
 }
 
+/* Added in Omaha: bind.selected matches numeric cvar strings; peer click refreshes fill. */
+void TestBindSelectedNumericMatch(void)
+{
+	static const char *kDoc = R"(
+<ui version="1">
+  <definitions>
+    <defaults type="vertical" width="100%" height="100%"/>
+    <fonts><font id="control" src="fonts/x.ttf" weight="600"/></fonts>
+  </definitions>
+  <canvas>
+    <container type="horizontal" width="100%" height="40px" gap="8px">
+      <button id="off" bind="cvar:s_doppler" set-value="0" commit="change"
+              fill="{bind.selected ? #1A6FD4FF : #00000073}" color="#FFFFFFFF">Off</button>
+      <button id="on" bind="cvar:s_doppler" set-value="1" commit="change"
+              fill="{bind.selected ? #1A6FD4FF : #00000073}" color="#FFFFFFFF">On</button>
+    </container>
+  </canvas>
+</ui>
+)";
+	uid_limits_t lim;
+	UID_DefaultLimits(&lim);
+	uid_document_t *doc = UID_CreateDocument();
+	uid_diag_list_t diags(lim.maxDiagnostics);
+	FakeBackendState st;
+	st.cvars["s_doppler"] = FakeCvar{"1.0", 0};
+	uid_backend_t be = MakeFakeBackend(&st);
+
+	CHECK(UID_ParseXml("bind_selected_num.xml", kDoc, std::strlen(kDoc), &lim, nullptr, doc, &diags) == UID_OK);
+	CHECK(UID_ExpandDocument(doc, &diags) == UID_OK);
+	CHECK(UID_CompileDocument(doc, &diags) == UID_OK);
+	CHECK(UID_LayoutDocument(doc, 320, 80, 1.0f, 1.0f, &be, &diags) == UID_OK);
+	UID_SyncBindings(doc, &be);
+
+	uid_node_id_t offId = doc->idIndex["off"];
+	uid_node_id_t onId = doc->idIndex["on"];
+	uid_color_t   fillOn{};
+	uid_color_t   fillOff{};
+	CHECK(UID_ResolveFillColor(doc, onId, &fillOn));
+	CHECK(UID_ResolveFillColor(doc, offId, &fillOff));
+	CHECK(fillOn.b > 0.5f);
+	CHECK(fillOff.b < 0.5f);
+
+	/* Simulate a stale idle fill + same-value click (cvar already 1.0). */
+	doc->nodes[static_cast<size_t>(onId)].properties.Set("fill", "#00000073");
+	doc->states[static_cast<size_t>(onId)].styleExprCached = true;
+	doc->states[static_cast<size_t>(onId)].styleExprEpoch = 1u;
+	doc->states[static_cast<size_t>(offId)].styleExprCached = true;
+	doc->states[static_cast<size_t>(offId)].styleExprEpoch = 1u;
+	UID_SetFocus(doc, onId, &be);
+	CHECK(UID_HandleKey(doc, UID_KEY_ENTER, true, 0, &be));
+	CHECK(st.cvars["s_doppler"].value == "1.0" || st.cvars["s_doppler"].value == "1");
+	CHECK(UID_ResolveFillColor(doc, onId, &fillOn));
+	CHECK(fillOn.b > 0.5f);
+
+	UID_DestroyDocument(doc);
+}
+
 /* Added in OPM: use-site visible AND template search `or` must keep parent gate. */
 void TestUseVisibleAndSearchOrPrecedence(void)
 {
@@ -5844,6 +5954,76 @@ void TestShapeRotationPaint(void)
 	UID_DestroyDocument(doc);
 }
 
+/* Added in Omaha: label rotation paints via fontDrawRotated around border-box center. */
+void TestTextRotationPaint(void)
+{
+	const char *xml = R"(
+<ui version="1">
+  <definitions>
+    <defaults type="vertical" width="auto" height="auto" padding="0" margin="0" gap="0"
+              overflow="none" fill="#00000000" visible="true" enabled="true"
+              font="body" font-size="14px" color="#FFFFFFFF"/>
+    <fonts>
+      <font id="body" src="fonts/Oswald-Medium.ttf" weight="400"/>
+    </fonts>
+  </definitions>
+  <canvas>
+    <container type="vertical" width="200px" height="100px" padding="0" gap="0">
+      <label id="plain" width="80px" height="40px" font-size="14px" color="#FFFFFFFF"
+             halign="center" valign="center">Hi</label>
+      <label id="rot" width="80px" height="40px" font-size="14px" color="#FFFFFFFF"
+             halign="center" valign="center" rotation="90">Hi</label>
+    </container>
+  </canvas>
+</ui>
+)";
+	uid_limits_t lim;
+	UID_DefaultLimits(&lim);
+	uid_document_t *doc = UID_CreateDocument();
+	uid_diag_list_t diags(lim.maxDiagnostics);
+	FakeBackendState st;
+	uid_backend_t    be = MakeFakeBackend(&st);
+
+	CHECK(UID_ParseXml("text_rot_paint.xml", xml, std::strlen(xml), &lim, nullptr, doc, &diags) == UID_OK);
+	CHECK(UID_ExpandDocument(doc, &diags) == UID_OK);
+	CHECK(UID_CompileDocument(doc, &diags) == UID_OK);
+	CHECK(!diags.HasErrors());
+	CHECK(UID_LayoutDocument(doc, 200, 100, 1.0f, 1.0f, &be, &diags) == UID_OK);
+
+	const uid_node_id_t plainId = NodeId(doc, "plain");
+	const uid_node_id_t rotId = NodeId(doc, "rot");
+	CHECK(plainId >= 0 && rotId >= 0);
+	CHECK_EQ_F(doc->states[(size_t)plainId].borderBox.w, doc->states[(size_t)rotId].borderBox.w, 0.5f);
+	CHECK_EQ_F(doc->states[(size_t)plainId].borderBox.h, doc->states[(size_t)rotId].borderBox.h, 0.5f);
+
+	st.fontDrawLog.clear();
+	UID_PaintChrome(doc, &be);
+
+	bool sawPlain = false;
+	bool sawRot = false;
+	float rotDeg = 0.0f;
+	float pivotX = 0.0f;
+	float pivotY = 0.0f;
+	for (const std::string &line : st.fontDrawLog) {
+		if (line.find("textrot ") == 0 && line.find("'Hi'") != std::string::npos) {
+			sawRot = true;
+			CHECK(
+				std::sscanf(line.c_str(), "textrot %*f,%*f '%*[^']' rot=%f pivot=%f,%f", &rotDeg, &pivotX, &pivotY) ==
+				3
+			);
+		} else if (line.find("text ") == 0 && line.find("'Hi'") != std::string::npos) {
+			sawPlain = true;
+		}
+	}
+	CHECK(sawPlain);
+	CHECK(sawRot);
+	CHECK(std::fabs(rotDeg - 90.0f) < 1e-3f);
+	const uid_rect_t &bb = doc->states[(size_t)rotId].borderBox;
+	CHECK_EQ_F(pivotX, bb.x + bb.w * 0.5f, 0.5f);
+	CHECK_EQ_F(pivotY, bb.y + bb.h * 0.5f, 0.5f);
+	UID_DestroyDocument(doc);
+}
+
 /* Added in OPM: rotated rectangles route through drawPath, not solid rect fast path. */
 void TestRotatedRectangleUsesPath(void)
 {
@@ -6648,6 +6828,67 @@ void TestComposableCyclicForeach(void)
 	UID_DestroyDocument(doc);
 }
 
+/* Added in Omaha: commit=apply cyclic stages until WriteAllBindings (settings-apply). */
+void TestCyclicCommitApplyStagesUntilFlush(void)
+{
+	static const char *kDoc = R"(
+<ui version="1">
+  <definitions>
+    <defaults type="vertical" width="100%" height="100%"/>
+    <fonts><font id="control" src="fonts/x.ttf" weight="600"/></fonts>
+    <sources>
+      <source id="picmip" default="1">
+        <item value="0" label="Highest"/>
+        <item value="1" label="High"/>
+        <item value="2" label="Medium"/>
+        <item value="3" label="Low"/>
+      </source>
+    </sources>
+  </definitions>
+  <canvas>
+    <container id="scope" type="horizontal" width="280px" height="40px" gap="0"
+               source="picmip" bind="cvar:r_picmip" wrap="true" commit="apply">
+      <button id="prev" width="32px" height="100%" step-index="-1">‹</button>
+      <container width="fill" height="100%" halign="center" valign="center">
+        <foreach mode="selected">
+          <label id="lbl" font="control" font-size="15px">{item.label}</label>
+        </foreach>
+      </container>
+      <button id="next" width="32px" height="100%" step-index="1">›</button>
+    </container>
+  </canvas>
+</ui>
+)";
+	uid_limits_t lim;
+	UID_DefaultLimits(&lim);
+	uid_document_t *doc = UID_CreateDocument();
+	uid_diag_list_t diags(lim.maxDiagnostics);
+	FakeBackendState st;
+	st.cvars["r_picmip"] = FakeCvar{"1", 0};
+	uid_backend_t be = MakeFakeBackend(&st);
+
+	CHECK(UID_ParseXml("cyclic_apply.xml", kDoc, std::strlen(kDoc), &lim, nullptr, doc, &diags) == UID_OK);
+	CHECK(UID_ExpandDocument(doc, &diags) == UID_OK);
+	CHECK(UID_CompileDocument(doc, &diags) == UID_OK);
+	UID_SyncBindings(doc, &be);
+	CHECK(UID_LayoutDocument(doc, 320, 80, 1.0f, 1.0f, &be, &diags) == UID_OK);
+
+	uid_node_id_t scopeId = doc->idIndex.count("scope") ? doc->idIndex["scope"] : UID_INVALID_NODE_ID;
+	CHECK(scopeId >= 0);
+	CHECK(UID_StepCollectionIndex(doc, scopeId, 1, &be));
+	UID_SyncBindings(doc, &be);
+	/* Staged: UI moved, cvar unchanged until flush. */
+	CHECK(st.cvars["r_picmip"].value == "1");
+	uid_node_id_t lbl = doc->idIndex.count("lbl") ? doc->idIndex["lbl"] : UID_INVALID_NODE_ID;
+	CHECK(lbl >= 0);
+	CHECK(UID_GetNode(doc, lbl)->text == "Medium");
+
+	CHECK(UID_WriteAllBindings(doc, &be) == UID_OK);
+	CHECK(st.cvars["r_picmip"].value == "2");
+
+	UID_DestroyDocument(doc);
+}
+
 /* Added in OPM: vertical list row click via set-index on foreach row. */
 void TestComposableVerticalList(void)
 {
@@ -7295,6 +7536,226 @@ void TestWindowForeachScroll(void)
 	CHECK(doc->states[static_cast<size_t>(scopeId)].collectionSelectedIndex >= 10);
 	CHECK(doc->states[static_cast<size_t>(scopeId)].collectionScrollOffset
 		  <= doc->states[static_cast<size_t>(scopeId)].collectionSelectedIndex);
+
+	UID_DestroyDocument(doc);
+}
+
+/* Added in Omaha: max-height / max-width clamps + scroll-sibling shrink. */
+void TestMaxHeightShortContent(void)
+{
+	static const char *kDoc = R"(
+<ui version="1">
+  <definitions>
+    <defaults type="vertical" width="100%" height="100%"/>
+  </definitions>
+  <canvas>
+    <container id="panel" type="vertical" width="200px" height="auto" max-height="80%" gap="0">
+      <container id="a" width="100%" height="40px"/>
+      <container id="b" width="100%" height="40px"/>
+    </container>
+  </canvas>
+</ui>
+)";
+	uid_limits_t lim;
+	UID_DefaultLimits(&lim);
+	uid_document_t *doc = UID_CreateDocument();
+	uid_diag_list_t diags(lim.maxDiagnostics);
+	FakeBackendState st;
+	uid_backend_t be = MakeFakeBackend(&st);
+
+	CHECK(UID_ParseXml("maxh_short.xml", kDoc, std::strlen(kDoc), &lim, nullptr, doc, &diags) == UID_OK);
+	CHECK(UID_ExpandDocument(doc, &diags) == UID_OK);
+	CHECK(UID_CompileDocument(doc, &diags) == UID_OK);
+	UID_SyncBindings(doc, &be);
+	CHECK(UID_LayoutDocument(doc, 200, 200, 1.0f, 1.0f, &be, &diags) == UID_OK);
+
+	uid_node_id_t panelId = doc->idIndex.count("panel") ? doc->idIndex["panel"] : UID_INVALID_NODE_ID;
+	CHECK(panelId >= 0);
+	CHECK_EQ_F(doc->states[static_cast<size_t>(panelId)].borderBox.h, 80.0f, 0.5);
+
+	UID_DestroyDocument(doc);
+}
+
+void TestMaxHeightScrollShrink(void)
+{
+	static const char *kDoc = R"(
+<ui version="1">
+  <definitions>
+    <defaults type="vertical" width="100%" height="100%"/>
+  </definitions>
+  <canvas>
+    <container id="panel" type="vertical" width="200px" height="auto" max-height="100px" gap="0">
+      <container id="hdr" width="100%" height="20px"/>
+      <container id="list" type="vertical" width="100%" height="auto" overflow="scroll" gap="0">
+        <container width="100%" height="40px"/>
+        <container width="100%" height="40px"/>
+        <container width="100%" height="40px"/>
+        <container width="100%" height="40px"/>
+      </container>
+      <container id="ftr" width="100%" height="20px"/>
+    </container>
+  </canvas>
+</ui>
+)";
+	uid_limits_t lim;
+	UID_DefaultLimits(&lim);
+	uid_document_t *doc = UID_CreateDocument();
+	uid_diag_list_t diags(lim.maxDiagnostics);
+	FakeBackendState st;
+	uid_backend_t be = MakeFakeBackend(&st);
+
+	CHECK(UID_ParseXml("maxh_scroll.xml", kDoc, std::strlen(kDoc), &lim, nullptr, doc, &diags) == UID_OK);
+	CHECK(UID_ExpandDocument(doc, &diags) == UID_OK);
+	CHECK(UID_CompileDocument(doc, &diags) == UID_OK);
+	UID_SyncBindings(doc, &be);
+	CHECK(UID_LayoutDocument(doc, 200, 400, 1.0f, 1.0f, &be, &diags) == UID_OK);
+
+	uid_node_id_t panelId = doc->idIndex.count("panel") ? doc->idIndex["panel"] : UID_INVALID_NODE_ID;
+	uid_node_id_t listId = doc->idIndex.count("list") ? doc->idIndex["list"] : UID_INVALID_NODE_ID;
+	uid_node_id_t hdrId = doc->idIndex.count("hdr") ? doc->idIndex["hdr"] : UID_INVALID_NODE_ID;
+	uid_node_id_t ftrId = doc->idIndex.count("ftr") ? doc->idIndex["ftr"] : UID_INVALID_NODE_ID;
+	CHECK(panelId >= 0 && listId >= 0 && hdrId >= 0 && ftrId >= 0);
+
+	CHECK_EQ_F(doc->states[static_cast<size_t>(panelId)].borderBox.h, 100.0f, 0.5);
+	CHECK_EQ_F(doc->states[static_cast<size_t>(hdrId)].borderBox.h, 20.0f, 0.5);
+	CHECK_EQ_F(doc->states[static_cast<size_t>(ftrId)].borderBox.h, 20.0f, 0.5);
+	CHECK_EQ_F(doc->states[static_cast<size_t>(listId)].borderBox.h, 60.0f, 0.5);
+	CHECK(doc->states[static_cast<size_t>(listId)].contentExtentH + 0.5f >
+	      doc->states[static_cast<size_t>(listId)].contentBox.h);
+
+	UID_DestroyDocument(doc);
+}
+
+void TestMaxHeightWindowForeachIntrinsic(void)
+{
+	static const char *kDoc = R"(
+<ui version="1">
+  <definitions>
+    <defaults type="vertical" width="100%" height="100%"/>
+    <sources>
+      <source id="rows">
+        <item value="0" label="r0"/>
+        <item value="1" label="r1"/>
+        <item value="2" label="r2"/>
+        <item value="3" label="r3"/>
+        <item value="4" label="r4"/>
+        <item value="5" label="r5"/>
+        <item value="6" label="r6"/>
+        <item value="7" label="r7"/>
+        <item value="8" label="r8"/>
+        <item value="9" label="r9"/>
+      </source>
+    </sources>
+  </definitions>
+  <canvas>
+    <container id="panel" type="vertical" width="200px" height="auto" max-height="100px" gap="0"
+               source="rows" bind="cvar:ui_row">
+      <container id="scroller" type="vertical" width="100%" height="auto" overflow="scroll" gap="0">
+        <foreach id="list" mode="window" row-height="36px">
+          <label width="100%" height="36px">{item.label}</label>
+        </foreach>
+      </container>
+    </container>
+  </canvas>
+</ui>
+)";
+	uid_limits_t lim;
+	UID_DefaultLimits(&lim);
+	uid_document_t *doc = UID_CreateDocument();
+	uid_diag_list_t diags(lim.maxDiagnostics);
+	FakeBackendState st;
+	st.cvars["ui_row"] = FakeCvar{"0", 0};
+	uid_backend_t be = MakeFakeBackend(&st);
+
+	CHECK(UID_ParseXml("maxh_window.xml", kDoc, std::strlen(kDoc), &lim, nullptr, doc, &diags) == UID_OK);
+	CHECK(UID_ExpandDocument(doc, &diags) == UID_OK);
+	CHECK(UID_CompileDocument(doc, &diags) == UID_OK);
+	UID_SyncBindings(doc, &be);
+	CHECK(UID_LayoutDocument(doc, 200, 400, 1.0f, 1.0f, &be, &diags) == UID_OK);
+	UID_SyncBindings(doc, &be);
+	CHECK(UID_LayoutDocument(doc, 200, 400, 1.0f, 1.0f, &be, &diags) == UID_OK);
+
+	uid_node_id_t panelId = doc->idIndex.count("panel") ? doc->idIndex["panel"] : UID_INVALID_NODE_ID;
+	uid_node_id_t scrollId = doc->idIndex.count("scroller") ? doc->idIndex["scroller"] : UID_INVALID_NODE_ID;
+	CHECK(panelId >= 0 && scrollId >= 0);
+	CHECK_EQ_F(doc->states[static_cast<size_t>(panelId)].borderBox.h, 100.0f, 0.5);
+	CHECK_EQ_F(doc->states[static_cast<size_t>(scrollId)].contentExtentH, 10.0f * 36.0f, 0.5);
+	CHECK(doc->states[static_cast<size_t>(scrollId)].contentExtentH + 0.5f >
+	      doc->states[static_cast<size_t>(scrollId)].contentBox.h);
+
+	UID_DestroyDocument(doc);
+}
+
+void TestMaxHeightCompileReject(void)
+{
+	static const char *kFill = R"(
+<ui version="1">
+  <definitions/>
+  <canvas>
+    <container id="panel" width="100px" height="auto" max-height="fill"/>
+  </canvas>
+</ui>
+)";
+	static const char *kAuto = R"(
+<ui version="1">
+  <definitions/>
+  <canvas>
+    <container id="panel" width="100px" height="auto" max-height="auto"/>
+  </canvas>
+</ui>
+)";
+	uid_limits_t lim;
+	UID_DefaultLimits(&lim);
+
+	{
+		uid_document_t *doc = UID_CreateDocument();
+		uid_diag_list_t diags(lim.maxDiagnostics);
+		CHECK(UID_ParseXml("maxh_fill.xml", kFill, std::strlen(kFill), &lim, nullptr, doc, &diags) == UID_OK);
+		CHECK(UID_ExpandDocument(doc, &diags) == UID_OK);
+		CHECK(UID_CompileDocument(doc, &diags) != UID_OK);
+		UID_DestroyDocument(doc);
+	}
+	{
+		uid_document_t *doc = UID_CreateDocument();
+		uid_diag_list_t diags(lim.maxDiagnostics);
+		CHECK(UID_ParseXml("maxh_auto.xml", kAuto, std::strlen(kAuto), &lim, nullptr, doc, &diags) == UID_OK);
+		CHECK(UID_ExpandDocument(doc, &diags) == UID_OK);
+		CHECK(UID_CompileDocument(doc, &diags) != UID_OK);
+		UID_DestroyDocument(doc);
+	}
+}
+
+void TestMaxWidthClamp(void)
+{
+	static const char *kDoc = R"(
+<ui version="1">
+  <definitions>
+    <defaults type="vertical" width="100%" height="100%"/>
+  </definitions>
+  <canvas>
+    <container id="panel" type="horizontal" width="auto" max-width="100px" height="40px" gap="0">
+      <container width="80px" height="100%"/>
+      <container width="80px" height="100%"/>
+    </container>
+  </canvas>
+</ui>
+)";
+	uid_limits_t lim;
+	UID_DefaultLimits(&lim);
+	uid_document_t *doc = UID_CreateDocument();
+	uid_diag_list_t diags(lim.maxDiagnostics);
+	FakeBackendState st;
+	uid_backend_t be = MakeFakeBackend(&st);
+
+	CHECK(UID_ParseXml("maxw.xml", kDoc, std::strlen(kDoc), &lim, nullptr, doc, &diags) == UID_OK);
+	CHECK(UID_ExpandDocument(doc, &diags) == UID_OK);
+	CHECK(UID_CompileDocument(doc, &diags) == UID_OK);
+	UID_SyncBindings(doc, &be);
+	CHECK(UID_LayoutDocument(doc, 400, 200, 1.0f, 1.0f, &be, &diags) == UID_OK);
+
+	uid_node_id_t panelId = doc->idIndex.count("panel") ? doc->idIndex["panel"] : UID_INVALID_NODE_ID;
+	CHECK(panelId >= 0);
+	CHECK_EQ_F(doc->states[static_cast<size_t>(panelId)].borderBox.w, 100.0f, 0.5);
 
 	UID_DestroyDocument(doc);
 }
@@ -9778,12 +10239,15 @@ static void TestHudPackMetadataPeekFixtures(void)
 		const char *vfsPath;
 		const char *hudId;
 		const char *hudLabel;
+		const char *pauseMenu;
+		const char *scoreboardMenu;
 		int         drawOrder;
 	};
 
 	const FixtureCase cases[] = {
-		{"ui/modern/huds/classic.xml", "classic", "Classic", 4},
-		{"ui/modern/huds/modern.xml", "modern", "Modern", 4},
+		{"ui/modern/huds/classic.xml", "classic", "Classic", "dm_pause", "scoreboard", 4},
+		{"ui/modern/huds/modern.xml", "modern", "Modern", "dm_pause_modern", "scoreboard", 4},
+		{"ui/modern/huds/competitive.xml", "competitive", "Competitive", "dm_pause_modern", "scoreboard", 4},
 	};
 
 	uid_parse_io_t parseIo = MakeTestParseIo();
@@ -9793,6 +10257,8 @@ static void TestHudPackMetadataPeekFixtures(void)
 		CHECK(meta.valid);
 		CHECK(std::strcmp(meta.hudId, tc.hudId) == 0);
 		CHECK(std::strcmp(meta.hudLabel, tc.hudLabel) == 0);
+		CHECK(std::strcmp(meta.pauseMenu, tc.pauseMenu) == 0);
+		CHECK(std::strcmp(meta.scoreboardMenu, tc.scoreboardMenu) == 0);
 		CHECK(meta.drawOrder == tc.drawOrder);
 	}
 
@@ -10526,6 +10992,7 @@ int main(void)
 	TestCyclicSelect();
 	TestCyclicSelectSource();
 	TestComposableCyclicForeach();
+	TestCyclicCommitApplyStagesUntilFlush();
 	TestComposableVerticalList();
 	TestXmlCollectionSource();
 	TestSourceDefaultNoMatch();
@@ -10546,12 +11013,18 @@ int main(void)
 	TestForeachReexpandWithFields();
 	TestCollectionSelectedFill();
 	TestWindowForeachScroll();
+	TestMaxHeightShortContent();
+	TestMaxHeightScrollShrink();
+	TestMaxHeightWindowForeachIntrinsic();
+	TestMaxHeightCompileReject();
+	TestMaxWidthClamp();
 	TestCollectionVisibilityCull();
 	TestStrokeStyleTernary();
 	TestCvarNeqStyleFillSurvivesSync();
 	TestFavoriteButtonInvoke();
 	TestMainXmlRuntime();
 	TestSettingsOnOffButtons();
+	TestBindSelectedNumericMatch();
 	TestUseVisibleAndSearchOrPrecedence();
 	TestValueTypeTransforms();
 	TestSteppedNumberDisplay();
@@ -10577,6 +11050,7 @@ int main(void)
 	TestBuiltinRectangleShape();
 	TestShapeRotationRejected();
 	TestShapeRotationPaint();
+	TestTextRotationPaint();
 	TestRotatedRectangleUsesPath();
 	TestButtonNestedShapeChild();
 	TestButtonAutoWidthIconPadding();

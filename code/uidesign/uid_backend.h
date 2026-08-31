@@ -139,6 +139,21 @@ typedef struct uid_backend_s {
 		float originY,
 		float tracking
 	);
+	/*
+	 * Added in Omaha: optional glyph rotation around a shared pivot (clockwise degrees).
+	 * When null, host uses fontDraw with no rotation.
+	 */
+	void (*fontDrawRotated)(
+		void *font,
+		float x,
+		float y,
+		const char *text,
+		const float *rgba,
+		float tracking,
+		float rotationDeg,
+		float pivotX,
+		float pivotY
+	);
 
 	/* draw */
 	void (*drawSolidRect)(float x, float y, float w, float h, const float *rgba);

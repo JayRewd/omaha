@@ -952,6 +952,66 @@ static void test_image_rotation_quad(void)
 	UIR_ImageShutdown();
 }
 
+/* Added in Omaha: BatchQuadRotated spins corners around pivot (90° clockwise). */
+static std::vector<uir_vert_t> g_batchVertLog;
+static int                     g_batchDrawCalls = 0;
+
+static int mock_batch_supported(void)
+{
+	return 1;
+}
+
+static int mock_batch_can_shader(int shader)
+{
+	(void)shader;
+	return 1;
+}
+
+static void mock_batch_draw(const uir_vert_t *v, int nv, const unsigned short *idx, int ni, int shader)
+{
+	(void)idx;
+	(void)ni;
+	(void)shader;
+	g_batchDrawCalls++;
+	for (int i = 0; i < nv; i++) {
+		g_batchVertLog.push_back(v[i]);
+	}
+}
+
+static void test_batch_quad_rotated(void)
+{
+	uir_batch_backend_t backend;
+	uir_color_t         white = {1.0f, 1.0f, 1.0f, 1.0f};
+
+	std::memset(&backend, 0, sizeof(backend));
+	backend.supported = mock_batch_supported;
+	backend.canBatchShader = mock_batch_can_shader;
+	backend.draw = mock_batch_draw;
+
+	UIR_BatchSetBackend(&backend);
+	UIR_BatchSetEnabled(1);
+	UIR_BatchBeginFrame(NULL);
+	g_batchVertLog.clear();
+	g_batchDrawCalls = 0;
+
+	CHECK(
+		UIR_BatchQuadRotated(1, 0.0f, 0.0f, 10.0f, 10.0f, 0.0f, 0.0f, 1.0f, 1.0f, &white, 90.0f, 5.0f, 5.0f) ==
+		UIR_OK
+	);
+	UIR_BatchFlush();
+	CHECK(g_batchDrawCalls >= 1);
+	CHECK(g_batchVertLog.size() >= 4);
+	/* Corner (0,0) around pivot (5,5) at 90° CW → (10,0). */
+	CHECK_NEAR(g_batchVertLog[0].x, 10.0f, 0.01f);
+	CHECK_NEAR(g_batchVertLog[0].y, 0.0f, 0.01f);
+	/* Corner (10,0) → (10,10). */
+	CHECK_NEAR(g_batchVertLog[1].x, 10.0f, 0.01f);
+	CHECK_NEAR(g_batchVertLog[1].y, 10.0f, 0.01f);
+
+	UIR_BatchSetEnabled(0);
+	UIR_BatchSetBackend(NULL);
+}
+
 static void test_image_axis_aligned_clip_scissor(void)
 {
 	uir_image_backend_t backend;
@@ -2226,6 +2286,7 @@ int main()
 	test_image_fit_math();
 	test_image_repeat_tiling();
 	test_image_rotation_quad();
+	test_batch_quad_rotated();
 	test_gpu_tess_and_batch();
 	test_tess_star_and_multi_contour();
 	test_icon_coverage_suite();

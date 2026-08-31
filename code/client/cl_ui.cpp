@@ -3368,7 +3368,7 @@ void UI_MenuEscape(const char *name)
         return;
     }
 
-    if (CL_UIMenu_IsOpen("scoreboard") && clc.state == CA_ACTIVE) {
+    if (CL_UIMenu_IsOpen(CL_UIR_ScoreboardMenuId()) && clc.state == CA_ACTIVE) {
         return;
     }
 

@@ -27,6 +27,20 @@
 					</button>
 					<container width="2px" height="100%" margin="0 -6px 0 -6px" fill="{var.fill-divider-skew}"
 					           shape="angled-line" offset="12px" heightfactor="0.64"/>
+					<!-- Added in Omaha: Disconnect only while connected (CA_ACTIVE overlay). -->
+					<button id="btn_disconnect" padding="0 20px" width="auto" height="100%"
+					        shape="skew-rect" skewl="12px" skewr="12px" halign="center" valign="center"
+					        fill="{var.color-danger}" hoverfill="{var.color-danger-hover}"
+					        color="{var.color-white}" font="control" font-size="{var.text-tab}" letter-spacing="2px"
+					        visible="{cvar.ui_om_connected == 1}">
+						DISCONNECT
+						<on event="click">
+							<show-modal id="disconnect_confirm"/>
+						</on>
+					</button>
+					<container width="2px" height="100%" margin="0 -6px 0 -6px" fill="{var.fill-divider-skew}"
+					           shape="angled-line" offset="12px" heightfactor="0.64"
+					           visible="{cvar.ui_om_connected == 1}"/>
 					<container id="menu_nav_tabs" type="horizontal" width="auto" height="100%" gap="0"
 					           valign="center" padding="0"
 					           source="menu-panels" bind="cvar:ui_om_main_panel">
@@ -149,6 +163,7 @@
 										<use template="settings-keybind-row" label="Reload" binding="reload"/>
 										<use template="settings-keybind-row" label="Next Weapon" binding="weapnext"/>
 										<use template="settings-keybind-row" label="Previous Weapon" binding="weapprev"/>
+										<use template="settings-keybind-row" label="Primary Weapon" binding="useprimary"/>
 										<use template="settings-keybind-row" label="Use" binding="+use"/>
 										<use template="settings-keybind-row" label="Pistol" binding="useweaponclass pistol"/>
 										<use template="settings-keybind-row" label="Rifle / Sniper" binding="useweaponclass rifle"/>
@@ -170,6 +185,7 @@
 									<use template="settings-category-row" label="Misc"/>
 										<use template="settings-keybind-row" label="Toggle First Person Spectate" binding="toggle cg_spectate_firstperson"/>
 										<use template="settings-keybind-row" label="Scoreboard Cursor" binding="toggle ui_om_scoreboard_cursor"/>
+										<use template="settings-keybind-row" label="Cycle Scoreboard Sort" binding="cycle_scoreboard_sort"/>
 								</container>
 								<container type="vertical" width="fill" height="auto" gap="8px" padding="0 0 0 4px">
 									<use template="settings-section-header" label="MOUSE"/>
@@ -198,6 +214,7 @@
 									<use template="settings-section-header" label="VIDEO"/>
 									<use template="settings-cyclic-row" label="Display Mode" bind="cvar:r_fullscreen" source="display-mode" commit="apply" value-type="display-mode"/>
 									<use template="settings-cyclic-row" label="Resolution" bind="cvar:r_mode" source="video-modes" commit="apply"/>
+									<use template="settings-cyclic-row" label="Refresh Rate" bind="cvar:r_displayRefresh" source="display-refresh" commit="apply"/>
 									<use template="settings-on-off-row" label="Vertical sync" bind="cvar:r_swapInterval" commit="apply"/>
 									<use template="settings-cyclic-row" label="Max FPS" bind="cvar:com_maxfps" source="max-fps" commit="change"/>
 									<use template="settings-slider-row" label="Gamma" bind="cvar:r_gamma" min="0.5" max="3" step="0.05" commit="change"/>
@@ -210,9 +227,9 @@
 								</container>
 								<container type="vertical" width="fill" height="auto" gap="8px" padding="0 0 0 4px">
 									<use template="settings-section-header" label="GRAPHICS"/>
-									<use template="settings-cyclic-row" label="Texture Quality (Picmip)" bind="cvar:r_picmip" source="picmip" commit="change"/>
-									<use template="settings-cyclic-row" label="Texture filtering" bind="cvar:r_textureMode" source="texture-filter" commit="change"/>
-									<use template="settings-on-off-row" label="Compressed Textures" bind="cvar:r_ext_compressed_textures" commit="change"/>
+									<use template="settings-cyclic-row" label="Texture Quality (Picmip)" bind="cvar:r_picmip" source="picmip" commit="apply"/>
+									<use template="settings-cyclic-row" label="Texture filtering" bind="cvar:r_textureMode" source="texture-filter" commit="apply"/>
+									<use template="settings-on-off-row" label="Compressed Textures" bind="cvar:r_ext_compressed_textures" commit="apply"/>
 									<use template="settings-cyclic-row" label="Model / World LOD" bind="cvar:r_lodscale" source="lod-scale" commit="change"/>
 									<use template="settings-cyclic-row" label="Shadows" bind="cvar:cg_shadows" source="shadows" commit="change"/>
 									<use template="settings-on-off-row" label="Real Dynamic Lighting" bind="cvar:r_fastentlight" commit="change"/>
@@ -240,15 +257,7 @@
 								     visible="{cvar.s_initsound != 0}"/>
 								<use template="settings-cyclic-row" label="3D Sound Driver" bind="cvar:s_milesdriver" source="miles-driver" commit="change"
 								     visible="{cvar.s_initsound != 0}"/>
-								<use template="settings-on-off-row" label="Doppler Effect" bind="cvar:s_doppler" commit="change"
-								     visible="{cvar.s_initsound != 0}"/>
 								<use template="settings-on-off-row" label="EAX Reverb" bind="cvar:s_reverb" commit="change"
-								     visible="{cvar.s_initsound != 0}"/>
-								<use template="settings-slider-row" label="Mix Ahead" bind="cvar:s_mixahead" min="0.05" max="0.5" step="0.05" commit="change"
-								     visible="{cvar.s_initsound != 0}"/>
-								<use template="settings-on-off-row" label="Mute When Minimized" bind="cvar:s_muteWhenMinimized" commit="change"
-								     visible="{cvar.s_initsound != 0}"/>
-								<use template="settings-on-off-row" label="Mute When Unfocused" bind="cvar:s_muteWhenUnfocused" commit="change"
 								     visible="{cvar.s_initsound != 0}"/>
 						</container>
 
@@ -269,6 +278,7 @@
 								<use template="settings-on-off-row" label="Blood" bind="cvar:com_blood" commit="change"/>
 								<use template="settings-on-off-row" label="Auto-switch Weapons" bind="cvar:cg_autoswitch" commit="change"/>
 								<use template="settings-on-off-row" label="Draw FPS" bind="cvar:fps" commit="change"/>
+								<use template="settings-on-off-row" label="Scoreboard cursor" bind="cvar:ui_om_scoreboard_disable_cursor" commit="change" off-value="1" on-value="0"/>
 						</container>
 					</container>
 

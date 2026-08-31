@@ -965,6 +965,14 @@ void WriteScopeIndexToBind(uid_document_t *doc, uid_node_id_t scopeId, const uid
 	}
 	st->runtimeValue.hasValue = true;
 	st->runtimeValue.stringValue = st->collectionItems[static_cast<size_t>(idx)].value;
+	/*
+	 * Fixed in Omaha: commit=apply stages the selection until UID_WriteAllBindings
+	 * (settings-apply). Writing here made before/after identical so vid_restart never ran.
+	 */
+	const uid_commit_mode_t mode = scope->hasCommit ? scope->commit : UID_COMMIT_CHANGE;
+	if (mode == UID_COMMIT_APPLY) {
+		return;
+	}
 	(void)UID_WriteBinding(doc, scopeId, backend);
 }
 
@@ -1032,6 +1040,15 @@ void SyncScopeIndexFromBind(uid_document_t *doc, uid_node_id_t scopeId, const ui
 		return;
 	}
 	if (st->collectionItems.empty()) {
+		return;
+	}
+
+	/*
+	 * Fixed in Omaha: commit=apply keeps a staged selection; do not pull the
+	 * live cvar over local cyclic edits before settings-apply flushes.
+	 */
+	const uid_commit_mode_t mode = scope->hasCommit ? scope->commit : UID_COMMIT_CHANGE;
+	if (mode == UID_COMMIT_APPLY && st->runtimeValue.hasValue) {
 		return;
 	}
 

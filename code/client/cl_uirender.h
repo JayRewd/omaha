@@ -51,6 +51,8 @@ void CL_UIR_MapMouseToUiVid(float *x, float *y);
 /* Added in OPM: in-game HUD pack routing (ui_om_hud + ui_legacy). */
 const char *CL_UIR_ActiveHudId(void);
 const char *CL_UIR_DmPauseMenuId(void);
+/* Added in Omaha: scoreboard menu-id from the active HUD pack definitions. */
+const char *CL_UIR_ScoreboardMenuId(void);
 qboolean    CL_UIR_UseLegacyHud(void);
 qboolean    CL_UIR_UseModernHudPack(void);
 

@@ -653,3 +653,175 @@ uir_status_t UIR_FontDrawSkewed(
 
 	return UIR_OK;
 }
+
+/* Added in Omaha: emit a rotated glyph quad as two triangles. */
+static void uir_font_emit_rotated_quad(
+	float gx,
+	float gy,
+	float gw,
+	float gh,
+	float u0,
+	float v0,
+	float u1,
+	float v1,
+	float pivotX,
+	float pivotY,
+	float cosr,
+	float sinr,
+	int shader
+)
+{
+	float px[4];
+	float py[4];
+	float tri[3][2];
+	float uv[3][2];
+	int i;
+
+	if (!g_fontBackend.drawTrianglePic) {
+		g_fontBackend.drawPic(gx, gy, gw, gh, u0, v0, u1, v1, shader);
+		return;
+	}
+
+	px[0] = gx;
+	py[0] = gy;
+	px[1] = gx + gw;
+	py[1] = gy;
+	px[2] = gx;
+	py[2] = gy + gh;
+	px[3] = gx + gw;
+	py[3] = gy + gh;
+
+	for (i = 0; i < 4; i++) {
+		const float dx = px[i] - pivotX;
+		const float dy = py[i] - pivotY;
+		px[i] = pivotX + cosr * dx - sinr * dy;
+		py[i] = pivotY + sinr * dx + cosr * dy;
+	}
+
+	tri[0][0] = px[0];
+	tri[0][1] = py[0];
+	uv[0][0] = u0;
+	uv[0][1] = v0;
+	tri[1][0] = px[1];
+	tri[1][1] = py[1];
+	uv[1][0] = u1;
+	uv[1][1] = v0;
+	tri[2][0] = px[2];
+	tri[2][1] = py[2];
+	uv[2][0] = u0;
+	uv[2][1] = v1;
+	g_fontBackend.drawTrianglePic(tri, uv, shader);
+
+	tri[0][0] = px[2];
+	tri[0][1] = py[2];
+	uv[0][0] = u0;
+	uv[0][1] = v1;
+	tri[1][0] = px[1];
+	tri[1][1] = py[1];
+	uv[1][0] = u1;
+	uv[1][1] = v0;
+	tri[2][0] = px[3];
+	tri[2][1] = py[3];
+	uv[2][0] = u1;
+	uv[2][1] = v1;
+	g_fontBackend.drawTrianglePic(tri, uv, shader);
+}
+
+uir_status_t UIR_FontDrawRotated(
+	const uir_viewport_t *vp,
+	uir_font_t           *font,
+	float                 x,
+	float                 y,
+	const char           *text,
+	const uir_color_t    *rgba,
+	float                 tracking,
+	float                 rotationDeg,
+	float                 pivotX,
+	float                 pivotY
+)
+{
+	float penX;
+	float baseline;
+	float rad;
+	float cosr;
+	float sinr;
+
+	if (!vp || !font || !text || !rgba || !g_fontBackend.drawPic || !g_fontBackend.setColor) {
+		return UIR_ERR_INVALID_ARG;
+	}
+	if (rotationDeg == 0.0f || fabsf(rotationDeg) <= 1e-6f) {
+		return UIR_FontDraw(vp, font, x, y, text, rgba, tracking);
+	}
+
+	if (font->gpuGeneration != g_gpuGeneration) {
+		if (!uir_font_upload(font)) {
+			return UIR_ERR_NOT_READY;
+		}
+	}
+
+	rad = rotationDeg * (3.14159265358979323846f / 180.0f);
+	cosr = cosf(rad);
+	sinr = sinf(rad);
+
+	penX = x;
+	baseline = y + font->ascent;
+
+	while (*text) {
+		unsigned char ch = (unsigned char)*text++;
+		float gx, gy, gw, gh;
+		float u0, v0, u1, v1;
+		float inv = font->toLogical > 0.0f ? font->toLogical : 1.0f;
+		uir_color_t glyphColor;
+
+		if (ch < UIR_FONT_FIRST_CHAR || ch >= UIR_FONT_FIRST_CHAR + UIR_FONT_NUM_CHARS) {
+			ch = (unsigned char)'?';
+		}
+
+		{
+			const stbtt_bakedchar *b = &font->baked[ch - UIR_FONT_FIRST_CHAR];
+			gx = penX + b->xoff * inv;
+			gy = baseline + b->yoff * inv;
+			gw = (float)(b->x1 - b->x0) * inv;
+			gh = (float)(b->y1 - b->y0) * inv;
+			u0 = (float)b->x0 / (float)font->atlasW;
+			v0 = (float)b->y0 / (float)font->atlasH;
+			u1 = (float)b->x1 / (float)font->atlasW;
+			v1 = (float)b->y1 / (float)font->atlasH;
+		}
+
+		UIR_FontInsetUVs(&u0, &v0, &u1, &v1, font->atlasW, font->atlasH);
+		/* Skip FB snap when rotating — snapping then rotating fights AA. */
+		if (!(gw > 0.0f) || !(gh > 0.0f)) {
+			penX += font->baked[ch - UIR_FONT_FIRST_CHAR].xadvance * inv;
+			if (*text) {
+				penX += tracking;
+			}
+			continue;
+		}
+
+		glyphColor = *rgba;
+		if (UIR_BatchEnabled() &&
+			UIR_BatchQuadRotated(
+				font->shader, gx, gy, gw, gh, u0, v0, u1, v1, &glyphColor, rotationDeg, pivotX, pivotY
+			) == UIR_OK) {
+			/* batched */
+		} else {
+			float color[4];
+			color[0] = rgba->r;
+			color[1] = rgba->g;
+			color[2] = rgba->b;
+			color[3] = rgba->a;
+			g_fontBackend.setColor(color);
+			uir_font_emit_rotated_quad(gx, gy, gw, gh, u0, v0, u1, v1, pivotX, pivotY, cosr, sinr, font->shader);
+			color[0] = color[1] = color[2] = color[3] = 1.0f;
+			g_fontBackend.setColor(color);
+		}
+
+		penX += font->baked[ch - UIR_FONT_FIRST_CHAR].xadvance * inv;
+		if (*text) {
+			penX += tracking;
+		}
+	}
+
+	return UIR_OK;
+}

@@ -177,6 +177,8 @@ static void SyncHudPointerStateCvars(void)
 		ui_om_spectator = Cvar_Get("ui_om_spectator", "0", CVAR_TEMP);
 		/* Added in OPM: sticky in-play scoreboard cursor; cleared on scoreboard CloseHold. */
 		Cvar_Get("ui_om_scoreboard_cursor", "0", CVAR_TEMP);
+		/* Added in Omaha: archive opt-out; when set, scoreboard never shows a cursor. */
+		Cvar_Get("ui_om_scoreboard_disable_cursor", "0", CVAR_ARCHIVE);
 	}
 
 	if (clc.state == CA_ACTIVE && cl.snap.valid) {
@@ -193,6 +195,14 @@ static void SyncHudPointerStateCvars(void)
 	}
 	if (ui_om_spectator->integer != spectator) {
 		Cvar_Set("ui_om_spectator", spectator ? "1" : "0");
+	}
+	/*
+	 * Added in Omaha: disable-cursor must defeat a leftover sticky toggle if the
+	 * archive setting is turned on while the scoreboard is held open.
+	 */
+	if (Cvar_VariableIntegerValue("ui_om_scoreboard_disable_cursor") != 0
+	    && Cvar_VariableIntegerValue("ui_om_scoreboard_cursor") != 0) {
+		Cvar_Set("ui_om_scoreboard_cursor", "0");
 	}
 }
 
@@ -381,8 +391,7 @@ static qboolean CloseMenuInternal(const char *menuId, qboolean force)
 
 	const qboolean wasPause =
 		entry.drawOrder >= 5 && clc.state == CA_ACTIVE
-		&& (!Q_stricmp(menuId, "main") || !Q_stricmp(menuId, "dm_pause")
-		    || !Q_stricmp(menuId, "dm_pause_modern"));
+		&& (!Q_stricmp(menuId, "main") || CL_UIMenu_HudIsPauseCompanion(menuId));
 
 	DestroyRuntime(entry.runtime);
 	g_openMenus.erase(g_openMenus.begin() + idx);
@@ -600,7 +609,7 @@ qboolean CL_UIMenu_CloseHold(const char *menuId)
 	 * spectator / intermission pointer (ui_om_spectator / ui_om_intermission) is
 	 * unaffected and the next hold-TAB starts cursorless.
 	 */
-	if (menuId && !Q_stricmp(menuId, "scoreboard")) {
+	if (CL_UIMenu_HudIsScoreboardCompanion(menuId)) {
 		Cvar_Set("ui_om_scoreboard_cursor", "0");
 	}
 	if (!entry.persistent) {

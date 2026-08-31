@@ -105,6 +105,40 @@ bool ValidateLengthAttr(
 	return true;
 }
 
+/* Added in Omaha: max-width / max-height must be definite px or % (not auto/fill). */
+bool ValidateMaxLengthAttr(
+	uid_diag_list_t *diags,
+	const uid_source_location_t &loc,
+	const char *attr,
+	const std::string &value
+)
+{
+	if (LooksDeferredExpr(value)) {
+		return true;
+	}
+	uid_length_t len;
+	std::string dm;
+	if (!UID_ParseLength(value.c_str(), &len, &dm)) {
+		if (diags) {
+			diags->Error(loc, dm.empty() ? (std::string("invalid length for ") + attr) : dm);
+		}
+		return false;
+	}
+	if (len.unit != UID_LENGTH_PX && len.unit != UID_LENGTH_PERCENT) {
+		if (diags) {
+			diags->Error(loc, std::string(attr) + " must be px or % (not auto/fill)");
+		}
+		return false;
+	}
+	if (!std::isfinite(static_cast<double>(len.value))) {
+		if (diags) {
+			diags->Error(loc, std::string("non-finite length for ") + attr);
+		}
+		return false;
+	}
+	return true;
+}
+
 bool ValidateSidesAttr(
 	uid_diag_list_t *diags,
 	const uid_source_location_t &loc,
@@ -233,6 +267,9 @@ bool ValidateKnownAttrs(uid_diag_list_t *diags, const uid_node_def_t &node)
 		if (name == "width" || name == "height" || name == "gap" || name == "font-size" ||
 			name == "radius" || name == "stroke-width" || name == "translate-x" || name == "translate-y") {
 			ok = ValidateLengthAttr(diags, node.source, name.c_str(), value) && ok;
+		} else if (name == "max-width" || name == "max-height") {
+			/* Added in Omaha */
+			ok = ValidateMaxLengthAttr(diags, node.source, name.c_str(), value) && ok;
 		} else if (name == "padding" || name == "margin") {
 			ok = ValidateSidesAttr(diags, node.source, name.c_str(), value) && ok;
 		} else if (name == "font-weight" || name == "tab-index" || name == "max-length" ||
@@ -883,6 +920,7 @@ bool IsHostCollectionSource(const char *sourceId)
 		return false;
 	}
 	return std::strcmp(sourceId, "servers") == 0 || std::strcmp(sourceId, "video-modes") == 0 ||
+		std::strcmp(sourceId, "display-refresh") == 0 || /* Added in Omaha: SDL refresh rates. */
 		std::strcmp(sourceId, "scoreboard") == 0 || std::strcmp(sourceId, "hud-packs") == 0 ||
 		std::strcmp(sourceId, "hud-objectives") == 0 || std::strcmp(sourceId, "hud-messages") == 0 ||
 		std::strcmp(sourceId, "hud-game-messages") == 0 ||

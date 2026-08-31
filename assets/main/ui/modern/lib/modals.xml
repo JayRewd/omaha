@@ -58,6 +58,37 @@
 					</container>
 				</container>
 			</modal>
+			<!-- Added in Omaha: confirm before leaving a live game from connected main. -->
+			<modal id="disconnect_confirm">
+				<container type="vertical" width="100%" height="100%" fill="{var.fill-scrim}"
+				           halign="center" valign="center">
+					<container type="vertical" width="480px" height="auto"
+					           padding="24px" gap="16px" fill="{var.fill-panel}" stroke="{var.fill-divider}" stroke-width="1px">
+						<label width="100%" height="auto" halign="center"
+						       font="body" font-size="{var.text-body}" color="{var.color-primary}">Are you sure you want to leave the game?</label>
+						<container type="horizontal" width="100%" height="auto" gap="12px" halign="center" valign="equal-spacing">
+							<button id="modal_disconnect_no" width="auto" height="auto" padding="10px 24px"
+							        fill="{var.fill-divider}" hoverfill="{var.fill-chip}" color="{var.color-primary}"
+							        font="control" font-size="{var.text-control}" letter-spacing="2px" modal-role="cancel">
+								NO
+								<on event="click">
+									<hide-modal/>
+								</on>
+							</button>
+							<button id="modal_disconnect_yes" width="auto" height="auto" padding="10px 24px"
+							        fill="{var.color-danger}" hoverfill="{var.color-danger-hover}" color="{var.color-white}"
+							        font="control" font-size="{var.text-control}" letter-spacing="2px" modal-role="confirm">
+								YES
+								<on event="click">
+									<set-cvar name="ui_om_cbuf" value="disconnect"/>
+									<invoke name="cbuf"/>
+									<hide-modal/>
+								</on>
+							</button>
+						</container>
+					</container>
+				</container>
+			</modal>
 
 			<!-- Added in OPM: relative modals anchored to opener (select modal= / show-modal). -->
 			<modal id="player-model-allies" type="relative">

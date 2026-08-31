@@ -173,6 +173,45 @@ void ApplyBgRotationOrigin(
 	geom.y += (oAbsY + dx * s + dy * c) - cy;
 }
 
+/* Added in Omaha: paint-time text rotation from leaf rotation / rotation-origin. */
+void ResolveTextRotation(
+	const uid_document_t  *doc,
+	const uid_node_def_t  &node,
+	const uid_rect_t      &borderBox,
+	float                 *outDeg,
+	float                 *outPivotX,
+	float                 *outPivotY
+)
+{
+	float deg = 0.0f;
+	float pivotX = borderBox.x + borderBox.w * 0.5f;
+	float pivotY = borderBox.y + borderBox.h * 0.5f;
+	const char *rotStr = PropCStr(node, "rotation", nullptr);
+	if (rotStr && rotStr[0]) {
+		(void)UID_ParseRotationDeg(rotStr, &deg, nullptr);
+	}
+	if (std::fabs(deg) > 1e-6f) {
+		const float uiScale = (doc && doc->lastUiPxScale > 0.0f) ? doc->lastUiPxScale : 1.0f;
+		float ox = borderBox.w * 0.5f;
+		float oy = borderBox.h * 0.5f;
+		const char *orig = PropCStr(node, "rotation-origin", nullptr);
+		if (orig && orig[0]) {
+			(void)UID_ParseRotationOrigin(orig, borderBox.w, borderBox.h, uiScale, &ox, &oy, nullptr);
+		}
+		pivotX = borderBox.x + ox;
+		pivotY = borderBox.y + oy;
+	}
+	if (outDeg) {
+		*outDeg = deg;
+	}
+	if (outPivotX) {
+		*outPivotX = pivotX;
+	}
+	if (outPivotY) {
+		*outPivotY = pivotY;
+	}
+}
+
 uid_node_state_t *State(uid_document_t *doc, uid_node_id_t id)
 {
 	if (!doc || id < 0 || static_cast<size_t>(id) >= doc->states.size()) {
@@ -613,7 +652,10 @@ void PaintTextGlyphs(
 	float                  opacityMul,
 	float                  skewTan,
 	float                  skewOriginY,
-	float                  tracking
+	float                  tracking,
+	float                  rotationDeg,
+	float                  pivotX,
+	float                  pivotY
 )
 {
 	if (!backend || !font || !text || !backend->fontDraw) {
@@ -632,8 +674,19 @@ void PaintTextGlyphs(
 		{1.5f, 1.5f, 0.33f},
 	};
 
+	const bool rotate = std::fabs(rotationDeg) > 1e-6f && backend->fontDrawRotated;
+	float cosr = 1.0f;
+	float sinr = 0.0f;
+	if (rotate) {
+		const float rad = rotationDeg * (static_cast<float>(M_PI) / 180.0f);
+		cosr = std::cos(rad);
+		sinr = std::sin(rad);
+	}
+
 	auto drawAt = [&](float drawX, float drawY, const float *color) {
-		if (skewTan != 0.0f && backend->fontDrawSkewed) {
+		if (rotate) {
+			backend->fontDrawRotated(font, drawX, drawY, text, color, tracking, rotationDeg, pivotX, pivotY);
+		} else if (skewTan != 0.0f && backend->fontDrawSkewed) {
 			backend->fontDrawSkewed(font, drawX, drawY, text, color, skewTan, skewOriginY, tracking);
 		} else {
 			backend->fontDraw(font, drawX, drawY, text, color, tracking);
@@ -643,8 +696,14 @@ void PaintTextGlyphs(
 	if (WantsDropShadow(node)) {
 		float shadowRgba[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 		for (const auto &pass : kShadowPasses) {
-			const float dx = UID_ScaleAuthoredPx(doc, pass.dx);
-			const float dy = UID_ScaleAuthoredPx(doc, pass.dy);
+			float dx = UID_ScaleAuthoredPx(doc, pass.dx);
+			float dy = UID_ScaleAuthoredPx(doc, pass.dy);
+			if (rotate) {
+				const float rdx = cosr * dx - sinr * dy;
+				const float rdy = sinr * dx + cosr * dy;
+				dx = rdx;
+				dy = rdy;
+			}
 			/* Fade shadow faster than main so overlapping layers don't show through fading text. */
 			shadowRgba[3] = pass.a * opacityMul * opacityMul;
 			drawAt(x + dx, y + dy, shadowRgba);
@@ -1388,6 +1447,10 @@ void PaintDropdownSelect(uid_document_t *doc, uid_node_id_t id, const uid_backen
 				tracking = UID_ScaleAuthoredPx(doc, len.value);
 			}
 		}
+		float textRotDeg = 0.0f;
+		float textPivotX = 0.0f;
+		float textPivotY = 0.0f;
+		ResolveTextRotation(doc, *node, st->borderBox, &textRotDeg, &textPivotX, &textPivotY);
 		PaintTextGlyphs(
 			backend,
 			font,
@@ -1400,7 +1463,10 @@ void PaintDropdownSelect(uid_document_t *doc, uid_node_id_t id, const uid_backen
 			opacityMul,
 			0.0f,
 			box.y + box.h * 0.5f,
-			tracking
+			tracking,
+			textRotDeg,
+			textPivotX,
+			textPivotY
 		);
 	}
 
@@ -2090,7 +2156,11 @@ void UID_PaintNodeBackground(uid_document_t *doc, uid_node_id_t id, const uid_ba
 
 	float pathRotationDeg = 0.0f;
 	{
+		/* Added in Omaha: rotation spins SVG fills too (shape-rotation preferred when set). */
 		const char *rotStr = PropCStr(*node, "shape-rotation", nullptr);
+		if (!rotStr || !rotStr[0]) {
+			rotStr = PropCStr(*node, "rotation", nullptr);
+		}
 		if (rotStr && rotStr[0]) {
 			(void)UID_ParseRotationDeg(rotStr, &pathRotationDeg, nullptr);
 		}
@@ -2548,6 +2618,11 @@ void UID_PaintNodeContent(uid_document_t *doc, uid_node_id_t id, const uid_backe
 		const uid_text_wrap_t wrapMode = UID_TextWrapMode(*node);
 		const bool multiline = (wrapMode == UID_TEXT_WRAP_WORD) || (text.find('\n') != std::string::npos);
 
+		float textRotDeg = 0.0f;
+		float textPivotX = 0.0f;
+		float textPivotY = 0.0f;
+		ResolveTextRotation(doc, *node, st->borderBox, &textRotDeg, &textPivotX, &textPivotY);
+
 		if (!multiline) {
 			float x = st->contentBox.x;
 			float y = st->contentBox.y;
@@ -2556,7 +2631,7 @@ void UID_PaintNodeContent(uid_document_t *doc, uid_node_id_t id, const uid_backe
 			float skewTan = 0.0f;
 			float tracking = 0.0f;
 			const char *skewProp = node->properties.GetCStr("text-skew", nullptr);
-			if (skewProp && skewProp[0]) {
+			if (skewProp && skewProp[0] && std::fabs(textRotDeg) <= 1e-6f) {
 				char *end = nullptr;
 				const double deg = std::strtod(skewProp, &end);
 				if (end != skewProp && std::isfinite(deg)) {
@@ -2667,7 +2742,10 @@ void UID_PaintNodeContent(uid_document_t *doc, uid_node_id_t id, const uid_backe
 				opacityMul,
 				skewTan,
 				skewOriginY,
-				tracking
+				tracking,
+				textRotDeg,
+				textPivotX,
+				textPivotY
 			);
 			if (marqueeLoop) {
 				PaintTextGlyphs(
@@ -2682,7 +2760,10 @@ void UID_PaintNodeContent(uid_document_t *doc, uid_node_id_t id, const uid_backe
 					opacityMul,
 					skewTan,
 					skewOriginY,
-					tracking
+					tracking,
+					textRotDeg,
+					textPivotX,
+					textPivotY
 				);
 			}
 		} else {
@@ -2694,7 +2775,7 @@ void UID_PaintNodeContent(uid_document_t *doc, uid_node_id_t id, const uid_backe
 		float skewTan = 0.0f;
 		float tracking = 0.0f;
 		const char *skewProp = node->properties.GetCStr("text-skew", nullptr);
-		if (skewProp && skewProp[0]) {
+		if (skewProp && skewProp[0] && std::fabs(textRotDeg) <= 1e-6f) {
 			char *end = nullptr;
 			const double deg = std::strtod(skewProp, &end);
 			if (end != skewProp && std::isfinite(deg)) {
@@ -2757,7 +2838,10 @@ void UID_PaintNodeContent(uid_document_t *doc, uid_node_id_t id, const uid_backe
 				opacityMul,
 				skewTan,
 				skewOriginY,
-				tracking
+				tracking,
+				textRotDeg,
+				textPivotX,
+				textPivotY
 			);
 		}
 		}

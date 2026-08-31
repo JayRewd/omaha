@@ -1,5 +1,5 @@
 <ui version="1">
-	<definitions hud-id="modern" hud-label="Modern" draw-order="4"
+	<definitions hud-id="competitive" hud-label="Competitive" draw-order="4"
 	             pause-menu="dm_pause_modern" scoreboard-menu="scoreboard">
 		<import src="ui/modern/lib/theme.xml"/>
 		<import src="ui/modern/lib/hud_modern_tokens.xml"/>
@@ -15,10 +15,12 @@
 		  intermission. Play chrome is gated by ui_om_hud_show (retail HUD hide).
 		-->
 		<container id="hud_root" type="overlap" width="100%" height="100%" fill="{var.fill-transparent}">
-			<container id="hud_main" type="vertical" width="100%" height="100%" padding="16px" fill="{var.fill-transparent}">
-				<container id="hud_top_row" type="horizontal" width="100%" height="140px">
-					<container id="hud_top_row_left" type="horizontal" width="fill" height="100%" halign="start" valign="start">
-						<use template="hud-game-messages-panel" width="360px" height="120px"/>
+			<container id="hud_main" type="vertical" width="100%" height="100%" padding="32px" fill="{var.fill-transparent}">
+				<!-- Single inset: hud_main 16px L/T/R/B — no nested padding on panels. -->
+				<container id="hud_top_row" type="horizontal" width="100%" height="160px">
+					<container id="hud_top_row_left" type="horizontal" width="fill" height="auto" halign="start" valign="start">
+						<use id="competitive_compass" template="competitive-compass" size="160px"
+						     halign="start" valign="start"/>
 					</container>
 					<container id="hud_top_row_center" type="vertical" width="50%" height="100%"
 							halign="center" valign="start"
@@ -92,83 +94,91 @@
 							</container>
 							<use template="hud-round-alive-row" size="32px" team="axis" side="right"/>
 						</container>
-						<use id="compass" template="modern-compass" width="800px" height="32px" fov-deg="270"/>
 					</container>
 					<container id="hud_top_row_right" type="horizontal" width="fill" height="100%" halign="end" valign="start">
 						<use template="hud-kill-feed-panel" width="420px" height="140px"/>
 					</container>
 				</container>
-				<container id="hud_middle_row" type="horizontal" width="fill" height="fill" halign="center" valign="center">
-					<container id="hud_middle_row_left" type="horizontal" width="fill" height="100%" halign="start" valign="end">
-						<use id="modern_chat" template="hud-chat-panel" width="360px" height="160px"/>
+				<container id="hud_middle_row" type="horizontal" width="fill" height="fill" halign="start" valign="start">
+					<!-- Compass under messages; chat stays bottom-left (middle is fill so bottom row stays put). -->
+					<container id="hud_middle_row_left" type="overlap" width="fill" height="100%"
+					           fill="{var.fill-transparent}">
+						<use template="hud-game-messages-panel" width="360px" height="120px"/>
+						<use id="modern_chat" template="hud-chat-panel" width="360px" height="160px"
+						     halign="start" valign="end"/>
 					</container>
 					<container id="hud_middle_row_center" type="vertical" width="33%" height="100%" halign="center" valign="center">
 					</container>
 					<container id="hud_middle_row_right" type="horizontal" width="fill" height="100%" halign="end" valign="center">
 					</container>
 				</container>
-				<container id="hud_bottom_row" type="horizontal" width="100%" height="auto" valign="end">
-					<container id="hud_bottom_row_left" type="vertical" width="fill" height="auto" halign="start" valign="end" gap="6px"
+				<container id="hud_bottom_row" type="horizontal" width="100%" height="44px" valign="start">
+					<container id="hud_bottom_row_left" type="horizontal" width="fill" height="100%"
+							halign="start" valign="end" gap="12px"
 							visible="{cvar.ui_om_hud_show}">
-						<label id="spectated_player_name" font="body" font-size="16px" font-weight="700"
-							width="auto" height="auto" halign="start" valign="center"
-							margin="0 0 0 18px" drop-shadow="true"
-							color="{cvar.ui_om_hud_following_team == &quot;axis&quot; ? var.color-axis : var.color-allied}"
-							visible="{cvar.ui_om_hud_following_name != ''}"
-							bind="cvar:ui_om_hud_following_name"/>
-						<!--
-						Health: skewl/r negative (leans opposite weapons bar).
-						Panels 44px → ±18.03; pips 16px → ±6.56. gap=0 — skew overhang separates.
-						Pip gutter 14 > |skewl|+|skewr| so neighbors don't merge. Off = fill-panel.
-						-->
-						<container id="health_bar" type="horizontal" width="auto" height="auto"
-								valign="center" halign="start" margin="0 0 0 18px" gap="0"
-								fill="{var.fill-transparent}"
-								visible="{cvar.ui_om_hud_spectator_text == '' or cvar.ui_om_hud_following_text != ''}">
-							<container id="health_value" type="horizontal" width="44px" height="44px"
-									valign="center" halign="center"
-									fill="{var.fill-panel}"
-									shape="skew-rect" skewl="-18.03px" skewr="-18.03px"
-									stroke="{var.fill-divider}" stroke-width="1px" crisp="true">
-								<label font="body" font-size="22px" color="{var.color-white}"
-									width="100%" height="100%"
-									halign="center" valign="center"
-									bind="cvar:ui_om_hud_health"/>
-							</container>
-							<container id="health_pips" type="horizontal" width="auto" height="44px"
-									valign="center" halign="start" margin="0 0 0 30px" padding="0 14px" gap="14px"
-									fill="{var.fill-panel}"
-									shape="skew-rect" skewl="-18.03px" skewr="-18.03px"
-									stroke="{var.fill-divider}" stroke-width="1px" crisp="true">
-								<foreach count="5" type="horizontal" gap="14px" width="auto" height="auto"
-										valign="center">
-									<container width="32px" height="16px"
-											shape="skew-rect" skewl="-6.56px" skewr="-6.56px"
-											stroke-layout="false"
-											stroke="{var.fill-divider}" stroke-width="1px" crisp="true"
-											fill="{cvar.ui_om_hud_health > item.index * 20 and cvar.ui_om_hud_health < 40 ? var.color-hud-low-health-pip : cvar.ui_om_hud_health > item.index * 20 ? var.color-hud-health-pip : var.fill-panel}"/>
-								</foreach>
-							</container>
+						<label id="spectated_player_name" font="body" font-size="18px" font-weight="700"
+							   width="auto" height="100%"
+							   halign="start" valign="end" drop-shadow="true"
+							   color="{cvar.ui_om_hud_following_team == &quot;axis&quot; ? var.color-axis : var.color-allied}"
+							   visible="{cvar.ui_om_hud_following_name != ''}"
+							   bind="cvar:ui_om_hud_following_name"/>
+						<container type="horizontal" width="fill" height="100%"
+						           halign="end" valign="end">
+							<label font="body" font-size="26px" font-weight="700"
+								   color="{cvar.ui_om_hud_health < 40 ? var.color-hud-low-health-pip : var.color-white}"
+								   width="auto" height="100%"
+								   halign="start" valign="end" drop-shadow="true"
+								   bind="cvar:ui_om_hud_health"/>
 						</container>
 					</container>
-					<container id="hud_bottom_row_center" type="vertical" width="50%" height="auto" halign="center" valign="center">
-						<label font="body" font-size="18px" width="100%" height="auto" halign="center" valign="center" text-wrap="word"
-							color="{var.color-white}" drop-shadow="true" visible="{cvar.ui_om_hud_centerprint != ''}"
-							bind="cvar:ui_om_hud_centerprint">
+					<!--
+					  Same pattern as HP/ammo: height=100% + valign=end uses the
+					  single-line ascent paint path. text-wrap forces multiline
+					  metrics and sits the glyphs higher in the 44px row.
+					-->
+					<container id="hud_bottom_row_center" type="overlap" width="33%" height="100%">
+						<label font="body" font-size="18px" width="100%" height="100%"
+						       halign="center" valign="end"
+						       color="{var.color-white}" drop-shadow="true"
+						       visible="{cvar.ui_om_hud_centerprint != ''}"
+						       bind="cvar:ui_om_hud_centerprint">
 							{cvar.ui_om_hud_centerprint}
 						</label>
-						<label font="body" font-size="18px" width="100%" height="auto" halign="center" valign="center" text-wrap="word"
-							color="{var.color-white}" drop-shadow="true"
-							visible="{cvar.ui_om_hud_show and cvar.ui_om_hud_spectator_text != ''}"
-							bind="cvar:ui_om_hud_spectator_text">
+						<label font="body" font-size="18px" width="100%" height="100%"
+						       halign="center" valign="end"
+						       color="{var.color-white}" drop-shadow="true"
+						       visible="{cvar.ui_om_hud_show and cvar.ui_om_hud_spectator_text != ''}"
+						       bind="cvar:ui_om_hud_spectator_text">
 							{cvar.ui_om_hud_spectator_text}
 						</label>
 					</container>
-					<container id="hud_bottom_row_right" type="horizontal" width="fill" height="auto" gap="12px"
-							halign="end" valign="end"
+					<!-- Current weapon: mag / reserve + weapon name. -->
+					<container id="hud_bottom_row_right" type="horizontal" width="fill" height="100%" gap="8px"
+							halign="start" valign="end"
 							visible="{cvar.ui_om_hud_show}">
-						<use id="grenade_inventory" template="modern-grenade-inventory"/>
-						<use id="weapons_bar" template="modern-weapons-bar"/>
+						<label id="weapons_bar_mag_ammo"
+						       width="auto" height="100%"
+						       font="body" font-size="26px" font-weight="700"
+						       valign="end" halign="end" drop-shadow="true"
+						       color="{var.color-white}"
+						       bind="cvar:ui_om_hud_clip"/>
+						<label width="auto" height="100%"
+						       font="body" font-size="26px" font-weight="700"
+						       valign="end" halign="center" drop-shadow="true"
+						       color="{var.color-white}">/</label>
+						<label id="weapons_bar_total_ammo"
+						       width="auto" height="100%"
+						       font="body" font-size="26px" font-weight="700"
+						       valign="end" halign="start" drop-shadow="true"
+						       color="{var.color-white}"
+						       bind="cvar:ui_om_hud_ammo"/>
+						<label id="weapons_bar_name"
+						       width="auto" height="100%" margin="0 0 0 16px"
+						       font="body" font-size="18px" font-weight="700"
+						       valign="end" halign="start" drop-shadow="true"
+						       color="{var.color-white}"
+						       visible="{cvar.ui_om_hud_active_weapon != &quot;&quot;}"
+						       bind="cvar:ui_om_hud_active_weapon"/>
 					</container>
 				</container>
 			</container>

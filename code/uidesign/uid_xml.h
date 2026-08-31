@@ -70,9 +70,12 @@ uid_result_t UID_PeekMenuMetadata(
 );
 
 /* Added in OPM: HUD pack registration metadata from <definitions hud-id hud-label draw-order>. */
+/* Changed in Omaha: pause-menu / scoreboard-menu companions are required on HUD packs. */
 typedef struct uid_hud_meta_s {
 	char hudId[64];
 	char hudLabel[96];
+	char pauseMenu[64];
+	char scoreboardMenu[64];
 	int  drawOrder;
 	bool valid;
 } uid_hud_meta_t;

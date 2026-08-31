@@ -86,7 +86,7 @@ functions imported from the main executable
 ==================================================================
 */
 
-#define CGAME_IMPORT_API_VERSION 3
+#define CGAME_IMPORT_API_VERSION 4
 
     /*
 ==================================================================
@@ -443,6 +443,8 @@ functions exported to the main executable
         void (*UIR_Objectives_NotifyChanged)(void);
         qboolean (*CL_UIMenu_OpenHold)(const char *menuId);
         qboolean (*CL_UIMenu_CloseHold)(const char *menuId);
+        /* Added in Omaha: active HUD pack's scoreboard companion menu-id. */
+        const char *(*CL_UIR_ScoreboardMenuId)(void);
         void (*UI_ToggleDMMessageConsole)(int consoleMode);
         void (*CL_InitRadar)(radarClient_t* radars, qhandle_t* shaders, int clientNum); // Added in 2.0
         dtiki_t *(*TIKI_FindTiki)(const char *path);

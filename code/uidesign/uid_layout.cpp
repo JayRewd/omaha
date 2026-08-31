@@ -142,6 +142,36 @@ float ResolveLengthPx(
 	}
 }
 
+/* Added in Omaha: max-width / max-height clamp when prop is definite px/%. */
+float ClampAxisToMax(
+	const uid_document_t *doc,
+	const uid_node_def_t &node,
+	bool forWidth,
+	float size,
+	float percentBaseW,
+	float percentBaseH
+)
+{
+	const char *attr = forWidth ? "max-width" : "max-height";
+	if (!node.properties.Has(attr)) {
+		return size;
+	}
+	const uid_length_t maxLen = PropLength(node, attr, UID_LENGTH_AUTO);
+	if (maxLen.unit != UID_LENGTH_PX && maxLen.unit != UID_LENGTH_PERCENT) {
+		return size;
+	}
+	const float maxPx =
+		ResolveLengthPx(doc, maxLen, forWidth ? percentBaseW : percentBaseH, 0.0f, 0.0f);
+	return std::min(size, std::max(0.0f, maxPx));
+}
+
+bool NodeOverflowClipsOrScrolls(const uid_node_def_t &node)
+{
+	uid_overflow_t ov = UID_OVERFLOW_NONE;
+	UID_ParseOverflow(PropCStr(node, "overflow", "none"), &ov, nullptr);
+	return ov == UID_OVERFLOW_SCROLL || ov == UID_OVERFLOW_HIDDEN;
+}
+
 uid_rect_t MakeRect(float x, float y, float w, float h)
 {
 	uid_rect_t r;
@@ -1063,9 +1093,11 @@ float IntrinsicBorderSize(
 		return 0.0f;
 	}
 
+	float size = 0.0f;
 	const uid_length_t dim = PropLength(*node, forWidth ? "width" : "height", UID_LENGTH_AUTO);
 	if (dim.unit == UID_LENGTH_PX || dim.unit == UID_LENGTH_PERCENT) {
-		return ResolveLengthPx(doc, dim, forWidth ? percentBaseW : percentBaseH, 0.0f, 0.0f);
+		size = ResolveLengthPx(doc, dim, forWidth ? percentBaseW : percentBaseH, 0.0f, 0.0f);
+		return ClampAxisToMax(doc, *node, forWidth, size, percentBaseW, percentBaseH);
 	}
 	if (dim.unit == UID_LENGTH_FILL) {
 		return 0.0f;
@@ -1077,16 +1109,37 @@ float IntrinsicBorderSize(
 		: (ResolveSidePx(doc, padding.top, percentBaseH) + ResolveSidePx(doc, padding.bottom, percentBaseH));
 
 	if (node->kind == UID_NODE_CONTAINER || node->kind == UID_NODE_FOREACH) {
-		return IntrinsicFlexChildrenContentSize(doc, *node, forWidth, percentBaseW, percentBaseH, fbScale, backend) +
-		       padMain + IntrinsicStrokePad(doc, *node);
+		float content = 0.0f;
+		/*
+		 * Added in Omaha: windowed foreach under overflow=scroll — preferred height is
+		 * full collection extent (count * row-height), not the expanded window only.
+		 */
+		if (!forWidth) {
+			const float synthetic = UID_WindowedForeachSyntheticExtentH(doc, id);
+			if (synthetic >= 0.0f) {
+				content = synthetic;
+			} else {
+				content = IntrinsicFlexChildrenContentSize(
+					doc, *node, forWidth, percentBaseW, percentBaseH, fbScale, backend
+				);
+			}
+		} else {
+			content = IntrinsicFlexChildrenContentSize(
+				doc, *node, forWidth, percentBaseW, percentBaseH, fbScale, backend
+			);
+		}
+		size = content + padMain + IntrinsicStrokePad(doc, *node);
+		return ClampAxisToMax(doc, *node, forWidth, size, percentBaseW, percentBaseH);
 	}
 
 	if (node->kind == UID_NODE_SHAPE_INSTANCE) {
 		auto sit = doc->definitions.shapes.find(node->shapeId);
 		if (sit != doc->definitions.shapes.end() && sit->second.hasIntrinsicSize) {
-			return forWidth ? sit->second.width : sit->second.height;
+			size = forWidth ? sit->second.width : sit->second.height;
+		} else {
+			size = 32.0f;
 		}
-		return 32.0f;
+		return ClampAxisToMax(doc, *node, forWidth, size, percentBaseW, percentBaseH);
 	}
 
 	/* Added in OPM: leaf <image> — natural DIP size from texel measure.
@@ -1132,15 +1185,17 @@ float IntrinsicBorderSize(
 			);
 			if (aspect > 0.0f) {
 				const float derived = forWidth ? (otherPx * aspect) : (otherPx / aspect);
-				return derived + padMain;
+				size = derived + padMain;
+				return ClampAxisToMax(doc, *node, forWidth, size, percentBaseW, percentBaseH);
 			}
 		}
-		return (forWidth ? UID_ScaleAuthoredPx(doc, texW) : UID_ScaleAuthoredPx(doc, texH)) + padMain;
+		size = (forWidth ? UID_ScaleAuthoredPx(doc, texW) : UID_ScaleAuthoredPx(doc, texH)) + padMain;
+		return ClampAxisToMax(doc, *node, forWidth, size, percentBaseW, percentBaseH);
 	}
 
 	/* Added in OPM: leaf controls sized by width/height attrs; fallback like empty box */
 	if (node->kind == UID_NODE_MODEL || node->kind == UID_NODE_SERVER_LIST) {
-		return 32.0f;
+		return ClampAxisToMax(doc, *node, forWidth, 32.0f, percentBaseW, percentBaseH);
 	}
 
 	const std::string text = ControlText(doc, id);
@@ -1203,7 +1258,9 @@ float IntrinsicBorderSize(
 		contentH = padY + contentH + gap + tickRowH + padY;
 	}
 
-	return (forWidth ? contentW : contentH) + padMain;
+	return ClampAxisToMax(
+		doc, *node, forWidth, (forWidth ? contentW : contentH) + padMain, percentBaseW, percentBaseH
+	);
 }
 
 void LayoutChildren(
@@ -1715,6 +1772,10 @@ void LayoutNode(
 		bh = ResolveLengthPx(doc, height, borderAvailH, borderAvailH, borderAvailH);
 	}
 
+	/* Added in Omaha: max-width / max-height after authored/intrinsic/fill resolve. */
+	bw = ClampAxisToMax(doc, *node, true, bw, percentBaseW, percentBaseH);
+	bh = ClampAxisToMax(doc, *node, false, bh, percentBaseW, percentBaseH);
+
 	ApplySelfBoxes(doc, id, marginX + ml, marginY + mt, bw, bh, percentBaseW, percentBaseH, parentClip);
 
 	if (node->kind == UID_NODE_CONTAINER || node->kind == UID_NODE_FOREACH) {
@@ -1832,6 +1893,10 @@ void LayoutOverlapChildren(
 			}
 		}
 
+		/* Added in Omaha */
+		bw = ClampAxisToMax(doc, *cn, true, bw, pctW, pctH);
+		bh = ClampAxisToMax(doc, *cn, false, bh, pctW, pctH);
+
 		const float bx = pst->contentBox.x + ml + AlignCross(halign, 0.0f, availW, bw);
 		const float by = pst->contentBox.y + mt + AlignCross(valign, 0.0f, availH, bh);
 
@@ -1918,6 +1983,7 @@ void LayoutChildren(
 		float borderMain;
 		float borderCross;
 		bool  fillMain;
+		bool  shrinkOverflow; /* Added in Omaha: auto/fill + overflow scroll|hidden */
 	};
 
 	std::vector<ChildGeom> kids;
@@ -1958,6 +2024,9 @@ void LayoutChildren(
 		    ContainerHasFillOnMainAxis(doc, *cn)) {
 			g.fillMain = true;
 		}
+		/* Added in Omaha: shrink scroll/hidden auto|fill children when parent budget is tight. */
+		g.shrinkOverflow =
+			(g.fillMain || mainLen.unit == UID_LENGTH_AUTO) && NodeOverflowClipsOrScrolls(*cn);
 
 		const float childAvailMain = std::max(0.0f, contentMain - g.margin0 - g.margin1);
 		const float childAvailCross = std::max(0.0f, contentCross - g.crossM0 - g.crossM1);
@@ -2043,6 +2112,10 @@ void LayoutChildren(
 			}
 		}
 
+		/* Added in Omaha: clamp child main/cross after measure (max-width / max-height). */
+		g.borderMain = ClampAxisToMax(doc, *cn, horiz, g.borderMain, pctW, pctH);
+		g.borderCross = ClampAxisToMax(doc, *cn, !horiz, g.borderCross, pctW, pctH);
+
 		kids.push_back(g);
 	}
 
@@ -2068,6 +2141,36 @@ void LayoutChildren(
 	for (ChildGeom &g : kids) {
 		if (g.fillMain) {
 			g.borderMain = fillEach;
+		}
+	}
+
+	/*
+	 * Added in Omaha: when autos exceed the parent main budget (e.g. max-height
+	 * clamped panel), shrink overflow=scroll|hidden children so nested scroll
+	 * viewports get a reduced box while non-scroll siblings keep intrinsic size.
+	 */
+	{
+		float usedMainCheck = gapTotal;
+		for (const ChildGeom &g : kids) {
+			usedMainCheck += g.margin0 + g.borderMain + g.margin1;
+		}
+		float deficit = usedMainCheck - contentMain;
+		if (deficit > 0.0f) {
+			float shrinkableTotal = 0.0f;
+			for (const ChildGeom &g : kids) {
+				if (g.shrinkOverflow && g.borderMain > 0.0f) {
+					shrinkableTotal += g.borderMain;
+				}
+			}
+			if (shrinkableTotal > 0.0f) {
+				const float keep = std::max(0.0f, shrinkableTotal - deficit);
+				const float scale = keep / shrinkableTotal;
+				for (ChildGeom &g : kids) {
+					if (g.shrinkOverflow && g.borderMain > 0.0f) {
+						g.borderMain *= scale;
+					}
+				}
+			}
 		}
 	}
 

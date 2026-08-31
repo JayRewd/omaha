@@ -27,6 +27,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "cl_scoreboard_host.h"
 #include "cl_objectives_host.h"
 #include "cl_uimenu_dispatcher.h"
+#include "cl_uirender.h"
 #include "cl_killfeed.h"
 #include "../corepp/tiki.h"
 #include "../qcommon/localization.h"
@@ -837,6 +838,7 @@ void CL_InitCGameDLL( clientGameImport_t *cgi, clientGameExport_t **cge ) {
 	cgi->UIR_Objectives_NotifyChanged	= UIR_Objectives_NotifyChanged;
 	cgi->CL_UIMenu_OpenHold			= CL_UIMenu_OpenHold;
 	cgi->CL_UIMenu_CloseHold		= CL_UIMenu_CloseHold;
+	cgi->CL_UIR_ScoreboardMenuId	= CL_UIR_ScoreboardMenuId;
 	cgi->UI_ToggleDMMessageConsole	= UI_ToggleDMConsole;
 	cgi->CL_InitRadar				= CL_InitRadar;
 

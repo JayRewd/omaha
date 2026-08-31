@@ -15,6 +15,25 @@
 				L {parent.width * 0.15} {parent.height * 0.85}
 				Z"/>
 		</shape>
+		<!-- Added in Omaha: filled ellipse for competitive round compass disc / markers. -->
+		<shape id="circle">
+			<path fill="{parent.fill}"
+				d="M {parent.width * 0.5} 0
+				A {parent.width * 0.5} {parent.height * 0.5} 0 1 1 {parent.width * 0.5} {parent.height}
+				A {parent.width * 0.5} {parent.height * 0.5} 0 1 1 {parent.width * 0.5} 0
+				Z"/>
+		</shape>
+		<!--
+		  Competitive compass damage: wide base on a near-rim chord, tip toward center.
+		  Corners sit inside the unit circle so overflow is minimal even without mask.
+		-->
+		<shape id="compass-pain-wedge">
+			<path fill="{parent.fill}"
+				d="M {parent.width * 0.5} {parent.height * 0.38}
+				L {parent.width * 0.64} {parent.height * 0.02}
+				L {parent.width * 0.36} {parent.height * 0.02}
+				Z"/>
+		</shape>
 		<shape id="arrow-left">
 			<props>
 				<prop name="thickness" type="length" default="6px"/>

@@ -107,6 +107,7 @@
 			</container>
 		</template>
 
+		<!-- Dead players: mute via item.field.is_dead from signed team id. -->
 		<template id="scoreboard-row">
 			<!-- height 29px + overflow=hidden matches foreach row-height; clips overscan paints. -->
 			<container type="vertical" width="100%" height="29px" overflow="hidden"
@@ -127,32 +128,39 @@
 					<label width="6%" height="100%" font="body"
 					       font-size="{var.text-body}"
 					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
-					       color="{var.color-primary}" halign="start" valign="center"
+					       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
+					       halign="start" valign="center"
 					       visible="{cvar.ui_om_scoreboard_team_mode == 1}">{item.field.slot}</label>
 					<label width="fill" height="100%" font="body"
 					       font-size="{var.text-body}"
 					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
-					       color="{var.color-primary}" halign="start" valign="center">{item.field.name}</label>
+					       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
+					       halign="start" valign="center">{item.field.name}</label>
 					<label width="10%" height="100%" font="body"
 					       font-size="{var.text-body}"
 					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
-					       color="{var.color-primary}" halign="start" valign="center">{item.field.kills}</label>
+					       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
+					       halign="start" valign="center">{item.field.kills}</label>
 					<label width="10%" height="100%" font="body"
 					       font-size="{var.text-body}"
 					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
-					       color="{var.color-primary}" halign="start" valign="center">{item.field.deaths}</label>
+					       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
+					       halign="start" valign="center">{item.field.deaths}</label>
 					<label width="10%" height="100%" font="body"
 					       font-size="{var.text-body}"
 					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
-					       color="{var.color-primary}" halign="start" valign="center">{item.field.kd}</label>
+					       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
+					       halign="start" valign="center">{item.field.kd}</label>
 					<label width="14%" height="100%" font="body"
 					       font-size="{var.text-body}"
 					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
-					       color="{var.color-primary}" halign="start" valign="center">{item.field.time}</label>
+					       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
+					       halign="start" valign="center">{item.field.time}</label>
 					<label width="10%" height="100%" font="body"
 					       font-size="{var.text-body}"
 					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
-					       color="{var.color-primary}" halign="start" valign="center">{item.field.ping}</label>
+					       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
+					       halign="start" valign="center">{item.field.ping}</label>
 					</container>
 				</container>
 				<container width="100%" height="1px" fill="{var.fill-divider}"/>
@@ -173,31 +181,38 @@
 					<label width="6%" height="100%" font="body"
 					       font-size="{var.text-body}"
 					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
-					       color="{var.color-primary}" halign="start" valign="center">{item.field.slot}</label>
+					       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
+					       halign="start" valign="center">{item.field.slot}</label>
 					<label width="fill" height="100%" font="body"
 					       font-size="{var.text-body}"
 					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
-					       color="{var.color-primary}" halign="start" valign="center">{item.field.name}</label>
+					       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
+					       halign="start" valign="center">{item.field.name}</label>
 					<label width="10%" height="100%" font="body"
 					       font-size="{var.text-body}"
 					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
-					       color="{var.color-primary}" halign="start" valign="center">{item.field.kills}</label>
+					       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
+					       halign="start" valign="center">{item.field.kills}</label>
 					<label width="10%" height="100%" font="body"
 					       font-size="{var.text-body}"
 					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
-					       color="{var.color-primary}" halign="start" valign="center">{item.field.deaths}</label>
+					       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
+					       halign="start" valign="center">{item.field.deaths}</label>
 					<label width="10%" height="100%" font="body"
 					       font-size="{var.text-body}"
 					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
-					       color="{var.color-primary}" halign="start" valign="center">{item.field.kd}</label>
+					       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
+					       halign="start" valign="center">{item.field.kd}</label>
 					<label width="14%" height="100%" font="body"
 					       font-size="{var.text-body}"
 					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
-					       color="{var.color-primary}" halign="start" valign="center">{item.field.time}</label>
+					       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
+					       halign="start" valign="center">{item.field.time}</label>
 					<label width="10%" height="100%" font="body"
 					       font-size="{var.text-body}"
 					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
-					       color="{var.color-primary}" halign="start" valign="center">{item.field.ping}</label>
+					       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
+					       halign="start" valign="center">{item.field.ping}</label>
 				</container>
 				<container width="100%" height="1px" fill="{var.fill-divider}"/>
 			</container>
@@ -214,31 +229,38 @@
 					<label width="10%" height="100%" font="body"
 					       font-size="{var.text-body}"
 					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
-					       color="{var.color-primary}" halign="end" valign="center">{item.field.ping}</label>
+					       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
+					       halign="end" valign="center">{item.field.ping}</label>
 					<label width="14%" height="100%" font="body"
 					       font-size="{var.text-body}"
 					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
-					       color="{var.color-primary}" halign="end" valign="center">{item.field.time}</label>
+					       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
+					       halign="end" valign="center">{item.field.time}</label>
 					<label width="10%" height="100%" font="body"
 					       font-size="{var.text-body}"
 					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
-					       color="{var.color-primary}" halign="end" valign="center">{item.field.kd}</label>
+					       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
+					       halign="end" valign="center">{item.field.kd}</label>
 					<label width="10%" height="100%" font="body"
 					       font-size="{var.text-body}"
 					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
-					       color="{var.color-primary}" halign="end" valign="center">{item.field.deaths}</label>
+					       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
+					       halign="end" valign="center">{item.field.deaths}</label>
 					<label width="10%" height="100%" font="body"
 					       font-size="{var.text-body}"
 					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
-					       color="{var.color-primary}" halign="end" valign="center">{item.field.kills}</label>
+					       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
+					       halign="end" valign="center">{item.field.kills}</label>
 					<label width="fill" height="100%" font="body"
 					       font-size="{var.text-body}"
 					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
-					       color="{var.color-primary}" halign="end" valign="center">{item.field.name}</label>
+					       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
+					       halign="end" valign="center">{item.field.name}</label>
 					<label width="6%" height="100%" font="body"
 					       font-size="{var.text-body}"
 					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
-					       color="{var.color-primary}" halign="end" valign="center">{item.field.slot}</label>
+					       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
+					       halign="end" valign="center">{item.field.slot}</label>
 				</container>
 				<container width="100%" height="1px" fill="{var.fill-divider}"/>
 			</container>

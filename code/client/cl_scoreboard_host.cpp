@@ -451,6 +451,30 @@ void UIR_Scoreboard_ApplySortColumn(const char *column)
 	UIR_Scoreboard_PublishSortCvars();
 }
 
+/* Added in Omaha: cycle kills → deaths → kd → time → ping → name. */
+void UIR_Scoreboard_CycleSort(void)
+{
+	static const uir_scoreboard_sort_t order[] = {
+		UIR_SCOREBOARD_SORT_KILLS,
+		UIR_SCOREBOARD_SORT_DEATHS,
+		UIR_SCOREBOARD_SORT_KD,
+		UIR_SCOREBOARD_SORT_TIME,
+		UIR_SCOREBOARD_SORT_PING,
+		UIR_SCOREBOARD_SORT_NAME,
+	};
+	const int count = (int)(sizeof(order) / sizeof(order[0]));
+	int       i;
+	int       idx = 0;
+
+	for (i = 0; i < count; i++) {
+		if (order[i] == g_scoreboardSortKey) {
+			idx = i;
+			break;
+		}
+	}
+	UIR_Scoreboard_ApplySortColumn(UIR_Scoreboard_SortColumnName(order[(idx + 1) % count]));
+}
+
 void UIR_Scoreboard_UpdateLayoutForViewport(int logicalHeight)
 {
 	UIR_Scoreboard_PublishSessionCvars();

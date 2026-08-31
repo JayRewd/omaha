@@ -734,6 +734,13 @@ static bool ExprLooksCvarPure(const std::string &expr)
 	if (expr.find("item.") != std::string::npos) {
 		return false;
 	}
+	/*
+	 * Fixed in Omaha: bind.selected / bind.value are node-local (set-value peers).
+	 * Memoizing them on cvar epoch stuck Off/On fills when Cvar_Set was a no-op.
+	 */
+	if (expr.find("bind.") != std::string::npos) {
+		return false;
+	}
 	if (expr.find("lifetime") != std::string::npos) {
 		return false;
 	}
@@ -2091,6 +2098,7 @@ void UID_RegisterCvarBoundProps(uid_node_def_t *node)
 	node->bindingFlagsValid = false;
 	static const char *kProps[] = {
 		"width", "height", "gap", "margin", "padding", "font-size", "rotation", "rotation-origin",
+		"shape-rotation", /* Added in Omaha: bindable path spin (competitive compass pain wedge) */
 		"translate-x", "translate-y",
 		"opacity", "background-image", "mask-image", "color", "fill", "left", "top", "right", "bottom",
 		"background-scale",
@@ -2560,6 +2568,24 @@ uid_result_t UID_WriteAllBindings(uid_document_t *doc, const uid_backend_t *back
 		}
 	}
 	return worst;
+}
+
+/* Added in Omaha: drop commit=apply staging so the next sync can pull reset cvars. */
+void UID_ClearApplyStagedBindings(uid_document_t *doc)
+{
+	if (!doc) {
+		return;
+	}
+	const size_t n = doc->nodes.size() < doc->states.size() ? doc->nodes.size() : doc->states.size();
+	for (size_t i = 0; i < n; ++i) {
+		const uid_node_def_t &node = doc->nodes[i];
+		if (!node.hasCommit || node.commit != UID_COMMIT_APPLY) {
+			continue;
+		}
+		doc->states[i].runtimeValue.hasValue = false;
+		doc->states[i].runtimeValue.stringValue.clear();
+	}
+	MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_BINDING | UID_DIRTY_PAINT | UID_DIRTY_LAYOUT));
 }
 
 std::string UID_TransformCvarToUi(

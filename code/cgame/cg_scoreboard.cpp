@@ -160,6 +160,7 @@ static void CG_Scoreboard_AddModernRow(
     int         clientTeam,
     qboolean    isHeader,
     qboolean    isSpectator,
+    qboolean    isDead,
     const char *slot,
     const char *name,
     const char *kills,
@@ -187,6 +188,8 @@ static void CG_Scoreboard_AddModernRow(
     row.clientNum = clientNum;
     row.isHeader  = isHeader;
     row.isSpectator = isSpectator && !isHeader;
+    /* Added in Omaha: expose dead flag for modern XML (not retail textColor). */
+    row.isDead = isDead && !isHeader && !row.isSpectator;
 
     if (isHeader || clientNum < 0) {
         row.kind = UIR_SCORE_ROW_HEADER;
@@ -496,6 +499,7 @@ void CG_ParseScores_ver_15()
         for (i = 0; i < iEntryCount; ++i) {
             qboolean isSpectator = qfalse;
             bIsHeader = qfalse;
+            bIsDead   = qfalse;
         if (cgs.gametype > GT_FFA) {
             iClientNum  = atoi(cgi.Argv(iCurrentEntry + iDatumCount * i));
             iClientTeam = atoi(cgi.Argv(1 + iCurrentEntry + iDatumCount * i));
@@ -656,6 +660,7 @@ void CG_ParseScores_ver_15()
             iClientTeam,
             bIsHeader,
             isSpectator,
+            bIsDead,
             szString2,
             szString3,
             szString4,
@@ -776,6 +781,7 @@ void CG_ParseScores_ver_6()
         for (i = 0; i < iEntryCount; ++i) {
             qboolean isSpectator = qfalse;
             bIsHeader = qfalse;
+            bIsDead   = qfalse;
         if (cgs.gametype > GT_FFA) {
             iClientNum  = atoi(cgi.Argv(iCurrentEntry + iDatumCount * i));
             iClientTeam = atoi(cgi.Argv(1 + iCurrentEntry + iDatumCount * i));
@@ -916,6 +922,7 @@ void CG_ParseScores_ver_6()
             iClientTeam,
             bIsHeader,
             isSpectator,
+            bIsDead,
             "",
             szString2,
             szString3,

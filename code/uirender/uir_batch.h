@@ -92,6 +92,23 @@ uir_status_t UIR_BatchQuadSkewed(
 	float originY
 );
 
+/* Added in Omaha: rotate axis-aligned quad around pivot (clockwise degrees). */
+uir_status_t UIR_BatchQuadRotated(
+	int shader,
+	float x,
+	float y,
+	float w,
+	float h,
+	float s0,
+	float t0,
+	float s1,
+	float t1,
+	const uir_color_t *rgba,
+	float rotationDeg,
+	float pivotX,
+	float pivotY
+);
+
 uir_status_t UIR_BatchTriangles(
 	int shader,
 	const uir_vert_t *v,

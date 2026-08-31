@@ -471,6 +471,77 @@ uir_status_t UIR_BatchQuadSkewed(
 	return UIR_OK;
 }
 
+/* Added in Omaha: rotate axis-aligned quad around pivot (clockwise degrees). */
+uir_status_t UIR_BatchQuadRotated(
+	int shader,
+	float x,
+	float y,
+	float w,
+	float h,
+	float s0,
+	float t0,
+	float s1,
+	float t1,
+	const uir_color_t *rgba,
+	float rotationDeg,
+	float pivotX,
+	float pivotY
+)
+{
+	uir_vert_t v[4];
+	unsigned char a;
+	float corners[4][2];
+	float rad;
+	float cosr;
+	float sinr;
+	int i;
+
+	if (!rgba || !UIR_BatchEnabled()) {
+		return UIR_ERR_UNSUPPORTED;
+	}
+	if (!uir_batch_can_use_shader(shader)) {
+		return UIR_ERR_UNSUPPORTED;
+	}
+	if (rotationDeg == 0.0f) {
+		return UIR_BatchQuad(shader, x, y, w, h, s0, t0, s1, t1, rgba);
+	}
+
+	a = uir_batch_byte(rgba->a);
+	rad = rotationDeg * (3.14159265358979323846f / 180.0f);
+	cosr = cosf(rad);
+	sinr = sinf(rad);
+
+	corners[0][0] = x;
+	corners[0][1] = y;
+	corners[1][0] = x + w;
+	corners[1][1] = y;
+	corners[2][0] = x;
+	corners[2][1] = y + h;
+	corners[3][0] = x + w;
+	corners[3][1] = y + h;
+
+	for (i = 0; i < 4; i++) {
+		const float dx = corners[i][0] - pivotX;
+		const float dy = corners[i][1] - pivotY;
+		v[i].x = pivotX + cosr * dx - sinr * dy;
+		v[i].y = pivotY + sinr * dx + cosr * dy;
+		v[i].r = uir_batch_byte(rgba->r);
+		v[i].g = uir_batch_byte(rgba->g);
+		v[i].b = uir_batch_byte(rgba->b);
+		v[i].a = a;
+	}
+	v[0].s = s0;
+	v[0].t = t0;
+	v[1].s = s1;
+	v[1].t = t0;
+	v[2].s = s0;
+	v[2].t = t1;
+	v[3].s = s1;
+	v[3].t = t1;
+
+	return uir_batch_append_quad_tris(shader, v, a, s0, t0, s1, t1);
+}
+
 void UIR_BatchTargetBegin(void)
 {
 	UIR_BatchFlush();

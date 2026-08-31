@@ -225,6 +225,8 @@ bool IsCommonBoxAttr(const std::string &name)
 {
 	static const char *const kAttrs[] = {
 		"id", "width", "height", "padding", "margin", "fill", "color", "shape", "radius",
+		/* Added in Omaha: definite clamp after authored/intrinsic/fill resolve (px/% only). */
+		"max-width", "max-height",
 		"border", "border-top", "border-right", "border-bottom", "border-left",
 		"stroke", "stroke-width", "stroke-layout", "shape-rotation", "rotation", "rotation-origin", "opacity",
 		"crisp", /* Added in OPM: binary path coverage (no soft AA), e.g. crosshair */
@@ -2872,6 +2874,8 @@ bool ParseDefinitions(ParseContext &ctx, XMLElement *defs)
 	const char *hudLabel = nullptr;
 	const char *drawOrderStr = nullptr;
 	const char *backdropStr = nullptr;
+	const char *pauseMenu = nullptr;
+	const char *scoreboardMenu = nullptr;
 
 	for (const tinyxml2::XMLAttribute *attr = defs->FirstAttribute(); attr; attr = attr->Next()) {
 		const char *name = attr->Name();
@@ -2885,6 +2889,12 @@ bool ParseDefinitions(ParseContext &ctx, XMLElement *defs)
 			drawOrderStr = attr->Value();
 		} else if (std::strcmp(name, "backdrop") == 0) {
 			backdropStr = attr->Value();
+		} else if (std::strcmp(name, "pause-menu") == 0) {
+			/* Added in Omaha: HUD companion pause menu-id. */
+			pauseMenu = attr->Value();
+		} else if (std::strcmp(name, "scoreboard-menu") == 0) {
+			/* Added in Omaha: HUD companion scoreboard menu-id. */
+			scoreboardMenu = attr->Value();
 		} else {
 			ctx.Error(loc, (std::string("unknown attribute on <definitions>: ") + name).c_str());
 			return false;
@@ -2899,6 +2909,14 @@ bool ParseDefinitions(ParseContext &ctx, XMLElement *defs)
 	}
 
 	if (hasMenuId) {
+		if (pauseMenu && pauseMenu[0]) {
+			ctx.Error(loc, "<definitions pause-menu> requires hud-id");
+			return false;
+		}
+		if (scoreboardMenu && scoreboardMenu[0]) {
+			ctx.Error(loc, "<definitions scoreboard-menu> requires hud-id");
+			return false;
+		}
 		if (!drawOrderStr || !drawOrderStr[0]) {
 			ctx.Error(loc, "<definitions menu-id> requires draw-order");
 			return false;
@@ -2932,6 +2950,14 @@ bool ParseDefinitions(ParseContext &ctx, XMLElement *defs)
 			ctx.Error(loc, "<definitions hud-id> requires draw-order");
 			return false;
 		}
+		if (!pauseMenu || !pauseMenu[0]) {
+			ctx.Error(loc, "<definitions hud-id> requires pause-menu");
+			return false;
+		}
+		if (!scoreboardMenu || !scoreboardMenu[0]) {
+			ctx.Error(loc, "<definitions hud-id> requires scoreboard-menu");
+			return false;
+		}
 		const int drawOrder = std::atoi(drawOrderStr);
 		if (drawOrder < 0 || drawOrder > 9) {
 			ctx.Error(loc, "draw-order must be 0-9");
@@ -2948,6 +2974,12 @@ bool ParseDefinitions(ParseContext &ctx, XMLElement *defs)
 		return false;
 	} else if (hudLabel && hudLabel[0]) {
 		ctx.Error(loc, "<definitions hud-label> requires hud-id");
+		return false;
+	} else if (pauseMenu && pauseMenu[0]) {
+		ctx.Error(loc, "<definitions pause-menu> requires hud-id");
+		return false;
+	} else if (scoreboardMenu && scoreboardMenu[0]) {
+		ctx.Error(loc, "<definitions scoreboard-menu> requires hud-id");
 		return false;
 	}
 
@@ -3321,6 +3353,8 @@ static bool ReadHudMetaFromDefinitions(
 	const char                 *hudId = defs->Attribute("hud-id");
 	const char                 *hudLabel = defs->Attribute("hud-label");
 	const char                 *drawOrderStr = defs->Attribute("draw-order");
+	const char                 *pauseMenu = defs->Attribute("pause-menu");
+	const char                 *scoreboardMenu = defs->Attribute("scoreboard-menu");
 
 	std::memset(out, 0, sizeof(*out));
 
@@ -3339,6 +3373,19 @@ static bool ReadHudMetaFromDefinitions(
 		}
 		return false;
 	}
+	/* Added in Omaha: companions required so host routing stays HUD-file-defined. */
+	if (!pauseMenu || !pauseMenu[0]) {
+		if (diags) {
+			diags->Error(loc, "<definitions hud-id> requires pause-menu");
+		}
+		return false;
+	}
+	if (!scoreboardMenu || !scoreboardMenu[0]) {
+		if (diags) {
+			diags->Error(loc, "<definitions hud-id> requires scoreboard-menu");
+		}
+		return false;
+	}
 	const int drawOrder = std::atoi(drawOrderStr);
 	if (drawOrder < 0 || drawOrder > 9) {
 		if (diags) {
@@ -3351,6 +3398,10 @@ static bool ReadHudMetaFromDefinitions(
 	out->hudId[sizeof(out->hudId) - 1] = '\0';
 	std::strncpy(out->hudLabel, hudLabel, sizeof(out->hudLabel) - 1);
 	out->hudLabel[sizeof(out->hudLabel) - 1] = '\0';
+	std::strncpy(out->pauseMenu, pauseMenu, sizeof(out->pauseMenu) - 1);
+	out->pauseMenu[sizeof(out->pauseMenu) - 1] = '\0';
+	std::strncpy(out->scoreboardMenu, scoreboardMenu, sizeof(out->scoreboardMenu) - 1);
+	out->scoreboardMenu[sizeof(out->scoreboardMenu) - 1] = '\0';
 	out->drawOrder = drawOrder;
 	out->valid = true;
 	return true;

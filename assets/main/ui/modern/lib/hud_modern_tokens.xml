@@ -5,8 +5,18 @@
 		<var id="color-hud-health-pip" value="#ffffff9c"/>
 		<var id="color-hud-low-health-pip" value="#c03021ff"/>
 		<var id="color-hud-compass-objective" value="#4A9EFFFF"/>
+		<!-- Competitive round compass markers at 50% opacity (BR tape keeps opaque objective). -->
+		<var id="color-hud-compass-obj-primary" value="#FCBA0380"/>
+		<var id="color-hud-compass-obj-ball" value="#4A9EFF80"/>
 		<!-- Score strip fills (match modern scoreboard Allies/Axis header banners). -->
 		<var id="fill-hud-allied-score" value="#1A6FD4CC"/>
 		<var id="fill-hud-axis-score" value="#CC3333CC"/>
+		<!-- Round-roster pips: team colors @ 50%; dead = darker desaturated @ 50% (same alpha). -->
+		<var id="fill-hud-roster-allied" value="#8891CC80"/>
+		<var id="fill-hud-roster-allied-dead" value="#3A3E5680"/>
+		<var id="fill-hud-roster-axis" value="#CC888880"/>
+		<var id="fill-hud-roster-axis-dead" value="#56383880"/>
+		<!-- Plant / stopwatch countdown bar (translucent accent blue). -->
+		<var id="fill-hud-stopwatch" value="#1A6FD4AA"/>
 	</vars>
 </ui-library>

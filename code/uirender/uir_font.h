@@ -38,6 +38,8 @@ typedef struct {
 	int (*updateAtlas)(int h, const unsigned char *rgba, int width, int height);
 	void (*setColor)(const float *rgba);
 	void (*drawPic)(float x, float y, float w, float h, float s1, float t1, float s2, float t2, int shader);
+	/* Added in Omaha: non-axis-aligned glyph fallback (same contract as image backend). */
+	void (*drawTrianglePic)(const float points[3][2], const float texCoords[3][2], int shader);
 	long (*readFile)(const char *path, void **buffer);
 	void (*freeFile)(void *buffer);
 	void *(*allocMem)(size_t size);
@@ -90,6 +92,23 @@ uir_status_t UIR_FontDrawSkewed(
 	float                 tracking,
 	float                 skewTan,
 	float                 originY
+);
+
+/*
+ * Added in Omaha: rotate each glyph quad around a shared pivot (clockwise degrees).
+ * Layout uses the unrotated baseline; when rotationDeg ~= 0, delegates to UIR_FontDraw.
+ */
+uir_status_t UIR_FontDrawRotated(
+	const uir_viewport_t *vp,
+	uir_font_t           *font,
+	float                 x,
+	float                 y,
+	const char           *text,
+	const uir_color_t    *rgba,
+	float                 tracking,
+	float                 rotationDeg,
+	float                 pivotX,
+	float                 pivotY
 );
 
 void UIR_FontInsetUVs(float *u0, float *v0, float *u1, float *v1, int atlasW, int atlasH);

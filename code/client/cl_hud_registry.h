@@ -35,6 +35,11 @@ qboolean CL_UIMenu_HudExists(const char *hudId);
 const char *CL_UIMenu_HudPath(const char *hudId);
 const char *CL_UIMenu_HudLabel(const char *hudId);
 int        CL_UIMenu_HudDrawOrder(const char *hudId);
+const char *CL_UIMenu_HudPauseMenu(const char *hudId);
+const char *CL_UIMenu_HudScoreboardMenu(const char *hudId);
+/* Added in Omaha: true when menuId is any registered HUD's pause/scoreboard companion. */
+qboolean    CL_UIMenu_HudIsPauseCompanion(const char *menuId);
+qboolean    CL_UIMenu_HudIsScoreboardCompanion(const char *menuId);
 qboolean   CL_UIMenu_HudIsBuiltinLegacy(const char *hudId);
 void       CL_UIMenu_HudEntryAt(int index, const char **outId, const char **outLabel, const char **outPath);
 uint64_t   CL_UIMenu_HudRegistryRevision(void);

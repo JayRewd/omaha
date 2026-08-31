@@ -23,6 +23,24 @@
 			<item value="Colt 45" label="Colt 45" image="modernhud-colt45"/>
 			<item value="Walther P38" label="P38" image="modernhud-p38"/>
 		</source>
+		<!-- Kill-feed silhouettes keyed by active weapon name (competitive ammo strip). -->
+		<source id="modern-weapons-kf">
+			<item value="M1 Garand" label="M1 Garand" image="modernhud-m1-garand-kf"/>
+			<item value="Mauser KAR 98K" label="KAR 98K" image="modernhud-kar98-kf"/>
+			<item value="KAR98 - Sniper" label="KAR98 Sniper" image="modernhud-kar98sniper-kf"/>
+			<item value="Springfield '03 Sniper" label="Springfield" image="modernhud-springfield-kf"/>
+			<item value="Thompson" label="Thompson" image="modernhud-thompsonsmg-kf"/>
+			<item value="MP40" label="MP40" image="modernhud-mp40-kf"/>
+			<item value="StG 44" label="Stg.44" image="modernhud-mp44-kf"/>
+			<item value="BAR" label="BAR" image="modernhud-bar-kf"/>
+			<item value="Shotgun" label="Shotgun" image="modernhud-shotgun-kf"/>
+			<item value="Bazooka" label="Bazooka" image="modernhud-bazooka-kf"/>
+			<item value="Panzerschreck" label="Panzerschreck" image="modernhud-panzerschreck-kf"/>
+			<item value="Colt 45" label="Colt 45" image="modernhud-colt45-kf"/>
+			<item value="Walther P38" label="P38" image="modernhud-p38-kf"/>
+			<item value="Frag Grenade" label="Frag" image="modernhud-m2frag-grenade-kf"/>
+			<item value="Stielhandgranate" label="Stiel" image="modernhud-steilhandgranate-kf"/>
+		</source>
 	</sources>
 
 	<templates>
@@ -256,7 +274,7 @@
 					<container id="center" width="2px" height="28px" halign="center" valign="center"
 					           fill="{var.color-white}"/>
 					<container id="obj_arrow" width="12px" height="12px" shape="triangle-up"
-					           valign="end" fill="{var.color-hud-compass-objective}"
+					           valign="end" fill="#FCBA03FF"
 					           translate-x="{template.width / 2 - 6 + clamp(cvar.ui_om_hud_obj_arrow_angle, -(template.fov-deg / 2), template.fov-deg / 2) * (template.width / template.fov-deg)}px"
 					           visible="{cvar.ui_om_hud_obj_arrow_visible > 0}"/>
 					<container id="obj_left" width="10px" height="10px" shape="triangle-up"
@@ -274,6 +292,158 @@
 				           translate-x="{template.width / 2 - 7 + clamp(cvar.ui_om_hud_damage_angle, -(template.fov-deg / 2), template.fov-deg / 2) * (template.width / template.fov-deg)}px"
 				           mask-image="{abs(cvar.ui_om_hud_damage_angle) > template.fov-deg / 2 ? linear(90deg, #FFFFFF00 0%, #FFFFFFFF 35%, #FFFFFFFF 65%, #FFFFFF00 100%) : linear(90deg, #FFFFFFFF 0%, #FFFFFFFF 100%)}"
 				           visible="{cvar.ui_om_hud_damage_alpha > 0.02}"/>
+			</container>
+		</template>
+
+		<!--
+		  Bearing label on the competitive round dial. Placed at the top rim and
+		  orbited via rotation + rotation-origin (same trick as classic obj balls).
+		-->
+		<template id="competitive-compass-bearing">
+			<props>
+				<prop name="dial-size" type="length" required="true"/>
+				<prop name="bearing" type="number" required="true"/>
+				<prop name="label" type="string" required="true"/>
+			</props>
+			<label font="body" font-size="13px" font-weight="600"
+			       width="36px" height="16px"
+			       halign="center" valign="start"
+			       margin="{template.dial-size * 0.0125}px 0 0 0"
+			       color="{var.color-white}" drop-shadow="true"
+			       rotation="{cvar.ui_om_hud_compass_heading + template.bearing}"
+			       rotation-origin="18px {template.dial-size * 0.5 - template.dial-size * 0.0125}px">
+				{template.label}
+			</label>
+		</template>
+
+		<!--
+		  Round competitive compass: shape disc + orbiting bearings / damage / objs.
+		  Dial uses modern heading (no spring); damage/objs reuse classic spinner cvars.
+		-->
+		<template id="competitive-compass">
+			<props>
+				<prop name="size" type="length" default="160px"/>
+			</props>
+			<container type="overlap" width="{template.size}" height="{template.size}" padding="0"
+			           fill="{var.fill-transparent}"
+			           visible="{cvar.ui_compass > 0}">
+				<!-- Static disc (stroke drawn outside fill; damage is masked separately). -->
+				<container width="{template.size}" height="{template.size}" shape="circle"
+				           fill="{var.fill-panel}" stroke="{var.fill-divider}" stroke-width="1px" crisp="true"/>
+				<!--
+				  Damage wedge: radial mask gives a real circular clip (shape child-clip
+				  falls back to AABB scissor when UI stencil is unavailable).
+				-->
+				<container type="overlap" width="{template.size}" height="{template.size}" padding="0"
+				           fill="{var.fill-transparent}"
+				           mask-image="radial(50% 50%, #FFFFFFFF 0%, #FFFFFFFF 99%, #FFFFFF00 100%)">
+					<container width="{template.size}" height="{template.size}"
+					           shape="compass-pain-wedge"
+					           fill="{var.color-hud-low-health-pip}"
+					           rotation="{cvar.ui_om_hud_damage_angle}"
+					           opacity="{cvar.ui_om_hud_damage_alpha}"/>
+				</container>
+				<!-- Eight bearings (tilt with dial; no counter-rotation) -->
+				<use template="competitive-compass-bearing" dial-size="{template.size}" bearing="0" label="N"/>
+				<use template="competitive-compass-bearing" dial-size="{template.size}" bearing="45" label="NE"/>
+				<use template="competitive-compass-bearing" dial-size="{template.size}" bearing="90" label="E"/>
+				<use template="competitive-compass-bearing" dial-size="{template.size}" bearing="135" label="SE"/>
+				<use template="competitive-compass-bearing" dial-size="{template.size}" bearing="180" label="S"/>
+				<use template="competitive-compass-bearing" dial-size="{template.size}" bearing="225" label="SW"/>
+				<use template="competitive-compass-bearing" dial-size="{template.size}" bearing="270" label="W"/>
+				<use template="competitive-compass-bearing" dial-size="{template.size}" bearing="315" label="NW"/>
+				<!-- Objective primary: ride compass stroke, 1px divider outline (12px). -->
+				<container width="12px" height="12px" shape="circle"
+				           valign="start" halign="center"
+				           margin="{0 - 6}px 0 0 0"
+				           fill="{var.color-hud-compass-obj-primary}"
+				           stroke="{var.fill-divider}" stroke-width="1px" crisp="true"
+				           rotation="{cvar.ui_om_hud_obj_arrow_angle}"
+				           rotation-origin="6px {template.size * 0.5 + 6}px"
+				           visible="{cvar.ui_om_hud_obj_arrow_visible > 0}"/>
+				<!-- Objective balls: ride compass stroke (center on rim), 1px divider outline. -->
+				<container width="10px" height="10px" shape="circle"
+				           valign="start" halign="center"
+				           margin="{0 - 5}px 0 0 0"
+				           fill="{var.color-hud-compass-obj-ball}"
+				           stroke="{var.fill-divider}" stroke-width="1px" crisp="true"
+				           rotation="{cvar.ui_om_hud_obj_left_angle}"
+				           rotation-origin="5px {template.size * 0.5 + 5}px"
+				           visible="{cvar.ui_om_hud_obj_left_visible > 0}"/>
+				<container width="10px" height="10px" shape="circle"
+				           valign="start" halign="center"
+				           margin="{0 - 5}px 0 0 0"
+				           fill="{var.color-hud-compass-obj-ball}"
+				           stroke="{var.fill-divider}" stroke-width="1px" crisp="true"
+				           rotation="{cvar.ui_om_hud_obj_right_angle}"
+				           rotation-origin="5px {template.size * 0.5 + 5}px"
+				           visible="{cvar.ui_om_hud_obj_right_visible > 0}"/>
+				<!-- Fixed top frame (marks north slot; does not rotate) -->
+				<container width="22px" height="22px" halign="center" valign="start"
+				           margin="2px 0 0 0"
+				           fill="{var.fill-transparent}" stroke="{var.color-white}"
+				           stroke-width="1px" crisp="true"/>
+			</container>
+		</template>
+
+		<!--
+		  Round / objective roster pips from silent scoreboard rows.
+		  team: allies | axis. side: left | right (alive pips face the score strip).
+		  Alive = team color @ 50%; dead = darker desaturated @ 50% + skull.
+		  Note: prop cannot be named "color" — that is a reserved <use> style attr.
+		-->
+		<template id="hud-round-alive-row">
+			<props>
+				<prop name="size" type="length" required="true"/>
+				<prop name="team" type="string" required="true"/>
+				<prop name="side" type="string" required="true"/>
+			</props>
+			<container type="horizontal" width="auto" height="{template.size}" gap="0"
+			           source="scoreboard" fill="{var.fill-transparent}"
+			           valign="center" halign="center"
+			           visible="{cvar.cg_gametype >= 3 and cvar.cg_gametype <= 4}">
+				<!-- Left of strip: dead outside, alive toward middle. -->
+				<container type="horizontal" width="auto" height="{template.size}" gap="0"
+				           fill="{var.fill-transparent}"
+				           visible="{template.side == left}">
+					<foreach mode="all" type="horizontal" width="auto" height="{template.size}" gap="0">
+						<container type="overlap" width="{template.size}" height="{template.size}"
+						           padding="6px" halign="center" valign="center"
+						           visible="{item.field.is_header != 1 and item.field.is_spectator != 1 and item.field.team == {template.team} and item.field.is_dead == 1}"
+						           fill="{template.team == allies ? var.fill-hud-roster-allied-dead : var.fill-hud-roster-axis-dead}"
+						           stroke="{var.fill-divider}" stroke-width="1px" crisp="true">
+							<image src="modernhud-skull-50" width="100%" height="100%" fit="contain"
+							       opacity="0.5" halign="center" valign="center"/>
+						</container>
+					</foreach>
+					<foreach mode="all" type="horizontal" width="auto" height="{template.size}" gap="0">
+						<container width="{template.size}" height="{template.size}"
+						           visible="{item.field.is_header != 1 and item.field.is_spectator != 1 and item.field.team == {template.team} and item.field.is_dead != 1}"
+						           fill="{template.team == allies ? var.fill-hud-roster-allied : var.fill-hud-roster-axis}"
+						           stroke="{var.fill-divider}" stroke-width="1px" crisp="true"/>
+					</foreach>
+				</container>
+				<!-- Right of strip: alive toward middle, dead outside. -->
+				<container type="horizontal" width="auto" height="{template.size}" gap="0"
+				           fill="{var.fill-transparent}"
+				           visible="{template.side == right}">
+					<foreach mode="all" type="horizontal" width="auto" height="{template.size}" gap="0">
+						<container width="{template.size}" height="{template.size}"
+						           visible="{item.field.is_header != 1 and item.field.is_spectator != 1 and item.field.team == {template.team} and item.field.is_dead != 1}"
+						           fill="{template.team == allies ? var.fill-hud-roster-allied : var.fill-hud-roster-axis}"
+						           stroke="{var.fill-divider}" stroke-width="1px" crisp="true"/>
+					</foreach>
+					<foreach mode="all" type="horizontal" width="auto" height="{template.size}" gap="0">
+						<container type="overlap" width="{template.size}" height="{template.size}"
+						           padding="6px" halign="center" valign="center"
+						           visible="{item.field.is_header != 1 and item.field.is_spectator != 1 and item.field.team == {template.team} and item.field.is_dead == 1}"
+						           fill="{template.team == allies ? var.fill-hud-roster-allied-dead : var.fill-hud-roster-axis-dead}"
+						           stroke="{var.fill-divider}" stroke-width="1px" crisp="true">
+							<image src="modernhud-skull-50" width="100%" height="100%" fit="contain"
+							       opacity="0.5" halign="center" valign="center"/>
+						</container>
+					</foreach>
+				</container>
 			</container>
 		</template>
 

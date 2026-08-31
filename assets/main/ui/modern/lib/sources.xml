@@ -33,6 +33,8 @@
 			<item value="0" label="Windowed"/>
 		</source>
 
+		<!-- display-refresh is host-backed (SDL modes); see docs/research/display-refresh-sources.md -->
+
 		<source id="max-fps" default="125">
 			<item value="125" label="125"/>
 			<item value="250" label="250"/>

@@ -83,7 +83,7 @@ Built-in menus:
 | `dm_pause_modern` | 7 | none | `ui/modern/menus/dm_pause_modern.xml` |
 | `main` | 8 | `menu-map` | `ui/modern/main.xml` |
 
-Host selects the pause menu from the active HUD pack (`modern` → `dm_pause_modern`, else `dm_pause`). Pause panel routing uses `ui_om_pause_panel` plus `set-cvar` / `cbuf` invokes — see the pipeline doc’s Modern MP pause section.
+Host selects pause and scoreboard companions from the active HUD pack’s `<definitions>` (`pause-menu` / `scoreboard-menu`). Pause panel routing uses `ui_om_pause_panel` plus `set-cvar` / `cbuf` invokes — see the pipeline doc’s Modern MP pause section.
 
 ---
 
@@ -92,7 +92,8 @@ Host selects the pause menu from the active HUD pack (`modern` → `dm_pause_mod
 In-match HUD chrome is selected by **`ui_om_hud`** (`CVAR_ARCHIVE`, default `classic`). Packs live under `ui/modern/huds/*.xml` and use the same document pipeline as menus, but declare **HUD metadata** instead of `menu-id`:
 
 ```xml
-<definitions hud-id="classic" hud-label="Classic" draw-order="4">
+<definitions hud-id="classic" hud-label="Classic" draw-order="4"
+             pause-menu="dm_pause" scoreboard-menu="scoreboard">
 ```
 
 | Attribute | Required | Purpose |
@@ -100,13 +101,15 @@ In-match HUD chrome is selected by **`ui_om_hud`** (`CVAR_ARCHIVE`, default `cla
 | `hud-id` | yes | Stable selection id (`classic`, mod `arena`, …) |
 | `hud-label` | yes | Display name in settings (`source="hud-packs"`) |
 | `draw-order` | yes | Paint layer (HUD chrome uses `4`) |
+| `pause-menu` | yes | `menu-id` opened for Escape / MP pause |
+| `scoreboard-menu` | yes | `menu-id` opened for hold-TAB scoreboard |
 
 - **No `menu-id`** on HUD packs — the dispatcher opens the active pack by registry id, not `ui_open menu`.
 - Built-in **`legacy`** is synthetic (not an XML file): UIFAKK HUD + retail crosshair/scoreboard paths.
 - **`ui_legacy 1`** forces legacy for everything; the HUD picker is hidden.
 - Mods drop `ui/modern/huds/myhud.xml` into a PK3; after load or `ui_menu_reload` it appears in settings.
 
-Shared modern overlays (when a non-legacy HUD pack is active): `scoreboard`, connected `main`, and the HUD-selected pause menu. Crosshair is cgame procedural (`cg_crosshair_mode`).
+Shared modern overlays (when a non-legacy HUD pack is active): the HUD-declared `scoreboard-menu`, connected `main`, and the HUD-declared `pause-menu`. Crosshair is cgame procedural (`cg_crosshair_mode`).
 
 Host-bound state uses temporary `ui_om_hud_*` cvars synced from `cl_hud_host` / `CG_SyncModernHudCvars`. HUD chrome (health, compass, weapons bar, grenades) is **declarative XML** bound to those cvars — not imperative host paint.
 
@@ -120,11 +123,12 @@ Containers with a non-empty `role` call the backend `drawHostRegion` hook (`uid_
 
 Built-in HUD packs:
 
-| `hud-id` | `draw-order` | File |
-|----------|--------------|------|
-| `legacy` | 4 | synthetic (no XML) |
-| `classic` | 4 | `ui/modern/huds/classic.xml` |
-| `modern` | 4 | `ui/modern/huds/modern.xml` |
+| `hud-id` | `pause-menu` | `scoreboard-menu` | File |
+|----------|--------------|-------------------|------|
+| `legacy` | — | — | synthetic (no XML) |
+| `classic` | `dm_pause` | `scoreboard` | `ui/modern/huds/classic.xml` |
+| `modern` | `dm_pause_modern` | `scoreboard` | `ui/modern/huds/modern.xml` |
+| `competitive` | `dm_pause_modern` | `scoreboard` | `ui/modern/huds/competitive.xml` |
 
 Representative import chains:
 
@@ -161,7 +165,7 @@ Containers support `type="vertical|horizontal|overlap"` with `halign` / `valign`
 
 **`translate-x` / `translate-y`** — length props (default `0`, expr-bindable `{…}px`). Applied **after** flex/overlap packing when writing the node’s boxes (CSS-transform-like). Sibling packing ignores the translate; the node’s subtree lays out from the shifted content box; hit-test and paint follow the shifted boxes. Parent `overflow="hidden"` / `scroll` still clips via `effectiveClip`.
 
-**`rotation` / `rotation-origin`** — paint-time degrees (and optional origin) around the node’s geometry center. Bindable on layout/paint sync (`rotation="{cvar.ui_om_hud_compass_angle}"`). Does not affect flex packing or hit-test boxes. Used heavily by classic compass needles.
+**`rotation` / `rotation-origin`** — paint-time degrees (and optional origin) around the node’s geometry center (or authored origin). Bindable on layout/paint sync (`rotation="{cvar.ui_om_hud_compass_angle}"`). Does not affect flex packing or hit-test boxes. Used heavily by classic compass needles. On text leaves (`<label>`, `<button>`, dropdown value text), the same attrs also rotate glyphs around that shared pivot; layout boxes stay axis-aligned. Parent `rotation` does **not** transform child text (no subtree transform stack). When both `rotation` and `text-skew` are set on a leaf, **rotation wins** (skew is ignored).
 
 **`opacity`** — bindable runtime numeric (`0`–`1`) on layout/paint sync.
 
@@ -194,7 +198,7 @@ Resolution order (lowest → highest priority): built-in defaults → document `
 
 `fontDraw` Y is the top of the typographic box (baseline = Y + ascent). Vertical `center` uses cap-optical placement (`midY - 0.62 * ascent`).
 
-Optional `text-skew` (CSS `skewX` degrees) shears glyphs. `shape="skew-tab"` nudges upright text onto the parallelogram mid-line.
+Optional `text-skew` (CSS `skewX` degrees) shears glyphs. Ignored when the leaf also has a non-zero `rotation`. `shape="skew-tab"` nudges upright text onto the parallelogram mid-line.
 
 ### Lengths and scale
 
@@ -207,6 +211,7 @@ Optional `text-skew` (CSS `skewX` degrees) shears glyphs. `shape="skew-tab"` nud
 - **Overlap percentage size + margin** — `width`/`height` percentages resolve against the full parent content box; percentage margins then position the child within that box. This permits direct conversion of virtual-resolution rectangles (`x/W`, `y/H`, `w/W`, `h/H`) without shrinking `w`/`h` by the offset.
 - **`auto`** — intrinsic border size: **children + padding** for containers (+ stroke when `stroke-layout` is not `false`); **text metrics** for labels/controls; **shape viewBox** for shape instances; **texel reference size** for leaf `<image>` (via backend `imageMeasure`). Not multiplied by `ui_scale` as a unit keyword — measured values are already in layout px (image/shape apply `UID_ScaleAuthoredPx` where appropriate). One axis `auto` + the other fixed (not `fill`) on `<image>` / intrinsic shapes preserves aspect ratio.
 - **`fill`** — flex grow: occupy **remaining parent space** on that axis after fixed/auto siblings are measured; split equally among `fill` siblings. Not multiplied by `ui_scale`. Distinct from the **`fill="…"` paint attribute** (background color).
+- **`max-width` / `max-height`** — definite clamps (`px` or `%` only; `auto`/`fill` rejected at compile). Applied after authored / intrinsic / `fill` resolve. Percent base matches `width`/`height` (canvas for root children, parent content box nested). When a flex parent’s main budget is tighter than the sum of children (e.g. a `height="auto" max-height="80%"` panel), children with `overflow="scroll"` or `overflow="hidden"` and main size `auto`/`fill` shrink so nested scroll viewports get a reduced box; non-scroll siblings keep their intrinsic size. Prefer `height="fill"` over `%` height on dividers inside `height="auto"` intrinsic chains — `%` during measure can resolve against the canvas and stretch fullscreen.
 - **Fill inside `auto` wrapper** — an `auto` flex item participates in the parent fill split only when its **flex main axis matches the parent’s** and it has a direct `fill` child on that same axis (e.g. horizontal row inside a horizontal row with `width="fill"` children → wrapper acts like `width="fill"`). A horizontal `height="auto"` row with `width="fill"` children does **not** become `height="fill"` in a vertical parent — authored `width` / `height` stay independent.
 - **Foreach item wrap defaults** — when `<foreach>` does not set cross-axis size, the per-item wrap uses `auto` (vertical foreach → `width="auto"`; horizontal foreach → `height="auto"`). `<foreach>` may also set container layout attrs (`type`, `width`, `height`, `gap`, `padding`, `margin`, `halign`, `valign`) copied onto each item wrap. If every template child uses `fill` on the foreach main axis, the wrap gets `fill` on that axis.
 - **`text-wrap`** — `none` (default) or `word` for multiline labels (`\n` always breaks lines).
@@ -495,6 +500,7 @@ Notable sources:
 | `player-models-allies` / `axis` | Profile model picker |
 | `screen-catalog` | Compare / lab screen picker |
 | `hud-packs` | Host-backed HUD picker (`queryCollectionItems`; not in XML `<sources>`) |
+| `display-refresh` | Host-backed unique SDL refresh rates + Default(0) for `r_displayRefresh` |
 | `hud-objectives` | Host-backed classic objectives stack |
 | `vote-options` | Host-backed pause vote rows |
 | `pause-weapons` / `pause-vote-cast` | Pause menu static catalogs in `sources.xml` |

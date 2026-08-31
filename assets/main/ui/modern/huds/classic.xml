@@ -1,5 +1,6 @@
 <ui version="1">
-	<definitions hud-id="classic" hud-label="Classic" draw-order="4">
+	<definitions hud-id="classic" hud-label="Classic" draw-order="4"
+	             pause-menu="dm_pause" scoreboard-menu="scoreboard">
 		<import src="ui/modern/lib/hud_classic_theme.xml"/>
 		<import src="ui/modern/lib/shapes.xml"/>
 		<import src="ui/modern/lib/hud_images.xml"/>

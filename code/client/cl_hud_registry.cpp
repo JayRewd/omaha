@@ -35,6 +35,8 @@ struct HudRegistryEntry {
 	std::string hudId;
 	std::string hudLabel;
 	std::string vfsPath;
+	std::string pauseMenu;
+	std::string scoreboardMenu;
 	int         drawOrder;
 	qboolean    builtinLegacy;
 };
@@ -60,13 +62,17 @@ static void AddHudEntry(
 	const char *hudLabel,
 	const char *vfsPath,
 	int drawOrder,
-	qboolean builtinLegacy
+	qboolean builtinLegacy,
+	const char *pauseMenu,
+	const char *scoreboardMenu
 )
 {
 	HudRegistryEntry entry;
 	entry.hudId = hudId ? hudId : "";
 	entry.hudLabel = hudLabel ? hudLabel : hudId;
 	entry.vfsPath = vfsPath ? vfsPath : "";
+	entry.pauseMenu = pauseMenu ? pauseMenu : "";
+	entry.scoreboardMenu = scoreboardMenu ? scoreboardMenu : "";
 	entry.drawOrder = drawOrder;
 	entry.builtinLegacy = builtinLegacy;
 
@@ -93,7 +99,7 @@ void CL_UIMenu_ReloadHudRegistry(void)
 	g_hudIndex.clear();
 	g_hudRegistryRevision++;
 
-	AddHudEntry(CL_HUD_LEGACY_ID, "Legacy", "", 4, qtrue);
+	AddHudEntry(CL_HUD_LEGACY_ID, "Legacy", "", 4, qtrue, NULL, NULL);
 
 	int numFiles = 0;
 	char **files = FS_ListFiles("ui/modern/huds", "xml", qfalse, &numFiles);
@@ -110,7 +116,15 @@ void CL_UIMenu_ReloadHudRegistry(void)
 				Com_Printf("UIMenu: HUD pack '%s' cannot use reserved id '%s'\n", vfsPath, CL_HUD_LEGACY_ID);
 				continue;
 			}
-			AddHudEntry(meta.hudId, meta.hudLabel, vfsPath, meta.drawOrder, qfalse);
+			AddHudEntry(
+				meta.hudId,
+				meta.hudLabel,
+				vfsPath,
+				meta.drawOrder,
+				qfalse,
+				meta.pauseMenu,
+				meta.scoreboardMenu
+			);
 		}
 		FS_FreeFileList(files);
 	}
@@ -126,10 +140,12 @@ void CL_UIMenu_ListHuds_f(void)
 	for (size_t i = 0; i < g_hudEntries.size(); ++i) {
 		const HudRegistryEntry &entry = g_hudEntries[i];
 		Com_Printf(
-			"  id='%s' label='%s' draw=%d path='%s'%s\n",
+			"  id='%s' label='%s' draw=%d pause='%s' scoreboard='%s' path='%s'%s\n",
 			entry.hudId.c_str(),
 			entry.hudLabel.c_str(),
 			entry.drawOrder,
+			entry.pauseMenu.c_str(),
+			entry.scoreboardMenu.c_str(),
 			entry.vfsPath.c_str(),
 			entry.builtinLegacy ? " [builtin]" : ""
 		);
@@ -184,6 +200,62 @@ int CL_UIMenu_HudDrawOrder(const char *hudId)
 		return 4;
 	}
 	return g_hudEntries[it->second].drawOrder;
+}
+
+/* Added in Omaha: pause companion menu-id declared on the HUD pack. */
+const char *CL_UIMenu_HudPauseMenu(const char *hudId)
+{
+	if (!hudId || !hudId[0]) {
+		return NULL;
+	}
+	auto it = g_hudIndex.find(hudId);
+	if (it == g_hudIndex.end()) {
+		return NULL;
+	}
+	const HudRegistryEntry &entry = g_hudEntries[it->second];
+	return entry.pauseMenu.empty() ? NULL : entry.pauseMenu.c_str();
+}
+
+/* Added in Omaha: scoreboard companion menu-id declared on the HUD pack. */
+const char *CL_UIMenu_HudScoreboardMenu(const char *hudId)
+{
+	if (!hudId || !hudId[0]) {
+		return NULL;
+	}
+	auto it = g_hudIndex.find(hudId);
+	if (it == g_hudIndex.end()) {
+		return NULL;
+	}
+	const HudRegistryEntry &entry = g_hudEntries[it->second];
+	return entry.scoreboardMenu.empty() ? NULL : entry.scoreboardMenu.c_str();
+}
+
+qboolean CL_UIMenu_HudIsPauseCompanion(const char *menuId)
+{
+	if (!menuId || !menuId[0]) {
+		return qfalse;
+	}
+	for (size_t i = 0; i < g_hudEntries.size(); ++i) {
+		const std::string &pause = g_hudEntries[i].pauseMenu;
+		if (!pause.empty() && !Q_stricmp(menuId, pause.c_str())) {
+			return qtrue;
+		}
+	}
+	return qfalse;
+}
+
+qboolean CL_UIMenu_HudIsScoreboardCompanion(const char *menuId)
+{
+	if (!menuId || !menuId[0]) {
+		return qfalse;
+	}
+	for (size_t i = 0; i < g_hudEntries.size(); ++i) {
+		const std::string &scoreboard = g_hudEntries[i].scoreboardMenu;
+		if (!scoreboard.empty() && !Q_stricmp(menuId, scoreboard.c_str())) {
+			return qtrue;
+		}
+	}
+	return qfalse;
 }
 
 qboolean CL_UIMenu_HudIsBuiltinLegacy(const char *hudId)

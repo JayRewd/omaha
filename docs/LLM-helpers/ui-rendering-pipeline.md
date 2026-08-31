@@ -77,12 +77,15 @@ Gameplay world remains visible behind chrome. `<model>` widgets queued during CH
 
 ### Modern MP pause (`dm_pause`)
 
-When `CL_UIR_UseModernHudPack()` is true, the pause tree is modern XML (`draw-order` 7). Panel router: `ui_om_pause_panel`.
+When `CL_UIR_UseModernHudPack()` is true, Escape opens the pause menu named by the active HUD pack’s `pause-menu` attribute (`draw-order` 7). Panel router: `ui_om_pause_panel`.
 
-| HUD pack | Menu file | Notes |
-|----------|-----------|-------|
-| `classic` | [`menus/dm_pause.xml`](../../assets/main/ui/modern/menus/dm_pause.xml) | Retail URC layout + art/models |
-| `modern` | [`menus/dm_pause_modern.xml`](../../assets/main/ui/modern/menus/dm_pause_modern.xml) | Main-menu styled shell (no art/models) |
+| HUD pack | `pause-menu` | Menu file | Notes |
+|----------|--------------|-----------|-------|
+| `classic` | `dm_pause` | [`menus/dm_pause.xml`](../../assets/main/ui/modern/menus/dm_pause.xml) | Retail URC layout + art/models |
+| `modern` | `dm_pause_modern` | [`menus/dm_pause_modern.xml`](../../assets/main/ui/modern/menus/dm_pause_modern.xml) | Main-menu styled shell (no art/models) |
+| `competitive` | `dm_pause_modern` | [`menus/dm_pause_modern.xml`](../../assets/main/ui/modern/menus/dm_pause_modern.xml) | Same shell as modern |
+
+Companions are declared only on the HUD pack XML — the host looks them up via `CL_UIR_DmPauseMenuId` / `CL_UIR_ScoreboardMenuId` (registry), not hard-coded HUD ids.
 
 **Scale:** Root stage is `width/height 100%` treated as retail **640×480 virtual** (same stretch as UIFAKK `vid/640` × `vid/480`). Plaques and hits use URC rects as `%` of that stage (or `%` of the plaque).
 

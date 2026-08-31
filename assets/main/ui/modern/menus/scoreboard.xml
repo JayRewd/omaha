@@ -6,18 +6,18 @@
 		<import src="ui/modern/lib/controls.xml"/>
 		<import src="ui/modern/lib/scoreboard.xml"/>
 	</definitions>
-	<!-- pointer: always on for spectator / intermission; in-play sticky via toggle ui_om_scoreboard_cursor -->
-	<canvas pointer="{cvar.ui_om_intermission == 1 or cvar.ui_om_spectator == 1 or cvar.ui_om_scoreboard_cursor == 1}">
+	<!-- pointer: spectator / intermission / sticky toggle; gated by ui_om_scoreboard_disable_cursor -->
+	<canvas pointer="{cvar.ui_om_scoreboard_disable_cursor != 1 and (cvar.ui_om_intermission == 1 or cvar.ui_om_spectator == 1 or cvar.ui_om_scoreboard_cursor == 1)}">
 		<!-- Transparent root (retail scoreboard menu bgcolor); panel keeps fill-panel. -->
 		<container id="menu_root" type="vertical" width="100%" height="100%" fill="{var.fill-transparent}"
 		           halign="center" valign="center">
-			<!-- FFA: 80% screen height; player list fills remaining space.
+			<!-- FFA: auto height, max 80%; list scrolls when capped.
 			     Stroke on outer panel; inner overflow=hidden clips overscan row dividers. -->
-			<container type="vertical" width="760px" height="80%"
+			<container type="vertical" width="760px" height="auto" max-height="80%"
 			           fill="{var.fill-panel}" stroke="{var.fill-divider}" stroke-width="1px"
 			           halign="center" valign="center" gap="0"
 			           visible="{cvar.ui_om_scoreboard_team_mode != 1}">
-				<container type="vertical" width="100%" height="100%" overflow="hidden"
+				<container type="vertical" width="100%" height="auto" overflow="hidden"
 				           fill="{var.fill-transparent}" gap="0">
 					<use template="scoreboard-server-header"/>
 
@@ -56,7 +56,7 @@
 
 				<use template="scoreboard-column-header-row"/>
 
-				<container type="vertical" width="100%" height="fill"
+				<container type="vertical" width="100%" height="auto"
 				           overflow="scroll" scrollbar="scrollbar-default" scrollbar-edge="border"
 				           source="scoreboard" fill="{var.fill-transparent}">
 					<foreach mode="window" row-height="29px">
@@ -84,13 +84,13 @@
 				</container>
 			</container>
 
-			<!-- Team: open-book Allies | Axis; 80% screen height.
+			<!-- Team: open-book Allies | Axis; auto height, max 80%; list scrolls when capped.
 			     Stroke on outer panel; inner overflow=hidden clips overscan row dividers. -->
-			<container type="vertical" width="1200px" height="80%"
+			<container type="vertical" width="1200px" height="auto" max-height="80%"
 			           fill="{var.fill-panel}" stroke="{var.fill-divider}" stroke-width="1px"
 			           halign="center" valign="center" gap="0"
 			           visible="{cvar.ui_om_scoreboard_team_mode == 1}">
-				<container type="vertical" width="100%" height="100%" overflow="hidden"
+				<container type="vertical" width="100%" height="auto" overflow="hidden"
 				           fill="{var.fill-transparent}" gap="0">
 					<use template="scoreboard-server-header"/>
 
@@ -141,7 +141,7 @@
 						<use template="scoreboard-column-header-row-axis"/>
 					</container>
 				</container>
-				<container type="vertical" width="100%" height="fill"
+				<container type="vertical" width="100%" height="auto"
 				           overflow="scroll" scrollbar="scrollbar-default" scrollbar-edge="border"
 				           fill="{var.fill-transparent}">
 					<container type="horizontal" width="100%" height="auto" gap="0" fill="{var.fill-transparent}">

@@ -1880,14 +1880,21 @@ void CG_SyncModernHudCvars(void)
         cgi.Cvar_Set("ui_om_hud_level_exit_icon", "0");
     }
 
-    iFraction = 0;
+    /*
+     * Added in Omaha: modern HUD only (ui_om_hud_*). Pad normal stopwatch by 250ms so the
+     * plant bar outlasts retail script wait.0.1 skew vs wall-clock dial end. Leaves
+     * ui_legacy CG_DrawStopwatch / ui_stopwatch untouched.
+     */
+    static const int kOmStopwatchPadMs = 250;
+    iFraction                          = 0;
     if (cgi.stopWatch->iStartTime && cgi.stopWatch->iStartTime < cgi.stopWatch->iEndTime
-        && cgi.stopWatch->iEndTime > cg.time && cg.ObjectivesCurrentAlpha < 0.02f
-        && (!cg.snap || cg.snap->ps.stats[STAT_HEALTH] > 0)) {
+        && cg.ObjectivesCurrentAlpha < 0.02f && (!cg.snap || cg.snap->ps.stats[STAT_HEALTH] > 0)) {
         if (cgi.stopWatch->eType >= SWT_FUSE_WET) {
-            iFraction = cgi.stopWatch->iEndTime - cgi.stopWatch->iStartTime;
-        } else {
-            iFraction = cgi.stopWatch->iEndTime - cg.time;
+            if (cgi.stopWatch->iEndTime > cg.time) {
+                iFraction = cgi.stopWatch->iEndTime - cgi.stopWatch->iStartTime;
+            }
+        } else if (cgi.stopWatch->iEndTime + kOmStopwatchPadMs > cg.time) {
+            iFraction = cgi.stopWatch->iEndTime + kOmStopwatchPadMs - cg.time;
         }
     }
     Com_sprintf(buf, sizeof(buf), "%d", iFraction);
@@ -1899,9 +1906,31 @@ void CG_SyncModernHudCvars(void)
         const int seconds = (iFraction + 999) / 1000;
         Com_sprintf(buf, sizeof(buf), "%d", seconds);
         cgi.Cvar_Set("ui_om_hud_stopwatch_text", buf);
+        /* Added in Omaha: remaining/total for modern plant progress bar (1 → 0). */
+        {
+            const int rawTotalMs = cgi.stopWatch->iEndTime - cgi.stopWatch->iStartTime;
+            const int totalMs =
+                (cgi.stopWatch->eType >= SWT_FUSE_WET) ? rawTotalMs : (rawTotalMs + kOmStopwatchPadMs);
+            float frac = 0.0f;
+            if (totalMs > 0) {
+                if (cgi.stopWatch->eType >= SWT_FUSE_WET) {
+                    frac = 1.0f;
+                } else {
+                    frac = (float)iFraction / (float)totalMs;
+                    if (frac < 0.0f) {
+                        frac = 0.0f;
+                    } else if (frac > 1.0f) {
+                        frac = 1.0f;
+                    }
+                }
+            }
+            Com_sprintf(buf, sizeof(buf), "%.4f", frac);
+            cgi.Cvar_Set("ui_om_hud_stopwatch_frac", buf);
+        }
     } else {
         cgi.Cvar_Set("ui_om_hud_stopwatch_type", "-1");
         cgi.Cvar_Set("ui_om_hud_stopwatch_text", "");
+        cgi.Cvar_Set("ui_om_hud_stopwatch_frac", "0");
     }
 
     /* Changed in OPM: match retail MP score/fraglimit mutual exclusion (any MP gametype). */

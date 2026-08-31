@@ -50,6 +50,7 @@ typedef struct {
 	char                 team[12];
 	qboolean             isHeader;
 	qboolean             isSpectator;
+	qboolean             isDead; /* Added in Omaha: round/objective dead from signed team id. */
 } uir_scoreboard_row_t;
 
 typedef struct {
@@ -75,6 +76,7 @@ uint64_t UIR_Scoreboard_GetRevision(void);
 void UIR_Scoreboard_FormatKd(int kills, int deaths, char *out, size_t outSize);
 void UIR_Scoreboard_Vec4ToHex(const float *rgba, char *out, size_t outSize);
 void UIR_Scoreboard_ApplySortColumn(const char *column);
+void UIR_Scoreboard_CycleSort(void);
 void UIR_Scoreboard_UpdateLayoutForViewport(int logicalHeight);
 
 #ifdef __cplusplus

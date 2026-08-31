@@ -25,6 +25,12 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "cl_uimenu_dispatcher.h"
 #include "cl_ui.h"
 
+#ifdef USE_INTERNAL_SDL_HEADERS
+#	include "SDL.h"
+#else
+#	include <SDL.h>
+#endif
+
 #include "cl_uiplayermodelpicker.h"
 #include "cl_browser_host.h"
 #include "cl_modern_browser.h"
@@ -755,6 +761,7 @@ static void CL_UIR_WireBackends(void)
 	font.updateAtlas = uir_update_atlas;
 	font.setColor = uir_set_color;
 	font.drawPic = uir_draw_pic;
+	font.drawTrianglePic = uir_draw_triangle_pic; /* Added in Omaha: rotated glyph fallback */
 	font.readFile = uir_read_file;
 	font.freeFile = uir_free_file;
 	font.allocMem = uir_alloc;
@@ -1597,7 +1604,7 @@ static qboolean CL_UIR_ShouldPaintHudLayer(void)
 	 * ui_om_hud_show in XML, but messaging (chat / kill-feed / game msgs) and the
 	 * hold-TAB / end-of-match scoreboard must still paint. Check scoreboard first.
 	 */
-	if (CL_UIMenu_IsOpen("scoreboard")) {
+	if (CL_UIMenu_IsOpen(CL_UIR_ScoreboardMenuId())) {
 		return qtrue;
 	}
 	if (UI_LetterboxActive()) {
@@ -1634,7 +1641,7 @@ static void CL_UIR_SyncScoreboardPointer(void)
 	 * leaving CA_ACTIVE (cgame reload never sends -scores / CloseHold).
 	 */
 	if (lastClientState == CA_ACTIVE && clc.state != CA_ACTIVE) {
-		CL_UIMenu_CloseHold("scoreboard");
+		CL_UIMenu_CloseHold(CL_UIR_ScoreboardMenuId());
 	}
 	lastClientState = clc.state;
 
@@ -1676,7 +1683,7 @@ static void CL_UIR_UpdateHudMenus(unsigned int time, qboolean applyWheel)
 	 * pointer update path when applyWheel is set so overflow=scroll lists move.
 	 */
 	const qboolean scoreboardWheel =
-		applyWheel && CL_UIMenu_IsOpen("scoreboard") && g_pointerWheelDelta != 0;
+		applyWheel && CL_UIMenu_IsOpen(CL_UIR_ScoreboardMenuId()) && g_pointerWheelDelta != 0;
 	if (!CL_UIMenu_HasPointerMenuOpen() && !scoreboardWheel) {
 		CL_UIMenu_UpdateAll(time);
 		return;
@@ -1684,7 +1691,7 @@ static void CL_UIR_UpdateHudMenus(unsigned int time, qboolean applyWheel)
 
 	CL_FillUIDef();
 	CL_UIR_GetSurfaceSizes(&lw, &lh, nullptr, nullptr);
-	if (CL_UIMenu_IsOpen("scoreboard")) {
+	if (CL_UIMenu_IsOpen(CL_UIR_ScoreboardMenuId())) {
 		UIR_Scoreboard_UpdateLayoutForViewport(lh);
 	}
 
@@ -2283,12 +2290,8 @@ static const char *const g_uidSettingsDraftCvars[] = {
 	"s_musicvolume",
 	"s_speaker_type",
 	"s_khz",
-	"s_doppler",
 	"s_reverb",
-	"s_muteWhenMinimized",
-	"s_muteWhenUnfocused",
 	"s_initsound",
-	"s_mixahead",
 	"s_milesdriver",
 	"cg_fov",
 	"cg_drawviewmodel",
@@ -2340,6 +2343,7 @@ static const char *const g_uidSettingsDraftCvars[] = {
 	"cg_crosshair_dynamic",
 	"cg_crosshair_dynamic_movement",
 	"cg_crosshair_dynamic_scale",
+	"ui_om_scoreboard_disable_cursor",
 	NULL
 };
 
@@ -2347,6 +2351,8 @@ static const char *const g_uidSettingsDraftCvars[] = {
 static const char *const g_uidVideoRestartCvars[] = {
 	"r_mode",
 	"r_fullscreen",
+	"r_picmip",
+	"r_ext_compressed_textures",
 	"r_noborder",
 	"r_displayRefresh",
 	"r_swapInterval",
@@ -2359,10 +2365,8 @@ static const char *const g_uidVideoRestartCvars[] = {
 static const char *const g_uidSoundRestartCvars[] = {
 	"s_speaker_type",
 	"s_khz",
-	"s_doppler",
 	"s_reverb",
 	"s_initsound",
-	"s_mixahead",
 	"s_milesdriver",
 	NULL
 };
@@ -2401,6 +2405,97 @@ static int uid_fill_option_pairs(
 	return n;
 }
 
+/* Added in Omaha: unique SDL refresh rates for display-refresh cyclic (+ Default=0). */
+static int uid_cmp_refresh_asc(const void *a, const void *b)
+{
+	return *(const int *)a - *(const int *)b;
+}
+
+static void uid_add_unique_refresh(int *rates, int *nRates, int maxRates, int hz)
+{
+	int i;
+
+	if (hz <= 0 || !rates || !nRates || *nRates >= maxRates) {
+		return;
+	}
+	for (i = 0; i < *nRates; i++) {
+		if (rates[i] == hz) {
+			return;
+		}
+	}
+	rates[(*nRates)++] = hz;
+}
+
+static int uid_fill_display_refresh(
+	char **values,
+	char **labels,
+	int max,
+	char valueBuf[][96],
+	char labelBuf[][96],
+	int bufCount
+)
+{
+	static const int fallback[] = {50, 60, 75, 100, 120, 144, 165, 180, 200, 240, 360};
+	int              rates[64];
+	int              nRates = 0;
+	int              n = 0;
+	int              i;
+	int              current;
+	const int        maxRates = (int)(sizeof(rates) / sizeof(rates[0]));
+
+	if (!values || !labels || max <= 0 || bufCount <= 0) {
+		return 0;
+	}
+
+	if (SDL_WasInit(SDL_INIT_VIDEO)) {
+		const int numDisplays = SDL_GetNumVideoDisplays();
+		int       d;
+
+		for (d = 0; d < numDisplays; d++) {
+			const int numModes = SDL_GetNumDisplayModes(d);
+			int       mi;
+
+			for (mi = 0; mi < numModes; mi++) {
+				SDL_DisplayMode mode;
+
+				if (SDL_GetDisplayMode(d, mi, &mode) < 0) {
+					continue;
+				}
+				uid_add_unique_refresh(rates, &nRates, maxRates, mode.refresh_rate);
+			}
+		}
+	}
+
+	if (nRates == 0) {
+		for (i = 0; i < (int)(sizeof(fallback) / sizeof(fallback[0])); i++) {
+			uid_add_unique_refresh(rates, &nRates, maxRates, fallback[i]);
+		}
+	}
+
+	current = Cvar_VariableIntegerValue("r_displayRefresh");
+	uid_add_unique_refresh(rates, &nRates, maxRates, current);
+
+	if (nRates > 1) {
+		qsort(rates, (size_t)nRates, sizeof(rates[0]), uid_cmp_refresh_asc);
+	}
+
+	if (n < max && n < bufCount) {
+		Q_strncpyz(valueBuf[n], "0", 96);
+		Q_strncpyz(labelBuf[n], "Default", 96);
+		values[n] = valueBuf[n];
+		labels[n] = labelBuf[n];
+		n++;
+	}
+	for (i = 0; i < nRates && n < max && n < bufCount; i++) {
+		Com_sprintf(valueBuf[n], 96, "%d", rates[i]);
+		Com_sprintf(labelBuf[n], 96, "%d Hz", rates[i]);
+		values[n] = valueBuf[n];
+		labels[n] = labelBuf[n];
+		n++;
+	}
+	return n;
+}
+
 typedef struct {
 	char        key[16];
 	char        value[64];
@@ -2434,25 +2529,37 @@ static int uid_query_collection_options(
 		"9", "1600 x 1200", "10", "2048 x 1536",
 	};
 	const int bufCount = (int)(sizeof(valueBuf) / sizeof(valueBuf[0]));
-	const char *const *pairs = NULL;
-	int                pairCount = 0;
 
 	if (!source || !out || max <= 0) {
 		return 0;
 	}
 
-	if (!Q_stricmp(source, "video-modes")) {
-		pairs = videoModes;
-		pairCount = (int)(sizeof(videoModes) / sizeof(videoModes[0]));
-	}
+	char *values[64];
+	char *labels[64];
+	int   total = 0;
 
-	if (!pairs) {
+	if (!Q_stricmp(source, "display-refresh")) {
+		/* Added in Omaha: host-backed SDL refresh rates (not XML). */
+		total = uid_fill_display_refresh(values, labels, bufCount, valueBuf, labelBuf, bufCount);
+	} else if (!Q_stricmp(source, "video-modes")) {
+		total = uid_fill_option_pairs(
+			videoModes,
+			(int)(sizeof(videoModes) / sizeof(videoModes[0])),
+			values,
+			labels,
+			bufCount,
+			valueBuf,
+			labelBuf,
+			bufCount
+		);
+	} else {
 		return 0;
 	}
 
-	char *values[64];
-	char *labels[64];
-	const int total = uid_fill_option_pairs(pairs, pairCount, values, labels, bufCount, valueBuf, labelBuf, bufCount);
+	if (total <= 0) {
+		return 0;
+	}
+
 	if (outTotal) {
 		*outTotal = total;
 	}
@@ -2575,9 +2682,10 @@ typedef struct {
 	char        isHeader[4];
 	char        isSpectator[4];
 	char        isLocal[4];
+	char        isDead[4];
 	char        team[12];
-	const char *fieldNames[14];
-	const char *fieldValues[14];
+	const char *fieldNames[15];
+	const char *fieldValues[15];
 } uid_scoreboard_collection_slot_t;
 
 static int uid_query_collection_scoreboard(
@@ -2592,7 +2700,7 @@ static int uid_query_collection_scoreboard(
 	static uid_scoreboard_collection_slot_t slots[UIR_SCOREBOARD_MAX_ROWS];
 	static const char *const kFieldNames[] = {
 		"kind", "slot", "name", "kills", "deaths", "kd", "time", "ping", "text_color", "row_fill", "is_header",
-		"is_spectator", "is_local", "team",
+		"is_spectator", "is_local", "is_dead", "team",
 	};
 	const int rowCount = UIR_Scoreboard_GetRowCount();
 	int       written = 0;
@@ -2643,6 +2751,8 @@ static int uid_query_collection_scoreboard(
 			(row->clientNum >= 0 && row->clientNum == cl.snap.ps.clientNum) ? "1" : "0",
 			sizeof(slot->isLocal)
 		);
+		/* Added in Omaha: dead from signed team id for modern scoreboard mute styling. */
+		Q_strncpyz(slot->isDead, row->isDead ? "1" : "0", sizeof(slot->isDead));
 		Q_strncpyz(slot->team, row->team, sizeof(slot->team));
 
 		slot->fieldNames[0] = kFieldNames[0];
@@ -2659,6 +2769,7 @@ static int uid_query_collection_scoreboard(
 		slot->fieldNames[11] = kFieldNames[11];
 		slot->fieldNames[12] = kFieldNames[12];
 		slot->fieldNames[13] = kFieldNames[13];
+		slot->fieldNames[14] = kFieldNames[14];
 		slot->fieldValues[0] = slot->kind;
 		slot->fieldValues[1] = slot->slot;
 		slot->fieldValues[2] = slot->name;
@@ -2672,12 +2783,13 @@ static int uid_query_collection_scoreboard(
 		slot->fieldValues[10] = slot->isHeader;
 		slot->fieldValues[11] = slot->isSpectator;
 		slot->fieldValues[12] = slot->isLocal;
-		slot->fieldValues[13] = slot->team;
+		slot->fieldValues[13] = slot->isDead;
+		slot->fieldValues[14] = slot->team;
 
 		out[written].key = slot->key;
 		out[written].value = slot->key;
 		out[written].label = slot->name[0] ? slot->name : slot->kind;
-		out[written].nfields = 14;
+		out[written].nfields = 15;
 		out[written].fieldNames = slot->fieldNames;
 		out[written].fieldValues = slot->fieldValues;
 		out[written].flags = 0;
@@ -3219,6 +3331,11 @@ static int uid_query_options(const char *source, char **values, char **labels, i
 		return 0;
 	}
 
+	/* Added in Omaha: SDL-enumerated refresh rates for cyclic Refresh Rate. */
+	if (!Q_stricmp(source, "display-refresh")) {
+		return uid_fill_display_refresh(values, labels, max, valueBuf, labelBuf, bufCount);
+	}
+
 #define UID_OPT_SRC(name, arr)                                                                                         \
 	do {                                                                                                               \
 		if (!Q_stricmp(source, name)) {                                                                                \
@@ -3360,6 +3477,12 @@ static bool invoke_sort_scoreboard(void *userdata)
 	return true;
 }
 
+/* Added in Omaha: Misc keybind / console cycle for scoreboard column sort. */
+static void CL_UIR_CycleScoreboardSort_f(void)
+{
+	UIR_Scoreboard_CycleSort();
+}
+
 static bool invoke_toggle_server_favorite(void *userdata)
 {
 	const char *ip;
@@ -3439,6 +3562,14 @@ static bool invoke_settings_defaults(void *userdata)
 	for (i = 0; g_uidSettingsDraftCvars[i]; i++) {
 		if (Cvar_FindVar(g_uidSettingsDraftCvars[i])) {
 			Cvar_Reset(g_uidSettingsDraftCvars[i]);
+		}
+	}
+	/* Fixed in Omaha: drop staged apply values so cyclics / toggles re-sync. */
+	{
+		uid_runtime_t *runtime = CL_UIR_MainRuntime();
+		if (runtime && UID_HasDocument(runtime)) {
+			uid_document_t *doc = const_cast<uid_document_t *>(UID_GetDocument(runtime));
+			UID_ClearApplyStagedBindings(doc);
 		}
 	}
 	return true;
@@ -4369,6 +4500,32 @@ static void uid_font_draw_skewed(
 	UIR_FontDrawSkewed(vp, (uir_font_t *)font, x, y, text, &color, tracking, skewTan, originY);
 }
 
+/* Added in Omaha: paint-time text rotation around a shared pivot. */
+static void uid_font_draw_rotated(
+	void *font,
+	float x,
+	float y,
+	const char *text,
+	const float *rgba,
+	float tracking,
+	float rotationDeg,
+	float pivotX,
+	float pivotY
+)
+{
+	uir_color_t           color;
+	const uir_viewport_t *vp = UIR_CompositorViewport();
+
+	if (!font || !text || !rgba || !vp) {
+		return;
+	}
+	color.r = rgba[0];
+	color.g = rgba[1];
+	color.b = rgba[2];
+	color.a = rgba[3];
+	UIR_FontDrawRotated(vp, (uir_font_t *)font, x, y, text, &color, tracking, rotationDeg, pivotX, pivotY);
+}
+
 static void uid_draw_solid_rect(float x, float y, float w, float h, const float *rgba)
 {
 	uir_color_t color;
@@ -4632,6 +4789,7 @@ static void CL_UIR_FillUidBackend(uid_backend_t *out)
 	out->fontAscent = uid_font_ascent;
 	out->fontDraw = uid_font_draw;
 	out->fontDrawSkewed = uid_font_draw_skewed;
+	out->fontDrawRotated = uid_font_draw_rotated;
 	out->drawSolidRect = uid_draw_solid_rect;
 	out->drawPath = uid_draw_path;
 	out->drawImage = uid_draw_image;
@@ -4939,7 +5097,7 @@ static qboolean CL_UIR_SyncHudLayerMenus(unsigned int time, int *lw, int *lh, in
 	 */
 	{
 		const qboolean applyWheel =
-			(CL_UIMenu_IsOpen("scoreboard") && g_pointerWheelDelta != 0) ? qtrue : qfalse;
+			(CL_UIMenu_IsOpen(CL_UIR_ScoreboardMenuId()) && g_pointerWheelDelta != 0) ? qtrue : qfalse;
 		CL_UIR_UpdateHudMenus(time, applyWheel);
 	}
 
@@ -5288,6 +5446,8 @@ void CL_UIR_RegisterCvars(void)
 	Cvar_Get("ui_om_main_panel", "play", CVAR_TEMP);
 	Cvar_Get("ui_om_pause_panel", "root", CVAR_TEMP);
 	Cvar_Get("ui_om_cbuf", "", CVAR_TEMP);
+	/* Added in Omaha: 1 while CA_ACTIVE — gates Disconnect on modern main. */
+	Cvar_Get("ui_om_connected", "0", CVAR_TEMP);
 	Cvar_Get("ui_om_vote_allow", "1", CVAR_TEMP);
 	Cvar_Get("ui_om_vote_active", "0", CVAR_TEMP);
 	Cvar_Get("ui_om_voted", "0", CVAR_TEMP);
@@ -5389,6 +5549,7 @@ void CL_UIR_RegisterCvars(void)
 	Cvar_Get("ui_om_hud_stopwatch_ms", "0", CVAR_TEMP);
 	Cvar_Get("ui_om_hud_stopwatch_type", "0", CVAR_TEMP);
 	Cvar_Get("ui_om_hud_stopwatch_text", "", CVAR_TEMP);
+	Cvar_Get("ui_om_hud_stopwatch_frac", "0", CVAR_TEMP); /* Added in Omaha: plant bar remaining 0..1 */
 	Cvar_Get("ui_om_hud_pause_icon", "0", CVAR_TEMP);
 	Cvar_Get("ui_om_hud_level_exit_icon", "0", CVAR_TEMP);
 	Cvar_Get("ui_om_hud_score_text", "", CVAR_TEMP);
@@ -5509,6 +5670,8 @@ void CL_UIR_Init(void)
 	Cmd_AddCommand("ui_design_dump", CL_UIR_DesignDump_f);
 	Cmd_AddCommand("ui_compare_goto", CL_UIR_CompareGoto_f);
 	Cmd_AddCommand("ui_compare_shot", CL_UIR_CompareShot_f);
+	/* Added in Omaha: bindable scoreboard sort cycle (Misc options). */
+	Cmd_AddCommand("cycle_scoreboard_sort", CL_UIR_CycleScoreboardSort_f);
 	CL_UIR_RegisterBakeCommands();
 	Cvar_Get("ui_browser_want_refresh", "0", CVAR_TEMP);
 	Cvar_Get("ui_selected_server", "", CVAR_TEMP);
@@ -5533,6 +5696,7 @@ void CL_UIR_Shutdown(void)
 	Cmd_RemoveCommand("ui_design_dump");
 	Cmd_RemoveCommand("ui_compare_goto");
 	Cmd_RemoveCommand("ui_compare_shot");
+	Cmd_RemoveCommand("cycle_scoreboard_sort");
 	Cmd_RemoveCommand("ui_bake_model");
 	Cmd_RemoveCommand("ui_bake_mp_weapons");
 	CL_UIMenu_UnregisterCommands();
@@ -5607,11 +5771,24 @@ const char *CL_UIR_ActiveHudId(void)
 
 const char *CL_UIR_DmPauseMenuId(void)
 {
+	/* Changed in Omaha: pause companion comes from the active HUD pack XML. */
 	const char *hud = CL_UIR_ActiveHudId();
-	if (hud && !Q_stricmp(hud, "modern")) {
-		return "dm_pause_modern";
+	const char *pauseMenu = CL_UIMenu_HudPauseMenu(hud);
+	if (pauseMenu && pauseMenu[0]) {
+		return pauseMenu;
 	}
 	return "dm_pause";
+}
+
+/* Added in Omaha: scoreboard companion from the active HUD pack XML. */
+const char *CL_UIR_ScoreboardMenuId(void)
+{
+	const char *hud = CL_UIR_ActiveHudId();
+	const char *scoreboardMenu = CL_UIMenu_HudScoreboardMenu(hud);
+	if (scoreboardMenu && scoreboardMenu[0]) {
+		return scoreboardMenu;
+	}
+	return "scoreboard";
 }
 
 qboolean CL_UIR_UseLegacyHud(void)
@@ -5658,6 +5835,9 @@ qboolean CL_UIR_IsEligibleForModernMain(void)
 void CL_UIR_SyncEligibility(void)
 {
 	CL_UIMenu_SyncAutoMenus();
+
+	/* Added in Omaha: mirror connection for main-menu Disconnect visibility. */
+	Cvar_Set("ui_om_connected", clc.state == CA_ACTIVE ? "1" : "0");
 
 	if (clc.state != CA_ACTIVE) {
 		if (CL_UIMenu_IsOpen("main") && clc.state != CA_DISCONNECTED) {
@@ -5810,7 +5990,7 @@ void CL_UIR_UpdateModern(void)
 
 	ownInput = CL_UIR_ShouldOwnInput();
 	if (!ownInput) {
-		if ((CL_UIMenu_HasPointerMenuOpen() || CL_UIMenu_IsOpen("scoreboard")) && clc.state == CA_ACTIVE) {
+		if ((CL_UIMenu_HasPointerMenuOpen() || CL_UIMenu_IsOpen(CL_UIR_ScoreboardMenuId())) && clc.state == CA_ACTIVE) {
 			/* Consume wheel into the pointer HUD (scoreboard list scroll). */
 			CL_UIR_UpdateHudMenus(cls.realtime, qtrue);
 		} else {
@@ -6038,11 +6218,15 @@ void CL_UIR_CloseDmPause(void)
 	if (!CL_UIR_IsDmPauseOpen()) {
 		return;
 	}
-	if (CL_UIMenu_IsOpen("dm_pause_modern")) {
-		CL_UIMenu_Close("dm_pause_modern");
-	}
-	if (CL_UIMenu_IsOpen("dm_pause")) {
-		CL_UIMenu_Close("dm_pause");
+	/* Changed in Omaha: close every registered HUD pause companion that is open. */
+	const int hudCount = CL_UIMenu_HudCount();
+	for (int i = 0; i < hudCount; ++i) {
+		const char *hudId = NULL;
+		CL_UIMenu_HudEntryAt(i, &hudId, NULL, NULL);
+		const char *pauseMenu = CL_UIMenu_HudPauseMenu(hudId);
+		if (pauseMenu && pauseMenu[0] && CL_UIMenu_IsOpen(pauseMenu)) {
+			CL_UIMenu_Close(pauseMenu);
+		}
 	}
 	if (!CL_UIMenu_HasInteractiveOpen()) {
 		CL_UIR_LeaveModernInputMode();
@@ -6054,7 +6238,17 @@ void CL_UIR_CloseDmPause(void)
 
 qboolean CL_UIR_IsDmPauseOpen(void)
 {
-	return CL_UIMenu_IsOpen("dm_pause") || CL_UIMenu_IsOpen("dm_pause_modern") ? qtrue : qfalse;
+	/* Changed in Omaha: any HUD-declared pause companion counts as open. */
+	const int hudCount = CL_UIMenu_HudCount();
+	for (int i = 0; i < hudCount; ++i) {
+		const char *hudId = NULL;
+		CL_UIMenu_HudEntryAt(i, &hudId, NULL, NULL);
+		const char *pauseMenu = CL_UIMenu_HudPauseMenu(hudId);
+		if (pauseMenu && pauseMenu[0] && CL_UIMenu_IsOpen(pauseMenu)) {
+			return qtrue;
+		}
+	}
+	return qfalse;
 }
 
 void CL_UIR_ToggleConnectedOverlay(void)

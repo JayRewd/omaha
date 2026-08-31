@@ -339,6 +339,26 @@ void fake_fontDraw(void *, float x, float y, const char *text, const float *rgba
 	Record("DRAW", buf);
 }
 
+/* Added in Omaha: count rotated text draws in menu bench. */
+void fake_fontDrawRotated(
+	void *,
+	float x,
+	float y,
+	const char *text,
+	const float *rgba,
+	float tracking,
+	float rotationDeg,
+	float pivotX,
+	float pivotY
+)
+{
+	(void)tracking;
+	(void)rotationDeg;
+	(void)pivotX;
+	(void)pivotY;
+	fake_fontDraw(nullptr, x, y, text, rgba, 0.0f);
+}
+
 void fake_drawPath(
 	const char *svgD,
 	float x,
@@ -656,6 +676,7 @@ uid_backend_t MakeFakeBackend(FakeBackendState *state)
 	b.fontMeasure = fake_fontMeasure;
 	b.fontResolve = fake_fontResolve;
 	b.fontDraw = fake_fontDraw;
+	b.fontDrawRotated = fake_fontDrawRotated;
 	b.queryOptions = fake_queryOptions;
 	b.queryCollectionItems = fake_queryCollectionItems;
 	b.keyNameToNum = fake_keyNameToNum;

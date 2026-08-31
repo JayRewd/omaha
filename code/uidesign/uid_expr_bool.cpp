@@ -304,7 +304,22 @@ bool BoolLookupPath(const uid_bool_lookup_ctx_t *ctx, const std::string &path, u
 				}
 				std::string have;
 				if (UID_ReadCvarString(ctx->backend, cvarName.c_str(), &have)) {
-					out->b = (have == node.setValue);
+					if (have == node.setValue) {
+						out->b = true;
+					} else {
+						/*
+						 * Fixed in Omaha: accept numeric equals ("1" vs "1.0") so
+						 * Off/On highlights still match float-formatted cvars.
+						 */
+						char *endHave = nullptr;
+						char *endWant = nullptr;
+						const double a = std::strtod(have.c_str(), &endHave);
+						const double b = std::strtod(node.setValue.c_str(), &endWant);
+						if (endHave && endHave != have.c_str() && *endHave == '\0' && endWant &&
+							endWant != node.setValue.c_str() && *endWant == '\0') {
+							out->b = (std::fabs(a - b) < 1e-6);
+						}
+					}
 				}
 			}
 			return true;

@@ -828,6 +828,7 @@ extern "C" {
     void     CG_PushMenuTeamSelect_f(void);
     void     CG_PushMenuWeaponSelect_f(void);
     void     CG_UseWeaponClass_f(void);
+    void     CG_UsePrimaryWeapon_f(void); /* Added in Omaha */
     void     CG_NextWeapon_f(void);
     void     CG_PrevWeapon_f(void);
     void     CG_UseLastWeapon_f(void);

@@ -339,11 +339,28 @@ void ActivateButton(uid_document_t *doc, uid_node_id_t id, const uid_backend_t *
 	uid_node_state_t *st = State(doc, id);
 	/* Added in OPM: set-value buttons write the shared bind (Off/On groups). */
 	if (wantSetValue && st) {
+		const std::string bindCopy = node ? node->bind : std::string();
 		SetRuntimeString(st, setValueCopy);
 		MarkDirty(doc, UID_DIRTY_PAINT | UID_DIRTY_BINDING);
 		UID_DispatchEvent(doc, id, UID_EVENT_CHANGE, backend);
 		MaybeWriteBinding(doc, id, backend, UID_COMMIT_CHANGE);
 		MaybeWriteBinding(doc, id, backend, UID_COMMIT_SUBMIT);
+		/*
+		 * Fixed in Omaha: Cvar_Set no-ops when the value is unchanged and does not
+		 * bump cvar epoch. Clear style memo on all set-value peers so bind.selected
+		 * fills recompute (Off/On stayed idle until the other side was clicked).
+		 */
+		if (!bindCopy.empty() && doc) {
+			const size_t n = doc->nodes.size() < doc->states.size() ? doc->nodes.size() : doc->states.size();
+			for (size_t i = 0; i < n; ++i) {
+				const uid_node_def_t &peer = doc->nodes[i];
+				if (peer.bind != bindCopy || peer.setValue.empty()) {
+					continue;
+				}
+				doc->states[i].styleExprCached = false;
+				doc->states[i].styleExprEpoch = 0;
+			}
+		}
 		UID_SyncBindings(doc, backend);
 	}
 	UID_DispatchEvent(doc, id, UID_EVENT_CLICK, backend);

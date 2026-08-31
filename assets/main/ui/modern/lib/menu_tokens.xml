@@ -18,6 +18,9 @@
 		<var id="color-accent-pressed" value="#0F5FC4FF"/>
 		<var id="color-allied" value="#8891CCFF"/>
 		<var id="color-axis" value="#CC8888FF"/>
+		<!-- Added in Omaha: destructive actions (e.g. Disconnect). -->
+		<var id="color-danger" value="#C43C3CFF"/>
+		<var id="color-danger-hover" value="#D44C4CFF"/>
 
 		<!-- Surfaces: 3-tier panels + overlays -->
 		<var id="fill-transparent" value="#00000000"/>

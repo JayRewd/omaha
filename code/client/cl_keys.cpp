@@ -1166,7 +1166,7 @@ void CL_KeyEvent(int key, qboolean down, unsigned time)
      * stay scrollable in-play.
      */
     if ((key == K_MWHEELUP || key == K_MWHEELDOWN) && down && clc.state == CA_ACTIVE
-        && (CL_UIMenu_HasPointerMenuOpen() || CL_UIMenu_IsOpen("scoreboard"))
+        && (CL_UIMenu_HasPointerMenuOpen() || CL_UIMenu_IsOpen(CL_UIR_ScoreboardMenuId()))
         && !CL_UIR_ShouldOwnInput() && !CL_UIR_LegacyModalOwnsInput() && !UI_ConsoleIsVisible()) {
         CL_UIR_KeyEvent(key, qtrue, time);
         return;
