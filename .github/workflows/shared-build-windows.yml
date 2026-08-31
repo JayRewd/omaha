@@ -293,22 +293,33 @@ jobs:
         dotnet build -p Platform=${{matrix.architecture.config}} -c Release -o out source/misc/setup/windows/app
         $msi = '${{github.workspace}}/out/en-us/Setup.msi'
         if (-not (Test-Path $msi)) { throw "Setup.msi was not produced at $msi" }
+        # WiX Files harvest must land in the MSI; fail loud with samples if not.
         $installer = New-Object -ComObject WindowsInstaller.Installer
-        $db = $installer.OpenDatabase($msi, 0)
-        $view = $db.OpenView("SELECT FileName FROM File")
+        $db = $installer.OpenDatabase((Resolve-Path $msi).Path, 0)
+        $view = $db.OpenView('SELECT `File`,`FileName` FROM `File`')
         $view.Execute() | Out-Null
         $foundMainXml = $false
+        $fileCount = 0
+        $samples = New-Object System.Collections.Generic.List[string]
         while ($true) {
           $rec = $view.Fetch()
           if (-not $rec) { break }
-          $name = $rec.StringData(1)
-          if ($name -match '(^|\|)main\.xml$') { $foundMainXml = $true; break }
+          $fileCount++
+          $fileId = $rec.StringData(1)
+          $fileName = $rec.StringData(2)
+          if ($samples.Count -lt 12) { $samples.Add("$fileId / $fileName") | Out-Null }
+          $check = "$fileId|$fileName"
+          if ($check -match '(?i)main\.xml') { $foundMainXml = $true }
         }
+        Write-Host "Setup.msi File table rows: $fileCount"
+        Write-Host ("Sample File rows:`n" + ($samples -join "`n"))
         if (-not $foundMainXml) {
-          throw 'Setup.msi File table does not contain main.xml (WiX harvest failed)'
+          throw "Setup.msi File table does not contain main.xml (WiX harvest failed; rows=$fileCount)"
         }
-        Write-Host 'Setup.msi contains main.xml'
-    ###
+        if ($fileCount -lt 90) {
+          throw "Setup.msi File table has only $fileCount rows (need >= 90 including UI assets)"
+        }
+        Write-Host 'Setup.msi contains main.xml'    ###
     # Artifact
     ###
 

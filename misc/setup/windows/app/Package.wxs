@@ -27,7 +27,7 @@
 
         <StandardDirectory Id="$(var.ProgramFilesFolder)">
             <Directory Id="INSTALLFOLDER" Name="EA Games\MOHAA">
-                <Directory Name="openmohaa">
+                <Directory Id="OpenMohaaFolder" Name="openmohaa">
                     <!-- Core components -->
                     <Component Id="openmohaa.exe">
                         <File Source="files/openmohaa.exe" />
@@ -88,12 +88,12 @@
                         </File>
                     </Component>
 
-                    <!-- Changed in Omaha: harvest modern UI + fonts into openmohaa/main/... -->
-                    <Files Include="files\main\**" />
-
                     <Component Id="COPYING.txt">
                         <File Source="files/COPYING.txt" />
                     </Component>
+
+                    <!-- Target directory for harvested Omaha UI assets (filled via Feature/Files). -->
+                    <Directory Id="OpenMohaaMainFolder" Name="main" />
                 </Directory>
             </Directory>
         </StandardDirectory>
@@ -123,6 +123,17 @@
             <ComponentRef Id="COPYING.txt" />
         </ComponentGroup>
 
+        <!--
+          Changed in Omaha: Feature must reference harvested Files or they are
+          omitted from the MSI. Layout: openmohaa/main/{fonts,ui/modern}/...
+        -->
+        <Feature Id="ProductFeature" Title="OpenMoHAA" Level="1">
+            <ComponentGroupRef Id="Core" />
+            <ComponentGroupRef Id="ThirdParty" />
+            <ComponentGroupRef Id="Launchers" />
+            <ComponentGroupRef Id="License" />
+            <Files Directory="OpenMohaaMainFolder" Include="files\main\**" />
+        </Feature>
         <Property Id="INSTALLFOLDER">
             <RegistrySearch Root="HKLM"
                 Key="SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\MOHAA.exe" Name="Path"
