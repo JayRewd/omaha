@@ -24,6 +24,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 // Init functions for the cgame
 
 #include "cg_local.h"
+#include "cg_crosshair.h"
 #include "cg_parsemsg.h"
 #include "cg_archive.h"
 #include "cg_radar.h"
@@ -84,6 +85,8 @@ cvar_t *cg_drawsvlag;
 cvar_t *cg_crosshair;
 cvar_t *cg_crosshair_friend;
 cvar_t *ui_crosshair;
+cvar_t *ui_legacy;
+cvar_t *ui_om_hud;
 cvar_t *vm_offset_max;
 cvar_t *vm_offset_speed;
 cvar_t *vm_sway_front;
@@ -116,6 +119,7 @@ cvar_t *ui_timemessage;
 // Added in OPM
 //
 cvar_t *cg_fov;
+cvar_t *cg_zoomSensitivity; /* Added in OPM: off | legacy | screen */
 cvar_t *cg_cheats;
 
 /*
@@ -167,7 +171,7 @@ void CG_RegisterCvars(void)
     cg_animationviewmodel         = cgi.Cvar_Get("cg_animationviewmodel", "0", CVAR_SYSTEMINFO);
     cg_hitmessages                = cgi.Cvar_Get("cg_hitmessages", "1", CVAR_ARCHIVE);
     cg_acidtrip                   = cgi.Cvar_Get("cg_acidtrip", "0", CVAR_CHEAT);
-    cg_hud                        = cgi.Cvar_Get("cg_hud", "0", 0);
+    cg_hud                        = cgi.Cvar_Get("cg_hud", "1", 0);
     cg_huddraw_force              = cgi.Cvar_Get("cg_huddraw_force", "0", CVAR_SAVEGAME);
     cg_drawsvlag                  = cgi.Cvar_Get("cg_drawsvlag", "1", CVAR_ARCHIVE);
     cg_crosshair                  = cgi.Cvar_Get("cg_crosshair", "textures/hud/crosshair", CVAR_ARCHIVE);
@@ -176,6 +180,13 @@ void CG_RegisterCvars(void)
     // as it doesn't have crosshair_friend texture
     cg_crosshair_friend = cgi.Cvar_Get("cg_crosshair_friend", "textures/hud/crosshair_friend", CVAR_ARCHIVE);
     ui_crosshair                  = cgi.Cvar_Get("ui_crosshair", "1", CVAR_ARCHIVE);
+
+    CG_Crosshair_RegisterCvars();
+    CG_Crosshair_SyncClAliases();
+    CG_SpectateFP_RegisterCvars();
+
+    ui_legacy                     = cgi.Cvar_Get("ui_legacy", "0", CVAR_INIT);
+    ui_om_hud                     = cgi.Cvar_Get("ui_om_hud", "classic", CVAR_ARCHIVE);
     vm_offset_max                 = cgi.Cvar_Get("vm_offset_max", "8.0", 0);
     vm_offset_speed               = cgi.Cvar_Get("vm_offset_speed", "8.0", 0);
     vm_sway_front                 = cgi.Cvar_Get("vm_sway_front", "0.1", 0);
@@ -212,6 +223,8 @@ void CG_RegisterCvars(void)
     //
 
     cg_fov = cgi.Cvar_Get("cg_fov", "80", CVAR_ARCHIVE);
+    /* Added in OPM: off | legacy | screen (default screen-distance zoom sens). */
+    cg_zoomSensitivity = cgi.Cvar_Get("cg_zoomSensitivity", "screen", CVAR_ARCHIVE);
     cg_cheats = cgi.Cvar_Get("cheats", "0", CVAR_USERINFO | CVAR_SERVERINFO | CVAR_LATCH);
 }
 /*
@@ -819,6 +832,8 @@ clientGameExport_t *GetCGameAPI(void)
     cge.CG_ConsoleCommand           = CG_ConsoleCommand;
     cge.CG_GetRendererConfig        = CG_GetRendererConfig;
     cge.CG_Draw2D                   = CG_Draw2D;
+    cge.CG_DrawZoomOverlay          = CG_DrawZoomOverlay; /* Added in OPM */
+    cge.CG_SyncModernHudCvars       = CG_SyncModernHudCvars;
     cge.CG_EyePosition              = CG_EyePosition;
     cge.CG_EyeOffset                = CG_EyeOffset;
     cge.CG_EyeAngles                = CG_EyeAngles;

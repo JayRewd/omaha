@@ -24,6 +24,9 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 // Some tools used to drawing 2d stuff
 
 #include "cg_local.h"
+#include "cg_crosshair.h"
+
+#include <cstring>
 
 /*
 ================
@@ -515,7 +518,11 @@ void CG_DrawZoomOverlay()
     } else if (!Q_stricmp(weaponstring, "Binoculars")) {
         zoomType = 3;
     } else {
-        if (cg.snap->ps.stats[STAT_INZOOM] && cg.snap->ps.stats[STAT_INZOOM] <= 30) {
+        const int inZoomStat = cg.snap->ps.stats[STAT_INZOOM];
+        const int inZoomFov  = CG_SpectateFP_InZoom() ? CG_SpectateFP_ZoomFov() : 0;
+        const int zoomValue  = inZoomStat ? inZoomStat : inZoomFov;
+
+        if (zoomValue && zoomValue <= 30) {
             if (!Q_stricmp(weaponstring, "KAR98 - Sniper")) {
                 zoomType = 1;
             } else {
@@ -523,6 +530,20 @@ void CG_DrawZoomOverlay()
             }
         } else {
             bDrawOverlay = qfalse;
+        }
+    }
+
+    /*
+     * Added in OPM: modern sniper scope is painted in uirender. When that
+     * mode is on, skip PK3 sniper overlays (types 0/1) so custom packs stay
+     * available when cg_crosshair_sniper_modern is 0. Binoculars / Spy Camera
+     * still use retail shaders.
+     */
+    if (zoomType == 0 || zoomType == 1) {
+        cvar_t *sniperModern = cgi.Cvar_Find("cg_crosshair_sniper_modern");
+        if (sniperModern && sniperModern->integer) {
+            fAlpha = 0.0f;
+            return;
         }
     }
 
@@ -1030,6 +1051,9 @@ void CG_UpdateAttackerDisplay()
 void CG_UpdateCountdown()
 {
     const char *message = "";
+    char        secondsBuf[32];
+
+    secondsBuf[0] = '\0';
 
     if (!cg.snap) {
         return;
@@ -1043,6 +1067,8 @@ void CG_UpdateCountdown()
             if (iSecondsLeft >= 0) {
                 iMinutesLeft = iSecondsLeft / 60;
                 message      = va("%s %2i:%02i", cgi.LV_ConvertString("Time Left:"), iMinutesLeft, iSecondsLeft % 60);
+                /* Added in OPM: total seconds left for modern HUD binds. */
+                Com_sprintf(secondsBuf, sizeof(secondsBuf), "%d", iSecondsLeft);
             } else if (!cgs.matchEndTime) {
                 message = "";
             }
@@ -1058,6 +1084,8 @@ void CG_UpdateCountdown()
     if (strcmp(ui_timemessage->string, message)) {
         cgi.Cvar_Set("ui_timemessage", message);
     }
+    /* Added in OPM: scalar seconds provider (empty when no active countdown). */
+    cgi.Cvar_Set("ui_om_hud_time_seconds", secondsBuf);
 }
 
 static void CG_RemoveStopwatch()
@@ -1073,6 +1101,10 @@ void CG_DrawStopwatch()
 
     if (!cg_hud->integer) {
         CG_RemoveStopwatch();
+        return;
+    }
+
+    if (CG_UseModernHudPack()) {
         return;
     }
 
@@ -1128,6 +1160,10 @@ void CG_DrawInstantMessageMenu()
     float     w, h;
     float     x, y;
     qhandle_t handle;
+
+    if (CG_UseModernHudPack()) {
+        return;
+    }
 
     if (!cg.iInstaMessageMenu) {
         return;
@@ -1371,63 +1407,136 @@ void CG_DrawCrosshair()
         return;
     }
 
-    if (!cg.snap->ps.stats[STAT_CROSSHAIR]
-        && (!cg.snap->ps.stats[STAT_INZOOM] || cg.snap->ps.stats[STAT_INZOOM] > 30)) {
+    {
+        /* Added in OPM: always show crosshair while spectating (chase + free + FP). */
+        const qboolean isSpectating =
+            ((cg.snap->ps.pm_flags & PMF_SPECTATING) != 0
+             || cg.snap->ps.stats[STAT_TEAM] == TEAM_SPECTATOR)
+                ? qtrue
+                : qfalse;
+        const qboolean inScopeZoom =
+            ((cg.snap->ps.stats[STAT_INZOOM] && cg.snap->ps.stats[STAT_INZOOM] <= 30)
+             || (CG_SpectateFP_InZoom() && CG_SpectateFP_ZoomFov() <= 30))
+                ? qtrue
+                : qfalse;
+
+        if (!cg.snap->ps.stats[STAT_CROSSHAIR] && !(isSpectating && !inScopeZoom) && !inScopeZoom) {
+            return;
+        }
+    }
+
+    /* Added in OPM: procedural crosshair for modern HUD packs. */
+    if (CG_UseModernHudPack()) {
+        qboolean friendTarget = qfalse;
+        cvar_t  *sniperZoom;
+
+        /* Added in OPM: sniper zoom uses scope reticle (modern or PK3); skip short crosshair. */
+        sniperZoom = cgi.Cvar_Find("ui_om_hud_sniper_zoom");
+        if (sniperZoom && sniperZoom->integer) {
+            return;
+        }
+
+        if (cgs.gametype != GT_FFA) {
+            AngleVectorsLeft(cg.refdefViewAngles, forward, NULL, NULL);
+
+            VectorMA(cg.refdef.vieworg, 8192, forward, end);
+            VectorClear(mins);
+            VectorClear(maxs);
+
+            CG_Trace(
+                &trace, cg.refdef.vieworg, mins, maxs, end, 9999, MASK_SOLID, qfalse, qtrue, "CG_DrawCrosshair"
+            );
+
+            if ((trace.entityNum != ENTITYNUM_NONE && trace.entityNum != ENTITYNUM_WORLD)
+                && trace.entityNum != cg.snap->ps.clientNum) {
+                int myFlags;
+
+                friendEnt = &cg_entities[trace.entityNum];
+                if (cgs.gametype != GT_SINGLE_PLAYER) {
+                    myFlags = cg_entities[cg.snap->ps.clientNum].currentState.eFlags & EF_ANY_TEAM;
+                } else {
+                    myFlags = EF_ALLIES;
+                }
+
+                if (((myFlags & EF_ALLIES) && (friendEnt->currentState.eFlags & EF_ALLIES))
+                    || ((myFlags & EF_AXIS) && (friendEnt->currentState.eFlags & EF_AXIS))) {
+                    friendTarget = qtrue;
+                }
+            }
+        }
+
+        CG_DrawModernCrosshair(friendTarget);
         return;
     }
 
     // Fixed in OPM: R_RegisterShaderNoMip
     //  Use R_RegisterShaderNoMip, as it's UI stuff
 
-    if (cgs.gametype != GT_FFA) {
-        AngleVectorsLeft(cg.refdefViewAngles, forward, NULL, NULL);
+    {
+        /* Added in OPM: spectate snaps lack STAT_CROSSHAIR; still draw (chase + free + FP). */
+        const qboolean isSpectating =
+            ((cg.snap->ps.pm_flags & PMF_SPECTATING) != 0
+             || cg.snap->ps.stats[STAT_TEAM] == TEAM_SPECTATOR)
+                ? qtrue
+                : qfalse;
+        const qboolean inScopeZoom =
+            ((cg.snap->ps.stats[STAT_INZOOM] && cg.snap->ps.stats[STAT_INZOOM] <= 30)
+             || (CG_SpectateFP_InZoom() && CG_SpectateFP_ZoomFov() <= 30))
+                ? qtrue
+                : qfalse;
+        const qboolean wantCrosshair =
+            (cg.snap->ps.stats[STAT_CROSSHAIR] || (isSpectating && !inScopeZoom)) ? qtrue : qfalse;
 
-        VectorMA(cg.refdef.vieworg, 8192, forward, end);
-        VectorClear(mins);
-        VectorClear(maxs);
+        if (cgs.gametype != GT_FFA) {
+            AngleVectorsLeft(cg.refdefViewAngles, forward, NULL, NULL);
 
-        CG_Trace(&trace, cg.refdef.vieworg, mins, maxs, end, 9999, MASK_SOLID, qfalse, qtrue, "CG_DrawCrosshair");
+            VectorMA(cg.refdef.vieworg, 8192, forward, end);
+            VectorClear(mins);
+            VectorClear(maxs);
 
-        // ENTITYNUM_WORLD check added in OPM
-        if ((trace.entityNum != ENTITYNUM_NONE && trace.entityNum != ENTITYNUM_WORLD)
-            && trace.entityNum != cg.snap->ps.clientNum) {
-            int myFlags;
+            CG_Trace(&trace, cg.refdef.vieworg, mins, maxs, end, 9999, MASK_SOLID, qfalse, qtrue, "CG_DrawCrosshair");
 
-            friendEnt = &cg_entities[trace.entityNum];
-            if (cgs.gametype != GT_SINGLE_PLAYER) {
-                myFlags = cg_entities[cg.snap->ps.clientNum].currentState.eFlags & EF_ANY_TEAM;
-            } else {
-                // the player will always be considered as an allied
-                // in single-player
-                myFlags = EF_ALLIES;
-            }
+            // ENTITYNUM_WORLD check added in OPM
+            if ((trace.entityNum != ENTITYNUM_NONE && trace.entityNum != ENTITYNUM_WORLD)
+                && trace.entityNum != cg.snap->ps.clientNum) {
+                int myFlags;
 
-            if (((myFlags & EF_ALLIES) && (friendEnt->currentState.eFlags & EF_ALLIES))
-                || ((myFlags & EF_AXIS) && (friendEnt->currentState.eFlags & EF_AXIS))) {
-                // friend
-                if (cg.snap->ps.stats[STAT_CROSSHAIR]) {
-                    shader = cgi.R_RegisterShaderNoMip(cg_crosshair_friend->string);
-                    if (!shader) {
-                        // Fixed in OPM
-                        //  Fallback to normal crosshair texture if it doesn't exist
+                friendEnt = &cg_entities[trace.entityNum];
+                if (cgs.gametype != GT_SINGLE_PLAYER) {
+                    myFlags = cg_entities[cg.snap->ps.clientNum].currentState.eFlags & EF_ANY_TEAM;
+                } else {
+                    // the player will always be considered as an allied
+                    // in single-player
+                    myFlags = EF_ALLIES;
+                }
+
+                if (((myFlags & EF_ALLIES) && (friendEnt->currentState.eFlags & EF_ALLIES))
+                    || ((myFlags & EF_AXIS) && (friendEnt->currentState.eFlags & EF_AXIS))) {
+                    // friend
+                    if (wantCrosshair) {
+                        shader = cgi.R_RegisterShaderNoMip(cg_crosshair_friend->string);
+                        if (!shader) {
+                            // Fixed in OPM
+                            //  Fallback to normal crosshair texture if it doesn't exist
+                            shader = cgi.R_RegisterShaderNoMip(cg_crosshair->string);
+                        }
+                    }
+                } else {
+                    // enemy
+                    if (wantCrosshair) {
                         shader = cgi.R_RegisterShaderNoMip(cg_crosshair->string);
                     }
                 }
             } else {
-                // enemy
-                if (cg.snap->ps.stats[STAT_CROSSHAIR]) {
+                if (wantCrosshair) {
                     shader = cgi.R_RegisterShaderNoMip(cg_crosshair->string);
                 }
             }
         } else {
-            if (cg.snap->ps.stats[STAT_CROSSHAIR]) {
+            // FFA
+            if (wantCrosshair) {
                 shader = cgi.R_RegisterShaderNoMip(cg_crosshair->string);
             }
-        }
-    } else {
-        // FFA
-        if (cg.snap->ps.stats[STAT_CROSSHAIR]) {
-            shader = cgi.R_RegisterShaderNoMip(cg_crosshair->string);
         }
     }
 
@@ -1521,11 +1630,355 @@ void CG_DrawVote()
 
 /*
 ==============
+CG_UseModernHudPack
+==============
+*/
+qboolean CG_UseModernHudPack(void)
+{
+    if (ui_legacy && ui_legacy->integer) {
+        return qfalse;
+    }
+    if (ui_om_hud && ui_om_hud->string[0] && !Q_stricmp(ui_om_hud->string, "legacy")) {
+        return qfalse;
+    }
+    return qtrue;
+}
+
+static void CG_SyncModernObjectives(void)
+{
+    int i;
+    int iCurrentObjective;
+
+    if (!cgi.UIR_Objectives_Clear || !cgi.UIR_Objectives_AddRow || !cgi.UIR_Objectives_NotifyChanged) {
+        return;
+    }
+
+    for (i = CS_OBJECTIVES; i < CS_OBJECTIVES + MAX_OBJECTIVES; ++i) {
+        CG_ProcessConfigString(i, qfalse);
+    }
+
+    iCurrentObjective = atoi(CG_ConfigString(CS_CURRENT_OBJECTIVE));
+    cgi.UIR_Objectives_Clear();
+    if (cgi.UIR_Objectives_SetAlpha) {
+        cgi.UIR_Objectives_SetAlpha(cg.ObjectivesCurrentAlpha);
+    }
+
+    for (i = 0; i < MAX_OBJECTIVES; ++i) {
+        uir_objective_row_t row;
+
+        if ((cg.Objectives[i].flags == OBJ_FLAG_NONE) || (cg.Objectives[i].flags & OBJ_FLAG_HIDDEN)) {
+            continue;
+        }
+
+        std::memset(&row, 0, sizeof(row));
+        Q_strncpyz(row.text, cg.Objectives[i].text, sizeof(row.text));
+        row.hidden = 0;
+        row.completed = (cg.Objectives[i].flags & OBJ_FLAG_COMPLETED) ? 1 : 0;
+        row.current = (cg.Objectives[i].flags & OBJ_FLAG_CURRENT) ? 1 : 0;
+        row.highlight = (i == iCurrentObjective && !(cg.Objectives[i].flags & OBJ_FLAG_COMPLETED)) ? 1 : 0;
+        cgi.UIR_Objectives_AddRow(&row);
+    }
+
+    cgi.UIR_Objectives_NotifyChanged();
+}
+
+void CG_SyncModernHudCvars(void)
+{
+    char        buf[512];
+    const char *message;
+    int         seconds;
+    int         iFraction;
+    int         percentYes;
+    int         percentNo;
+    int         percentUndecided;
+
+    CG_UpdateCountdown();
+    CG_SyncModernObjectives();
+
+    if (cgs.voteTime) {
+        seconds = (30000 - (cg.time - cgs.voteTime)) / 1000 + 1;
+        if (seconds < 0) {
+            seconds = 0;
+        }
+        Com_sprintf(
+            buf,
+            sizeof(buf),
+            "%s: %s",
+            cgi.LV_ConvertString("Vote Running"),
+            cgs.voteString[0] ? cgs.voteString : ""
+        );
+        cgi.Cvar_Set("ui_om_hud_vote_text", buf);
+        Com_sprintf(buf, sizeof(buf), "%d", seconds);
+        cgi.Cvar_Set("ui_om_hud_vote_seconds", buf);
+
+        percentYes =
+            cgs.numVotesYes * 100 / (cgs.numUndecidedVotes + cgs.numVotesNo + cgs.numVotesYes);
+        percentNo = cgs.numVotesNo * 100 / (cgs.numUndecidedVotes + cgs.numVotesNo + cgs.numVotesYes);
+        percentUndecided =
+            cgs.numUndecidedVotes * 100 / (cgs.numUndecidedVotes + cgs.numVotesNo + cgs.numVotesYes);
+        Com_sprintf(
+            buf,
+            sizeof(buf),
+            "%s: %isec  %s: %i%%  %s: %i%%  %s: %i%%",
+            cgi.LV_ConvertString("Time"),
+            seconds,
+            cgi.LV_ConvertString("Yes"),
+            percentYes,
+            cgi.LV_ConvertString("No"),
+            percentNo,
+            cgi.LV_ConvertString("Undecided"),
+            percentUndecided
+        );
+        cgi.Cvar_Set("ui_om_hud_vote_stats", buf);
+
+        if (cg.snap && !cg.snap->ps.voted) {
+            cgi.Cvar_Set("ui_om_hud_vote_prompt", cgi.LV_ConvertString("Vote now, it's your patriotic duty!"));
+            cgi.Cvar_Set(
+                "ui_om_hud_vote_keys",
+                cgi.LV_ConvertString(va("Press %s to vote yes, and %s to vote no.", "F1", "F2"))
+            );
+        } else {
+            cgi.Cvar_Set("ui_om_hud_vote_prompt", "");
+            cgi.Cvar_Set("ui_om_hud_vote_keys", "");
+        }
+    } else {
+        cgi.Cvar_Set("ui_om_hud_vote_text", "");
+        cgi.Cvar_Set("ui_om_hud_vote_seconds", "0");
+        cgi.Cvar_Set("ui_om_hud_vote_stats", "");
+        cgi.Cvar_Set("ui_om_hud_vote_prompt", "");
+        cgi.Cvar_Set("ui_om_hud_vote_keys", "");
+    }
+
+    message = ui_timemessage ? ui_timemessage->string : "";
+    cgi.Cvar_Set("ui_om_hud_time_message", message ? message : "");
+
+    if (cg.snap && cg.snap->ps.stats[STAT_INFOCLIENT] >= 0) {
+        const int         iClientNum = cg.snap->ps.stats[STAT_INFOCLIENT];
+        const char       *pszClientInfo = CG_ConfigString(iClientNum + CS_PLAYERS);
+        const char       *pszName = Info_ValueForKey(pszClientInfo, "name");
+        qboolean          friendly = qfalse;
+
+        cgi.Cvar_Set("ui_om_hud_info_name", pszName ? pszName : "");
+        Com_sprintf(buf, sizeof(buf), "%d", cg.snap->ps.stats[STAT_INFOCLIENT_HEALTH]);
+        cgi.Cvar_Set("ui_om_hud_info_health", buf);
+        Com_sprintf(buf, sizeof(buf), "%d", cg.clientinfo[iClientNum].team);
+        cgi.Cvar_Set("ui_om_hud_info_team", buf);
+        if (cgs.gametype > GT_FFA && cg.snap->ps.stats[STAT_TEAM] > 0 &&
+            cg.clientinfo[iClientNum].team == cg.snap->ps.stats[STAT_TEAM]) {
+            friendly = qtrue;
+        }
+        cgi.Cvar_Set("ui_om_hud_info_friendly", friendly ? "1" : "0");
+    } else {
+        cgi.Cvar_Set("ui_om_hud_info_name", "");
+        cgi.Cvar_Set("ui_om_hud_info_health", "0");
+        cgi.Cvar_Set("ui_om_hud_info_team", "0");
+        cgi.Cvar_Set("ui_om_hud_info_friendly", "0");
+    }
+
+    if (cg.snap && cg.snap->ps.stats[STAT_ATTACKERCLIENT] >= 0) {
+        const int   iClientNum = cg.snap->ps.stats[STAT_ATTACKERCLIENT];
+        const char *pszClientInfo = CG_ConfigString(CS_PLAYERS + iClientNum);
+        const char *pszName = Info_ValueForKey(pszClientInfo, "name");
+        qboolean    friendly = qfalse;
+
+        cgi.Cvar_Set("ui_om_hud_attacker_name", pszName ? pszName : "");
+        Com_sprintf(buf, sizeof(buf), "%d", cg.clientinfo[iClientNum].team);
+        cgi.Cvar_Set("ui_om_hud_attacker_team", buf);
+        if (cgs.gametype > GT_FFA && cg.snap->ps.stats[STAT_TEAM] > 0 &&
+            cg.clientinfo[iClientNum].team == cg.snap->ps.stats[STAT_TEAM]) {
+            friendly = qtrue;
+        }
+        cgi.Cvar_Set("ui_om_hud_attacker_friendly", friendly ? "1" : "0");
+    } else {
+        cgi.Cvar_Set("ui_om_hud_attacker_name", "");
+        cgi.Cvar_Set("ui_om_hud_attacker_team", "0");
+        cgi.Cvar_Set("ui_om_hud_attacker_friendly", "0");
+    }
+
+    if (cg.snap && (cg.predicted_player_state.pm_flags & PMF_SPECTATING)) {
+        int  iKey1, iKey2;
+        const char *pszString;
+
+        /* Added in OPM: "Following name" above spectator prompts while chase-cam. */
+        if ((cg.predicted_player_state.pm_flags & PMF_CAMERA_VIEW)
+            && cg.snap->ps.stats[STAT_INFOCLIENT] >= 0) {
+            const int   iClientNum = cg.snap->ps.stats[STAT_INFOCLIENT];
+            const char *pszName = cg.clientinfo[iClientNum].name;
+
+            Com_sprintf(buf, sizeof(buf), "%s %s", cgi.LV_ConvertString("Following"), pszName ? pszName : "");
+            cgi.Cvar_Set("ui_om_hud_following_text", buf);
+            /* Added in OPM: bare name + team token for modern HUD (health cluster). */
+            cgi.Cvar_Set("ui_om_hud_following_name", pszName ? pszName : "");
+            if (cg.clientinfo[iClientNum].team == TEAM_AXIS) {
+                cgi.Cvar_Set("ui_om_hud_following_team", "axis");
+            } else if (cg.clientinfo[iClientNum].team == TEAM_ALLIES) {
+                cgi.Cvar_Set("ui_om_hud_following_team", "allies");
+            } else {
+                cgi.Cvar_Set("ui_om_hud_following_team", "");
+            }
+        } else {
+            cgi.Cvar_Set("ui_om_hud_following_text", "");
+            cgi.Cvar_Set("ui_om_hud_following_name", "");
+            cgi.Cvar_Set("ui_om_hud_following_team", "");
+        }
+
+        if (cg_protocol >= PROTOCOL_MOHTA_MIN) {
+            if (cg.snap->ps.stats[STAT_TEAM] != TEAM_ALLIES && cg.snap->ps.stats[STAT_TEAM] != TEAM_AXIS) {
+                cgi.Key_GetKeysForCommand("+attackprimary", &iKey1, &iKey2);
+                pszString = cgi.LV_ConvertString(
+                    va("Press Fire(%s) to join the battle!", cgi.Key_KeynumToBindString(iKey1))
+                );
+                cgi.Cvar_Set("ui_om_hud_spectator_text", pszString);
+            } else if (cg.predicted_player_state.pm_flags & PMF_CAMERA_VIEW) {
+                cgi.Key_GetKeysForCommand("+use", &iKey1, &iKey2);
+                pszString = cgi.LV_ConvertString(
+                    va("Press Use(%s) to enter free spectate mode.", cgi.Key_KeynumToBindString(iKey1))
+                );
+                cgi.Cvar_Set("ui_om_hud_spectator_text", pszString);
+            } else {
+                cgi.Key_GetKeysForCommand("+use", &iKey1, &iKey2);
+                pszString = cgi.LV_ConvertString(
+                    va("Press Use(%s) to enter player following spectate mode.", cgi.Key_KeynumToBindString(iKey1))
+                );
+                cgi.Cvar_Set("ui_om_hud_spectator_text", pszString);
+            }
+        } else {
+            cgi.Key_GetKeysForCommand("+use", &iKey1, &iKey2);
+            if (cg.predicted_player_state.pm_flags & PMF_CAMERA_VIEW) {
+                pszString = cgi.LV_ConvertString(
+                    va("Press Use(%s) to follow a different player.", cgi.Key_KeynumToBindString(iKey1))
+                );
+            } else {
+                pszString = cgi.LV_ConvertString(
+                    va("Press Use(%s) to follow a player.", cgi.Key_KeynumToBindString(iKey1))
+                );
+            }
+            cgi.Cvar_Set("ui_om_hud_spectator_text", pszString);
+        }
+    } else {
+        cgi.Cvar_Set("ui_om_hud_spectator_text", "");
+        cgi.Cvar_Set("ui_om_hud_following_text", "");
+        cgi.Cvar_Set("ui_om_hud_following_name", "");
+        cgi.Cvar_Set("ui_om_hud_following_team", "");
+    }
+
+    Com_sprintf(buf, sizeof(buf), "%d", cg.iInstaMessageMenu);
+    cgi.Cvar_Set("ui_om_hud_im_menu", buf);
+    if (cg.iInstaMessageMenu > 0) {
+        Com_sprintf(buf, sizeof(buf), "textures/hud/instamsg_group_%c", cg.iInstaMessageMenu + 96);
+        cgi.Cvar_Set("ui_om_hud_im_image", buf);
+    } else if (cg.iInstaMessageMenu < 0) {
+        cgi.Cvar_Set("ui_om_hud_im_image", "textures/hud/instamsg_main");
+    } else {
+        cgi.Cvar_Set("ui_om_hud_im_image", "");
+    }
+
+    cgi.Cvar_Set("ui_om_hud_pause_icon", paused->integer ? "1" : "0");
+    if (cg.predicted_player_state.pm_flags & PMF_LEVELEXIT) {
+        cgi.Cvar_Set("ui_om_hud_level_exit_icon", ((cg.time >> 9) & 1) ? "0" : "1");
+    } else {
+        cgi.Cvar_Set("ui_om_hud_level_exit_icon", "0");
+    }
+
+    iFraction = 0;
+    if (cgi.stopWatch->iStartTime && cgi.stopWatch->iStartTime < cgi.stopWatch->iEndTime
+        && cgi.stopWatch->iEndTime > cg.time && cg.ObjectivesCurrentAlpha < 0.02f
+        && (!cg.snap || cg.snap->ps.stats[STAT_HEALTH] > 0)) {
+        if (cgi.stopWatch->eType >= SWT_FUSE_WET) {
+            iFraction = cgi.stopWatch->iEndTime - cgi.stopWatch->iStartTime;
+        } else {
+            iFraction = cgi.stopWatch->iEndTime - cg.time;
+        }
+    }
+    Com_sprintf(buf, sizeof(buf), "%d", iFraction);
+    cgi.Cvar_Set("ui_om_hud_stopwatch_ms", buf);
+    /* Changed in OPM: clear type when inactive so idle dial cannot linger. */
+    if (iFraction > 0) {
+        Com_sprintf(buf, sizeof(buf), "%d", cgi.stopWatch->eType);
+        cgi.Cvar_Set("ui_om_hud_stopwatch_type", buf);
+        const int seconds = (iFraction + 999) / 1000;
+        Com_sprintf(buf, sizeof(buf), "%d", seconds);
+        cgi.Cvar_Set("ui_om_hud_stopwatch_text", buf);
+    } else {
+        cgi.Cvar_Set("ui_om_hud_stopwatch_type", "-1");
+        cgi.Cvar_Set("ui_om_hud_stopwatch_text", "");
+    }
+
+    /* Changed in OPM: match retail MP score/fraglimit mutual exclusion (any MP gametype). */
+    if (cgs.gametype && cgs.fraglimit) {
+        Com_sprintf(buf, sizeof(buf), "%s %d", cgi.LV_ConvertString("Frag Limit:"), cgs.fraglimit);
+        cgi.Cvar_Set("ui_om_hud_frag_limit_text", buf);
+        cgi.Cvar_Set("ui_om_hud_score_text", "");
+    } else if (cgs.gametype && cg.snap) {
+        cgi.Cvar_Set("ui_om_hud_frag_limit_text", "");
+        Com_sprintf(
+            buf,
+            sizeof(buf),
+            "%s: %d ( %d )",
+            cgi.LV_ConvertString("Score"),
+            cg.snap->ps.stats[STAT_KILLS],
+            cg.snap->ps.stats[STAT_HIGHEST_SCORE]
+        );
+        cgi.Cvar_Set("ui_om_hud_score_text", buf);
+    } else {
+        cgi.Cvar_Set("ui_om_hud_frag_limit_text", "");
+        cgi.Cvar_Set("ui_om_hud_score_text", "");
+    }
+
+    /*
+     * Added in OPM: modern HUD Allied|timer|Axis / self|timer|leader strip.
+     * FFA uses STAT_KILLS / STAT_HIGHEST_SCORE. Team modes cache both teams from
+     * scoreboard headers (silent score refresh) and keep own team live from STAT_KILLS.
+     */
+    if (!cgs.gametype || !cg.snap) {
+        cgi.Cvar_Set("ui_om_hud_allied_score", "");
+        cgi.Cvar_Set("ui_om_hud_axis_score", "");
+        cgi.Cvar_Set("ui_om_hud_score_self", "");
+        cgi.Cvar_Set("ui_om_hud_score_leader", "");
+    } else if (cgs.gametype == GT_FFA) {
+        cgi.Cvar_Set("ui_om_hud_allied_score", "");
+        cgi.Cvar_Set("ui_om_hud_axis_score", "");
+        Com_sprintf(buf, sizeof(buf), "%d", cg.snap->ps.stats[STAT_KILLS]);
+        cgi.Cvar_Set("ui_om_hud_score_self", buf);
+        Com_sprintf(buf, sizeof(buf), "%d", cg.snap->ps.stats[STAT_HIGHEST_SCORE]);
+        cgi.Cvar_Set("ui_om_hud_score_leader", buf);
+    } else {
+        const int team  = cg.snap->ps.stats[STAT_TEAM];
+        const int score = cg.snap->ps.stats[STAT_KILLS];
+
+        cgi.Cvar_Set("ui_om_hud_score_self", "");
+        cgi.Cvar_Set("ui_om_hud_score_leader", "");
+        CG_RequestHudTeamScoresSilent();
+        if (team == TEAM_ALLIES) {
+            Com_sprintf(buf, sizeof(buf), "%d", score);
+            cgi.Cvar_Set("ui_om_hud_allied_score", buf);
+        } else if (team == TEAM_AXIS) {
+            Com_sprintf(buf, sizeof(buf), "%d", score);
+            cgi.Cvar_Set("ui_om_hud_axis_score", buf);
+        }
+    }
+}
+
+/*
+==============
 CG_Draw2D
 ==============
 */
 void CG_Draw2D(void)
 {
+    if (cg_hud->integer && CG_UseModernHudPack()) {
+        CG_SyncModernHudCvars();
+        /*
+         * Zoom overlay is drawn in View3D before the modern HUD layer so PK3
+         * scopes sit under chrome (retail order). CG_DrawZoomOverlay skips
+         * sniper types when cg_crosshair_sniper_modern is on.
+         */
+        CG_HudDrawElements();
+        CG_DrawLagometer();
+        CG_DrawCrosshair();
+        return;
+    }
+
     CG_UpdateCountdown();
     CG_DrawZoomOverlay();
     CG_DrawLagometer();

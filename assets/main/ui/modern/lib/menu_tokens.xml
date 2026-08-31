@@ -1,0 +1,36 @@
+<ui-library version="1">
+	<vars>
+		<!-- Font sizes -->
+		<var id="text-caption" value="12px"/>
+		<var id="text-body" value="14px"/>
+		<var id="text-control" value="16px"/>
+		<var id="text-heading" value="18px"/>
+		<var id="text-tab" value="22px"/>
+		<var id="text-display" value="30px"/>
+
+		<!-- Text / icon colors -->
+		<var id="color-primary" value="#EBF0F5E6"/>
+		<var id="color-white" value="#FFFFFFFF"/>
+		<var id="color-muted" value="#EBF0F5B3"/>
+		<var id="color-disabled" value="#EBF0F559"/>
+		<var id="color-accent" value="#1A6FD4FF"/>
+		<var id="color-accent-hover" value="#2A7FE4FF"/>
+		<var id="color-accent-pressed" value="#0F5FC4FF"/>
+		<var id="color-allied" value="#8891CCFF"/>
+		<var id="color-axis" value="#CC8888FF"/>
+
+		<!-- Surfaces: 3-tier panels + overlays -->
+		<var id="fill-transparent" value="#00000000"/>
+		<var id="fill-scrim" value="#00000080"/>
+		<!-- Restored in OPM: FBO MSAA workaround had lowered this to #96; premul composite is fixed. -->
+		<var id="fill-panel" value="#0C0E12C7"/>
+		<var id="fill-input" value="#00000059"/>
+		<var id="fill-control" value="#00000073"/>
+		<var id="fill-hover-ghost" value="#FFFFFF0F"/>
+		<var id="fill-chip" value="#FFFFFF14"/>
+		<var id="fill-divider" value="#FFFFFF1A"/>
+		<var id="stroke-border" value="#FFFFFF29"/>
+		<var id="fill-divider-skew" value="#FFFFFF61"/>
+		<var id="fill-lab-track" value="#000000FF"/>
+	</vars>
+</ui-library>

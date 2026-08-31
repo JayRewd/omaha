@@ -27,6 +27,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 cvar_t		*cvar_vars = NULL;
 cvar_t		*cvar_cheats;
 int			cvar_modifiedFlags;
+/* Added in OPM: monotonic epoch bumped on any cvar value change (UI expr memo). */
+int			cvar_globalModCount;
 
 #define	MAX_CVARS	2048
 cvar_t		cvar_indexes[MAX_CVARS];
@@ -674,6 +676,7 @@ cvar_t *Cvar_Set2( const char *var_name, const char *value, qboolean force ) {
 			var->latchedString = CopyString(value);
 			var->modified = qtrue;
 			var->modificationCount++;
+			cvar_globalModCount++;
 			return var;
 		}
 	}
@@ -691,6 +694,7 @@ cvar_t *Cvar_Set2( const char *var_name, const char *value, qboolean force ) {
 
 	var->modified = qtrue;
 	var->modificationCount++;
+	cvar_globalModCount++;
 	
 	Z_Free (var->string);	// free the old value string
 	
@@ -1852,4 +1856,10 @@ float Cvar_VariableFloatValue(const char* var_name)
     if (!var)
         return 0;
     return var->value;
+}
+
+/* Added in OPM: monotonic epoch for UI expression memos. */
+int Cvar_GlobalModCount(void)
+{
+	return cvar_globalModCount;
 }

@@ -43,6 +43,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #ifndef DEDICATED
 #  include "../uilib/ui_public.h"
+void CL_UIR_SyncPointerMenus(void);
 #endif
 
 #include "../gamespy/q_gamespy.h"
@@ -646,6 +647,31 @@ qboolean Com_SafeMode( void ) {
 	return qfalse;
 }
 
+/*
+===============
+Com_CommandLineCvarSpecified
+
+Returns qtrue when the original command line included
+  +set <name> <value>
+Used to allow startup-only overrides (e.g. cl_renderer opengl2 for bake tools).
+===============
+*/
+qboolean Com_CommandLineCvarSpecified( const char *name ) {
+	int i;
+
+	if ( !name || !name[0] ) {
+		return qfalse;
+	}
+
+	for ( i = 0; i < com_numConsoleLines; i++ ) {
+		Cmd_TokenizeString( com_consoleLines[i] );
+		if ( !strcmp( Cmd_Argv( 0 ), "set" ) && !strcmp( Cmd_Argv( 1 ), name ) ) {
+			return qtrue;
+		}
+	}
+
+	return qfalse;
+}
 
 /*
 ===============
@@ -2345,6 +2371,12 @@ void Com_Frame( void ) {
     } while (Com_TimeVal(minMsec));
 
     IN_Frame();
+
+#ifndef DEDICATED
+    if (!com_dedicated->integer) {
+        CL_UIR_SyncPointerMenus();
+    }
+#endif
 
     lastTime = com_frameTime;
     com_frameTime = Com_EventLoop();

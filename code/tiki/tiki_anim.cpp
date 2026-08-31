@@ -177,6 +177,102 @@ int TIKI_Anim_NumForName(dtiki_t *pmdl, const char *name)
 
 /*
 ===============
+TIKI_Anim_GroupBounds
+
+Added in OPM: for a resolved anim index, return [top,bottom] of its TAF_RANDOM group.
+===============
+*/
+void TIKI_Anim_GroupBounds(dtiki_t *pmdl, int stableIdx, int *outTop, int *outBottom)
+{
+    dtikianimdef_t *panimdef;
+
+    *outTop = *outBottom = stableIdx;
+    if (!pmdl || !pmdl->a || stableIdx < 0 || stableIdx >= pmdl->a->num_anims) {
+        return;
+    }
+
+    panimdef = pmdl->a->animdefs[stableIdx];
+    if (!(panimdef->flags & TAF_RANDOM)) {
+        return;
+    }
+
+    for (*outTop = stableIdx; *outTop > 0; (*outTop)--) {
+        assert(pmdl->a->animdefs[*outTop - 1]);
+        if (TIKI_Anim_Compare(panimdef->alias, pmdl->a->animdefs[*outTop - 1]->alias)) {
+            break;
+        }
+    }
+
+    for (*outBottom = stableIdx; *outBottom < pmdl->a->num_anims - 1; (*outBottom)++) {
+        assert(pmdl->a->animdefs[*outBottom + 1]);
+        if (TIKI_Anim_Compare(panimdef->alias, pmdl->a->animdefs[*outBottom + 1]->alias)) {
+            break;
+        }
+    }
+}
+
+/*
+===============
+TIKI_Anim_NumForNameVariant
+
+Added in OPM: pick a deterministic variant inside a TAF_RANDOM alias group (no roll).
+===============
+*/
+int TIKI_Anim_NumForNameVariant(dtiki_t *pmdl, const char *name, int variant)
+{
+    int             iTop;
+    int             iBottom;
+    int             iMiddle;
+    int             iComp;
+    dtikianimdef_t *panimdef;
+    int             groupTop;
+    int             groupBottom;
+    int             span;
+
+    if (!pmdl || variant < 0) {
+        return -1;
+    }
+
+    iBottom = 0;
+    iTop    = pmdl->a->num_anims - 1;
+
+    while (iBottom <= iTop) {
+        iMiddle = (iBottom + iTop) / 2;
+
+        panimdef = pmdl->a->animdefs[iMiddle];
+        iComp    = TIKI_Anim_Compare(panimdef->alias, name);
+
+        if (!iComp) {
+            if (!(panimdef->flags & TAF_RANDOM)) {
+                return iMiddle;
+            }
+
+            for (iTop = iMiddle; iTop > 0; iTop--) {
+                assert(pmdl->a->animdefs[iTop - 1]);
+                if (TIKI_Anim_Compare(panimdef->alias, pmdl->a->animdefs[iTop - 1]->alias)) {
+                    break;
+                }
+            }
+            TIKI_Anim_GroupBounds(pmdl, iTop, &groupTop, &groupBottom);
+            span = groupBottom - groupTop;
+            if (variant > span) {
+                variant = span;
+            }
+            return groupTop + variant;
+        }
+
+        if (iComp > 0) {
+            iTop = iMiddle - 1;
+        } else {
+            iBottom = iMiddle + 1;
+        }
+    }
+
+    return -1;
+}
+
+/*
+===============
 TIKI_Anim_Random
 ===============
 */

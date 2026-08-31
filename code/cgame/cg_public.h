@@ -26,6 +26,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #pragma once
 
 #include "../renderercommon/tr_types.h"
+#include "../client/cl_scoreboard_host.h"
+#include "../client/cl_objectives_host.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -430,6 +432,17 @@ functions exported to the main executable
             qboolean     isHeader
         );
         void (*UI_DeleteScoreBoardItems)(int maxIndex);
+        void (*UIR_Scoreboard_Clear)(void);
+        void (*UIR_Scoreboard_SetMeta)(const uir_scoreboard_meta_t *meta);
+        void (*UIR_Scoreboard_AddRow)(const uir_scoreboard_row_t *row);
+        void (*UIR_Scoreboard_SetRowCount)(int count);
+        void (*UIR_Scoreboard_NotifyChanged)(void);
+        void (*UIR_Objectives_Clear)(void);
+        void (*UIR_Objectives_SetAlpha)(float alpha);
+        void (*UIR_Objectives_AddRow)(const uir_objective_row_t *row);
+        void (*UIR_Objectives_NotifyChanged)(void);
+        qboolean (*CL_UIMenu_OpenHold)(const char *menuId);
+        qboolean (*CL_UIMenu_CloseHold)(const char *menuId);
         void (*UI_ToggleDMMessageConsole)(int consoleMode);
         void (*CL_InitRadar)(radarClient_t* radars, qhandle_t* shaders, int clientNum); // Added in 2.0
         dtiki_t *(*TIKI_FindTiki)(const char *path);
@@ -462,6 +475,8 @@ functions exported to the main executable
         qboolean (*CG_ConsoleCommand)(void);
         void (*CG_GetRendererConfig)(void);
         void (*CG_Draw2D)(void);
+        void (*CG_DrawZoomOverlay)(void); /* Added in OPM: PK3 / retail zoom under modern HUD */
+        void (*CG_SyncModernHudCvars)(void);
         void (*CG_EyePosition)(vec3_t *eyePos);
         void (*CG_EyeOffset)(vec3_t *eyeOffset);
         void (*CG_EyeAngles)(vec3_t *eyeAngles);

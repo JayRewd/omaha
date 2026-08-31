@@ -94,7 +94,7 @@ void RB_DrawSprite( const refSprite_t *spr ) {
         return;
 	}
 
-    model = tr.models;
+	model = tr.models[0];
 	if (spr->hModel > 0 && spr->hModel < tr.numModels) {
 		model = tr.models[spr->hModel];
 	}

@@ -23,6 +23,10 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "bg_voteoptions.h"
 #include "../corepp/script.h"
 
+#if defined(CGAME_DLL)
+#    include "../cgame/cg_local.h"
+#endif
+
 #if defined(GAME_DLL)
 #    define VO_FS_FreeFile                  gi.FS_FreeFile
 #    define VO_FS_ReadFile(a, b)            gi.FS_ReadFile(a, b, true)
@@ -463,6 +467,41 @@ void CG_VoteOptions_FinishReadFromServer(const char *string)
     g_voteOptions.SetupMainOptionsList();
 }
 
+#if defined(CGAME_DLL)
+/* Added in OPM: mirror CL_UIR_UseModernHudPack without linking client. */
+static qboolean VO_UseModernHudPack(void)
+{
+	cvar_t *legacyHud = VO_Cvar_Get("ui_legacy", "0", 0);
+	cvar_t *omHud = VO_Cvar_Get("ui_om_hud", "classic", 0);
+
+	if (legacyHud && legacyHud->integer) {
+		return qfalse;
+	}
+	if (omHud && omHud->string[0] && !Q_stricmp(omHud->string, "legacy")) {
+		return qfalse;
+	}
+	return qtrue;
+}
+
+static void VO_ModernSetVoteRow(int row, const char *label, const char *cmd, int type, int index)
+{
+	char nameBuf[64];
+	char typeBuf[16];
+	char indexBuf[16];
+
+	Com_sprintf(nameBuf, sizeof(nameBuf), "ui_om_vote_%d_label", row);
+	VO_Cvar_Set(nameBuf, label ? label : "");
+	Com_sprintf(nameBuf, sizeof(nameBuf), "ui_om_vote_%d_cmd", row);
+	VO_Cvar_Set(nameBuf, cmd ? cmd : "");
+	Com_sprintf(typeBuf, sizeof(typeBuf), "%d", type);
+	Com_sprintf(nameBuf, sizeof(nameBuf), "ui_om_vote_%d_type", row);
+	VO_Cvar_Set(nameBuf, typeBuf);
+	Com_sprintf(indexBuf, sizeof(indexBuf), "%d", index);
+	Com_sprintf(nameBuf, sizeof(nameBuf), "ui_om_vote_%d_index", row);
+	VO_Cvar_Set(nameBuf, indexBuf);
+}
+#endif
+
 void CG_PushCallVote_f(void)
 {
     g_voteOptions.SetupMainOptionsList();
@@ -552,6 +591,39 @@ void CG_PushCallVoteSubClient_f(void)
     }
 
     g_voteOptions.GetVoteOptionMainName(index, &name);
+#if defined(CGAME_DLL)
+	if (VO_UseModernHudPack()) {
+		int row = 0;
+		char cmdBuf[128];
+
+		VO_Cvar_Set("ui_om_vote_list_kind", "client");
+		VO_Cvar_Set("ui_votesubtitle", name.c_str());
+		for (i = 0; i < cgs.maxclients; i++) {
+			char labelBuf[128];
+
+			if (type == VOTE_OPTION_CLIENT_NOT_SELF && cg.snap && i == cg.snap->ps.clientNum) {
+				continue;
+			}
+			if (!strlen(cg.clientinfo[i].name)) {
+				continue;
+			}
+			Com_sprintf(cmdBuf, sizeof(cmdBuf), "callvote %i %i;ui_close menu dm_pause", index, i);
+			Com_sprintf(labelBuf, sizeof(labelBuf), "%i: %s", i, cg.clientinfo[i].name);
+			VO_ModernSetVoteRow(row, labelBuf, cmdBuf, (int)VOTE_NO_CHOICES, i);
+			row++;
+			if (row >= 64) {
+				break;
+			}
+		}
+		if (row < 64) {
+			VO_ModernSetVoteRow(row, VO_LV_ConvertString("[Cancel Vote]"), "ui_close menu dm_pause", -1, 0);
+			row++;
+		}
+		VO_Cvar_Set("ui_om_vote_count", va("%d", row));
+		VO_ExecuteCommand("forcemenu votesubclient\n");
+		return;
+	}
+#endif
     VO_ExecuteCommand("forcemenu votesubclient\n");
     VO_Cvar_Set("ui_votesubtitle", name.c_str());
     VO_ExecuteCommand("globalwidgetcommand voteclientlist deleteallitems\n");
@@ -612,6 +684,70 @@ void VoteOptions::SetupMainOptionsList(void)
 {
     SingleVoteOption *option;
     int               count;
+
+#if defined(CGAME_DLL)
+	if (VO_UseModernHudPack()) {
+		int row = 0;
+
+		if (!IsSetup()) {
+			VO_Cvar_Set("ui_om_vote_list_kind", "main");
+			VO_Cvar_Set("ui_om_vote_count", "1");
+			VO_ModernSetVoteRow(
+				0,
+				VO_LV_ConvertString("Retrieving voting options from server..."),
+				"",
+				-1,
+				0
+			);
+			VO_SendRemoteCommand("gvo\n");
+			VO_ExecuteCommand("forcemenu votemain\n");
+			return;
+		}
+
+		VO_Cvar_Set("ui_om_vote_list_kind", "main");
+		count = 1;
+		for (option = m_pHeadOption; option; option = option->m_pNext, count++) {
+			char cmdBuf[256];
+
+			cmdBuf[0] = '\0';
+			switch (option->m_optionType) {
+			case VOTE_NO_CHOICES:
+				Com_sprintf(cmdBuf, sizeof(cmdBuf), "callvote %i;ui_close menu dm_pause", count);
+				break;
+			case VOTE_OPTION_LIST:
+				Com_sprintf(cmdBuf, sizeof(cmdBuf), "pushcallvotesublist %i", count);
+				break;
+			case VOTE_OPTION_TEXT:
+				Com_sprintf(cmdBuf, sizeof(cmdBuf), "set ui_votetype %i;pushcallvotesubtext %i", count, count);
+				break;
+			case VOTE_OPTION_INTEGER:
+				Com_sprintf(cmdBuf, sizeof(cmdBuf), "set ui_votetype %i;pushcallvotesubinteger %i", count, count);
+				break;
+			case VOTE_OPTION_FLOAT:
+				Com_sprintf(cmdBuf, sizeof(cmdBuf), "set ui_votetype %i;pushcallvotesubfloat %i", count, count);
+				break;
+			case VOTE_OPTION_CLIENT:
+			case VOTE_OPTION_CLIENT_NOT_SELF:
+				Com_sprintf(cmdBuf, sizeof(cmdBuf), "set ui_votetype %i;pushcallvotesubclient %i", count, count);
+				break;
+			default:
+				break;
+			}
+			VO_ModernSetVoteRow(row, option->m_sOptionName.c_str(), cmdBuf, (int)option->m_optionType, count);
+			row++;
+			if (row >= 64) {
+				break;
+			}
+		}
+		if (row < 64) {
+			VO_ModernSetVoteRow(row, VO_LV_ConvertString("[Cancel Vote]"), "ui_close menu dm_pause", -1, 0);
+			row++;
+		}
+		VO_Cvar_Set("ui_om_vote_count", va("%d", row));
+		VO_ExecuteCommand("forcemenu votemain\n");
+		return;
+	}
+#endif
 
     VO_ExecuteCommand("forcemenu votemain\n");
     VO_ExecuteCommand("globalwidgetcommand votelistmain deleteallitems\n");
@@ -711,6 +847,42 @@ void VoteOptions::SetupSubOptionsList(int index)
     if (option->m_optionType != VOTE_OPTION_LIST || !option->m_pListItem) {
         return;
     }
+
+#if defined(CGAME_DLL)
+	if (VO_UseModernHudPack()) {
+		int row = 0;
+
+		VO_Cvar_Set("ui_om_vote_list_kind", "sub");
+		VO_Cvar_Set("ui_votesubtitle", option->m_sOptionName.c_str());
+		if (IsSetup()) {
+			numItems = 1;
+			for (item = option->m_pListItem; item; item = item->m_pNext, numItems++) {
+				VO_ModernSetVoteRow(
+					row,
+					item->m_sItemName.c_str(),
+					va("callvote %i %i;ui_close menu dm_pause", index, numItems),
+					(int)VOTE_NO_CHOICES,
+					numItems
+				);
+				row++;
+				if (row >= 64) {
+					break;
+				}
+			}
+			if (row < 64) {
+				VO_ModernSetVoteRow(row, VO_LV_ConvertString("[Cancel Vote]"), "ui_close menu dm_pause", -1, 0);
+				row++;
+			}
+		} else {
+			VO_ModernSetVoteRow(0, "Retrieving voting options from server...", "", -1, 0);
+			row = 1;
+			VO_SendRemoteCommand("gvo\n");
+		}
+		VO_Cvar_Set("ui_om_vote_count", va("%d", row));
+		VO_ExecuteCommand("forcemenu votesublist\n");
+		return;
+	}
+#endif
 
     VO_ExecuteCommand("forcemenu votesublist\n");
     VO_Cvar_Set("ui_votesubtitle", option->m_sOptionName.c_str());

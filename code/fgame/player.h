@@ -667,6 +667,8 @@ public:
     void  DamageFeedback(void);
 
     void CopyStats(Player *player);
+    /* Added in OPM: combat HUD fields only (modern spectate follow); preserves identity stats. */
+    void CopyHudCombatStats(Player *player);
     void UpdateStats(void);
     void UpdateMusic(void);
     void UpdateReverb(void);

@@ -1,0 +1,130 @@
+<ui-library version="1">
+	<import src="ui/modern/lib/hud_classic_theme.xml"/>
+	<sources>
+		<source id="classic-ammo-defs">
+			<item value="Frag Grenade" label="Frag Grenade"
+			      texture="textures/hud/clip_fraggrenade" tile-width="40" row-height="40"
+			      lanes="1" stagger-x="0" stagger-y="0" use-ammo="1"/>
+			<item value="Stielhandgranate" label="Stielhandgranate"
+			      texture="textures/hud/clip_steilhandgranate" tile-width="40" row-height="40"
+			      lanes="1" stagger-x="0" stagger-y="0" use-ammo="1"/>
+			<item value="Bazooka" label="Bazooka"
+			      texture="textures/hud/clip_bazooka" tile-width="80" row-height="40"
+			      lanes="1" stagger-x="0" stagger-y="0" use-ammo="1"/>
+			<item value="Panzerschreck" label="Panzerschreck"
+			      texture="textures/hud/clip_panzerschreck" tile-width="80" row-height="40"
+			      lanes="1" stagger-x="0" stagger-y="0" use-ammo="1"/>
+			<item value="BAR" label="BAR"
+			      texture="textures/hud/clip_rifle" tile-width="80" row-height="20"
+			      lanes="2" stagger-x="5" stagger-y="10" use-ammo="0"/>
+			<item value="StG 44" label="StG 44"
+			      texture="textures/hud/clip_rifle" tile-width="80" row-height="20"
+			      lanes="2" stagger-x="5" stagger-y="10" use-ammo="0"/>
+			<item value="MP40" label="MP40"
+			      texture="textures/hud/clip_pistol" tile-width="40" row-height="20"
+			      lanes="2" stagger-x="5" stagger-y="10" use-ammo="0"/>
+			<item value="Thompson" label="Thompson"
+			      texture="textures/hud/clip_pistol" tile-width="40" row-height="20"
+			      lanes="2" stagger-x="5" stagger-y="10" use-ammo="0"/>
+			<item value="Colt 45" label="Colt 45"
+			      texture="textures/hud/clip_pistol" tile-width="40" row-height="20"
+			      lanes="1" stagger-x="0" stagger-y="0" use-ammo="0"/>
+			<item value="Walther P38" label="Walther P38"
+			      texture="textures/hud/clip_pistol" tile-width="40" row-height="20"
+			      lanes="1" stagger-x="0" stagger-y="0" use-ammo="0"/>
+			<item value="Hi-Standard Silenced" label="Hi-Standard Silenced"
+			      texture="textures/hud/clip_pistol" tile-width="40" row-height="20"
+			      lanes="1" stagger-x="0" stagger-y="0" use-ammo="0"/>
+			<item value="Shotgun" label="Shotgun"
+			      texture="textures/hud/clip_shotgun" tile-width="40" row-height="20"
+			      lanes="1" stagger-x="0" stagger-y="0" use-ammo="0"/>
+			<item value="M1 Garand" label="M1 Garand"
+			      texture="textures/hud/clip_rifle" tile-width="80" row-height="20"
+			      lanes="1" stagger-x="0" stagger-y="0" use-ammo="0"/>
+			<item value="Mauser KAR 98K" label="Mauser KAR 98K"
+			      texture="textures/hud/clip_rifle" tile-width="80" row-height="20"
+			      lanes="1" stagger-x="0" stagger-y="0" use-ammo="0"/>
+			<item value="KAR98 - Sniper" label="KAR98 - Sniper"
+			      texture="textures/hud/clip_rifle" tile-width="80" row-height="20"
+			      lanes="1" stagger-x="0" stagger-y="0" use-ammo="0"/>
+			<item value="Springfield '03 Sniper" label="Springfield '03 Sniper"
+			      texture="textures/hud/clip_rifle" tile-width="80" row-height="20"
+			      lanes="1" stagger-x="0" stagger-y="0" use-ammo="0"/>
+		</source>
+	</sources>
+
+	<templates>
+		<template id="classic-ammo-clip-single-clip">
+			<container width="{item.field.tile-width}px"
+			           height="{cvar.ui_om_hud_max_clip * item.field.row-height}px"
+			           padding="0" fill="{var.fill-transparent}"
+			           background-image="{item.field.texture}" background-fit="repeat"
+			           shape="edge-clip" left="0"
+			           top="{(cvar.ui_om_hud_max_clip - cvar.ui_om_hud_clip) / cvar.ui_om_hud_max_clip}"
+			           right="1" bottom="1"
+			           visible="{item.field.lanes == 1 and item.field.use-ammo == 0}"/>
+		</template>
+
+		<template id="classic-ammo-clip-single-ammo">
+			<container width="{item.field.tile-width}px"
+			           height="{cvar.ui_om_hud_max_ammo * item.field.row-height}px"
+			           padding="0" fill="{var.fill-transparent}"
+			           background-image="{item.field.texture}" background-fit="repeat"
+			           shape="edge-clip" left="0"
+			           top="{(cvar.ui_om_hud_max_ammo - cvar.ui_om_hud_ammo) / cvar.ui_om_hud_max_ammo}"
+			           right="1" bottom="1"
+			           visible="{item.field.lanes == 1 and item.field.use-ammo == 1}"/>
+		</template>
+
+		<template id="classic-ammo-clip-stagger">
+			<container type="overlap"
+			           width="{item.field.tile-width}px"
+			           height="{((cvar.ui_om_hud_max_clip + (cvar.ui_om_hud_max_clip % 2)) / 2) * item.field.row-height}px"
+			           padding="0" fill="{var.fill-transparent}"
+			           visible="{item.field.lanes == 2}">
+				<container width="{item.field.tile-width}px"
+				           height="{((cvar.ui_om_hud_max_clip + (cvar.ui_om_hud_max_clip % 2)) / 2) * item.field.row-height}px"
+				           margin="{item.field.stagger-y}px 0 0 {item.field.stagger-x}px"
+				           background-image="{item.field.texture}" background-fit="repeat"
+				           shape="edge-clip" left="0"
+				           top="{((cvar.ui_om_hud_max_clip - cvar.ui_om_hud_clip) - ((cvar.ui_om_hud_max_clip - cvar.ui_om_hud_clip) % 2)) / cvar.ui_om_hud_max_clip}"
+				           right="1" bottom="1"/>
+				<container width="{item.field.tile-width}px"
+				           height="{((cvar.ui_om_hud_max_clip + (cvar.ui_om_hud_max_clip % 2)) / 2) * item.field.row-height}px"
+				           background-image="{item.field.texture}" background-fit="repeat"
+				           shape="edge-clip" left="0"
+				           top="{((cvar.ui_om_hud_max_clip - cvar.ui_om_hud_clip) + ((cvar.ui_om_hud_max_clip - cvar.ui_om_hud_clip) % 2)) / cvar.ui_om_hud_max_clip}"
+				           right="1" bottom="1"/>
+			</container>
+		</template>
+
+		<template id="classic-ammo-clip-stack">
+			<container type="overlap" width="{item.field.tile-width}px" height="auto" gap="0" padding="0" fill="{var.fill-transparent}">
+				<use template="classic-ammo-clip-single-clip"/>
+				<use template="classic-ammo-clip-single-ammo"/>
+				<use template="classic-ammo-clip-stagger"/>
+			</container>
+		</template>
+
+		<template id="classic-ammo-panel">
+			<container type="horizontal" width="auto" height="auto" gap="10px" padding="0" valign="end" halign="end"
+			           source="classic-ammo-defs" bind="cvar:ui_om_hud_active_weapon">
+				<container type="vertical" width="auto" height="auto" gap="5px" halign="end" valign="end">
+					<label font="body" font-size="{var.text-body}" color="{var.color-health-label}" halign="end" width="auto"
+					       bind="cvar:ui_om_hud_active_weapon"
+					       visible="{cvar.ui_om_hud_active_weapon != &quot;&quot;}"/>
+					<container type="horizontal" width="auto" height="auto" gap="10px" halign="end">
+						<label font="body" font-size="{var.text-heading}" color="{var.color-health-label}" halign="end" width="auto"
+						       bind="cvar:ui_om_hud_clip">{cvar.ui_om_hud_clip}</label>
+						<label font="body" font-size="{var.text-body}" color="{var.color-health-label}" halign="end" width="auto">|</label>
+						<label font="body" font-size="{var.text-body}" color="{var.color-health-label}" halign="end" width="auto"
+						       bind="cvar:ui_om_hud_ammo">{cvar.ui_om_hud_ammo}</label>
+					</container>
+				</container>
+				<foreach mode="selected" width="auto">
+					<use template="classic-ammo-clip-stack"/>
+				</foreach>
+			</container>
+		</template>
+	</templates>
+</ui-library>

@@ -28,7 +28,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 extern "C" {
 #endif
 
-#define	REF_API_VERSION		14
+#define	REF_API_VERSION		18
 
 typedef struct dtiki_s dtiki_t;
 typedef struct skelAnimFrame_s skelAnimFrame_t;
@@ -180,6 +180,54 @@ typedef struct {
     void (*FreeRawImage)(byte *pic);
 
     void (*Set2DInitialShaderTime)(float startTime);
+
+	/* Modern UI: dynamic RGBA atlas materials (clamp, no mips, no picmip, linear). */
+	qhandle_t (*CreateUIAtlas)(const char *name, const byte *rgba, int width, int height);
+	qboolean (*UpdateUIAtlas)(qhandle_t hShader, const byte *rgba, int width, int height);
+
+	/* Modern UI: stencil shape clipping for bitmap backgrounds. */
+	qboolean (*UiStencilAvailable)(void);
+	void (*BeginUiStencilMask)(int x, int y, int width, int height);
+	void (*BeginUiStencilDraw)(void);
+	void (*EndUiStencil)(void);
+
+	/* Modern UI: menu world replacement (single world slot). */
+	void (*ClearWorld)(void);
+	void (*LoadMenuWorld)(const char *name);
+	qboolean (*LoadMenuWorldStaged)(const char *name);
+	void (*CommitMenuWorld)(void);
+	void (*CancelMenuWorldStaging)(void);
+	qboolean (*HasActiveWorld)(void);
+
+	/* Added in OPM: offscreen transparent model preview PNG export (GL2). */
+	qboolean (*ExportModelPreviewPNG)( const refdef_t *fd, const char *vfsPath );
+
+	/* Added in OPM: batched 2D UI geometry. NULL on renderers without a GPU UI path. */
+	qboolean (*UI2DBatchSupported)(void);
+	qboolean (*UI2DCanBatchShader)(qhandle_t hShader);
+	void     (*DrawUI2D)(const ui2dVert_t *verts, int numVerts,
+	                     const unsigned short *indexes, int numIndexes, qhandle_t hShader);
+
+	/* Added in OPM: optional offscreen MSAA UI target (GL1). */
+	qboolean (*UI2DTargetAvailable)(void);
+	qboolean (*BeginUI2DTarget)(void);
+	void     (*EndUI2DTarget)(void);
+	qboolean (*UI2DTargetIsActive)(void);
+	int      (*UI2DTargetSamples)(void);
+	void     (*UI2DTargetRebind)(void);
+
+	/* Added in OPM: soft mask-image layer RT (GL1 UI FBO). */
+	qboolean (*UiLayerAvailable)(void);
+	qboolean (*BeginUiLayer)(int fbX, int fbY, int fbW, int fbH, float uiX, float uiY, float uiW, float uiH);
+	void     (*UiLayerApplyMask)(qhandle_t hShader, float x, float y, float w, float h, float s1, float t1, float s2, float t2);
+	void     (*EndUiLayer)(void);
+
+	/* Added in OPM: retained chrome cache RT (GL1); blit on idle frames. */
+	qboolean (*UiChromeCacheAvailable)(void);
+	qboolean (*BeginUiChromeCacheCapture)(float uiX, float uiY, float uiW, float uiH);
+	void     (*EndUiChromeCacheCapture)(void);
+	void     (*BlitUiChromeCache)(void);
+	void     (*InvalidateUiChromeCache)(void);
 } refexport_t;
 
 //

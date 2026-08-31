@@ -1,0 +1,307 @@
+<ui version="1">
+	<definitions menu-id="main" draw-order="8" backdrop="menu-map">
+		<import src="ui/modern/lib/theme.xml"/>
+		<import src="ui/modern/lib/shapes.xml"/>
+		<import src="ui/modern/lib/crosshairs.xml"/>
+		<import src="ui/modern/lib/sources.xml"/>
+		<import src="ui/modern/lib/controls.xml"/>
+		<import src="ui/modern/lib/modals.xml"/>
+		<import src="ui/modern/lib/images.xml"/>
+		<import src="ui/modern/lib/browser.xml"/>
+	</definitions>
+
+	<canvas>
+		<container id="menu_root" type="vertical" width="100%" height="100%" fill="{var.fill-transparent}">
+			<!-- Header: HTML max(7%, 52px); 720p compare harness → 52px -->
+			<container id="menu_header" type="horizontal" width="100%" height="52px"
+			           fill="{var.fill-panel}" padding="0" gap="0" halign="space-between">
+				<container id="menu_nav" type="horizontal" width="auto" height="100%" gap="0"
+				           valign="center" padding="0px 6px 0 0">
+					<button id="nav_exit" padding="0 18px 0 18px" width="auto" height="100%"
+					        fill="{var.fill-transparent}" hoverfill="{var.fill-hover-ghost}"
+					        shape="skew-rect" skewl="0" skewr="12px" halign="center" valign="center">
+						<shape shape="exit-icon" width="32px" height="32px" fill="{var.color-white}"/>
+						<on event="click">
+							<show-modal id="exit_confirm"/>
+						</on>
+					</button>
+					<container width="2px" height="100%" margin="0 -6px 0 -6px" fill="{var.fill-divider-skew}"
+					           shape="angled-line" offset="12px" heightfactor="0.64"/>
+					<container id="menu_nav_tabs" type="horizontal" width="auto" height="100%" gap="0"
+					           valign="center" padding="0"
+					           source="menu-panels" bind="cvar:ui_om_main_panel">
+						<use template="route-tab-bar-header"/>
+					</container>
+				</container>
+				<container id="menu_brand" type="horizontal" width="auto" height="100%" gap="16px"
+				           valign="center" padding="0 16px 0 0">
+					<label font="control" font-size="{var.text-display}" color="{var.color-white}" letter-spacing="4px">PROJECT: OMAHA</label>
+					<shape shape="allied-star" height="35px" width="35px" fill="{var.color-white}"/>
+				</container>
+			</container>
+
+			<!-- Body -->
+			<container id="menu_body" type="vertical" width="100%" height="fill" padding="2.5%" fill="{var.fill-transparent}">
+				<!-- PLAY -->
+				<container id="panel_play" type="horizontal" width="100%" height="100%" gap="1.25%" visible="{cvar.ui_om_main_panel == play}" fill="{var.fill-transparent}">
+					<use template="server-browser" id="browser_panel"/>
+
+					<!-- Profile panel 28% -->
+					<container id="profile_panel" type="vertical" width="28%" height="100%" fill="{var.fill-panel}" gap="0"
+					           stroke="{var.fill-divider}" stroke-width="1px">
+						<container type="vertical" width="100%" height="48px" gap="0">
+							<label id="profile_title" width="100%" height="fill" padding="0 16px"
+							       fill="{var.fill-input}" valign="center"
+							       font="control" font-size="{var.text-heading}" color="{var.color-white}" letter-spacing="2px">PROFILE</label>
+							<container width="100%" height="1px" fill="{var.fill-divider}"/>
+						</container>
+						<container id="profile_name_block" type="vertical" width="100%" height="auto"
+						           padding="12px 16px 16px 16px" gap="6px">
+							<label font="body" font-size="{var.text-control}" color="{var.color-muted}" letter-spacing="1px">NAME</label>
+							<container type="horizontal" width="100%" height="auto" gap="4px" valign="center">
+								<input id="field_player_name" type="text" width="fill" height="auto" padding="8px 8px 8px 8px"
+								       shape="skew-rect" skewl="0" skewr="12px"
+								       bind="cvar:name" commit="change" max-length="32"
+								       fill="{var.fill-input}" color="{var.color-white}" font="body" font-size="{var.text-control}" letter-spacing="1px"
+								       halign="start" valign="center"/>
+								<button id="btn_profile_apply" width="auto" height="auto" padding="8px 20px 8px 26px"
+								        shape="skew-rect" skewl="12px" skewr="0"
+								        fill="{var.color-accent}" hoverfill="{var.color-accent-hover}"
+								        color="{var.color-white}" font="control" font-size="{var.text-control}" letter-spacing="2px">
+									APPLY
+									<on event="click"><invoke name="apply-profile"/></on>
+								</button>
+							</container>
+							<container width="100%" height="1px" fill="{var.fill-chip}"/>
+						</container>
+						<container id="profile_models" type="horizontal" width="100%" height="fill" padding="8px 10px" gap="10px">
+							<container type="vertical" width="fill" height="100%" gap="4px" padding="2px 0">
+								<label width="100%" font="control" font-size="{var.text-body}" color="{var.color-muted}"
+								       letter-spacing="1px" halign="center">ALLIES</label>
+								<model id="preview_allies" team="allies" anim="americanselectionidle"
+								       anim-variant="2" anim-phase="0.0"
+								       bind="cvar:ui_dm_playermodel_set" width="100%" height="fill" fill="{var.fill-transparent}"/>
+								<select id="select_allies_model" width="100%" height="28px" bind="cvar:ui_dm_playermodel_set" commit="change"
+								        source="player-models-allies" modal="player-model-allies"
+								        fill="{var.fill-control}" color="{var.color-white}" font="control" font-size="{var.text-body}"
+								        stroke="{var.fill-divider}" stroke-width="1px"/>
+							</container>
+							<container type="vertical" width="fill" height="100%" gap="4px" padding="2px 0">
+								<label width="100%" font="control" font-size="{var.text-body}" color="{var.color-muted}"
+								       letter-spacing="1px" halign="center">AXIS</label>
+								<model id="preview_axis" team="axis" anim="germanselectionidle"
+								       anim-variant="2" anim-phase="0.35"
+								       bind="cvar:ui_dm_playergermanmodel_set" width="100%" height="fill" fill="{var.fill-transparent}"/>
+								<select id="select_axis_model" width="100%" height="28px" bind="cvar:ui_dm_playergermanmodel_set" commit="change"
+								        source="player-models-axis" modal="player-model-axis"
+								        fill="{var.fill-control}" color="{var.color-white}" font="control" font-size="{var.text-body}"
+								        stroke="{var.fill-divider}" stroke-width="1px"/>
+							</container>
+						</container>
+					</container>
+				</container>
+
+				<!-- SETTINGS -->
+				<container id="panel_settings" type="vertical" width="100%" height="100%" fill="{var.fill-panel}" visible="{cvar.ui_om_main_panel == settings}" gap="0"
+				           stroke="{var.fill-divider}" stroke-width="1px">
+					<container type="vertical" width="100%" height="48px" gap="0">
+						<container id="settings_tabs" type="horizontal" width="100%" height="fill" fill="{var.fill-input}" gap="0"
+						           padding="0 0px" valign="center"
+						           source="settings-pages" bind="cvar:ui_om_settings_tab">
+							<foreach mode="all" type="horizontal" width="100%" height="100%" gap="0" valign="center">
+								<button set-index="{item.index}"
+								        width="auto" height="100%" padding="0 20px" shape="skew-rect"
+								        skewl="12px" skewr="12px"
+								        fill="{item.selected ? var.color-accent : var.fill-transparent}"
+								        hoverfill="{item.selected ? var.color-accent-hover : var.fill-hover-ghost}"
+								        color="{item.selected ? var.color-white : var.color-muted}"
+								        font="control" font-size="{var.text-control}" letter-spacing="2px">{item.label}</button>
+								<container width="2px" height="100%" margin="0 -6px 0 -6px" fill="{var.fill-divider-skew}"
+								           shape="angled-line" offset="12px" heightfactor="0.64"
+								           visible="{!item.last}"/>
+							</foreach>
+						</container>
+						<container width="100%" height="1px" fill="{var.fill-divider}"/>
+					</container>
+
+					<container id="settings_pages" type="vertical" width="100%" height="fill" fill="{var.fill-transparent}">
+						<!-- INPUT: binds + mouse side by side (one shared scrollbar) -->
+						<container id="settings_page_input" type="vertical" width="100%" height="100%"
+						           overflow="scroll" scrollbar="scrollbar-default" scrollbar-edge="border"
+						           padding="8px 12px 12px 12px"
+						           visible="{cvar.ui_om_settings_tab == input}">
+							<container type="horizontal" width="100%" height="auto" gap="12px">
+								<container type="vertical" width="fill" height="auto" gap="0" padding="0 4px 0 0">
+									<use template="settings-header-row"/>
+									<use template="settings-category-row" label="Movement"/>
+										<use template="settings-keybind-row" label="Forward" binding="+forward"/>
+										<use template="settings-keybind-row" label="Back" binding="+back"/>
+										<use template="settings-keybind-row" label="Move Left" binding="+moveleft"/>
+										<use template="settings-keybind-row" label="Move Right" binding="+moveright"/>
+										<use template="settings-keybind-row" label="Jump" binding="+moveup"/>
+										<use template="settings-keybind-row" label="Crouch" binding="+movedown"/>
+										<use template="settings-keybind-row" label="Walk" binding="+speed"/>
+										<use template="settings-keybind-row" label="Lean Left" binding="+leanleft"/>
+										<use template="settings-keybind-row" label="Lean Right" binding="+leanright"/>
+									<use template="settings-category-row" label="Weapons"/>
+										<use template="settings-keybind-row" label="Attack" binding="+attackprimary"/>
+										<use template="settings-keybind-row" label="Alt Attack" binding="+attacksecondary"/>
+										<use template="settings-keybind-row" label="Reload" binding="reload"/>
+										<use template="settings-keybind-row" label="Next Weapon" binding="weapnext"/>
+										<use template="settings-keybind-row" label="Previous Weapon" binding="weapprev"/>
+										<use template="settings-keybind-row" label="Use" binding="+use"/>
+										<use template="settings-keybind-row" label="Pistol" binding="useweaponclass pistol"/>
+										<use template="settings-keybind-row" label="Rifle / Sniper" binding="useweaponclass rifle"/>
+										<use template="settings-keybind-row" label="SMG" binding="useweaponclass smg"/>
+										<use template="settings-keybind-row" label="MG" binding="useweaponclass mg"/>
+										<use template="settings-keybind-row" label="Grenade" binding="useweaponclass grenade"/>
+										<use template="settings-keybind-row" label="Shotgun / Rocket Launcher" binding="useweaponclass heavy"/>
+										<use template="settings-keybind-row" label="Binoculars" binding="useweaponclass binoculars"/>
+									<use template="settings-category-row" label="Communication"/>
+										<use template="settings-keybind-row" label="Chat" binding="messagemode"/>
+										<use template="settings-keybind-row" label="Team Chat" binding="messagemode2"/>
+										<use template="settings-keybind-row" label="Voice Main Menu" binding="pushmenu voicemenu"/>
+										<use template="settings-keybind-row" label="Team Taunts Menu" binding="pushmenu teamtaunts"/>
+										<use template="settings-keybind-row" label="Taunts Menu" binding="pushmenu taunts"/>
+										<use template="settings-keybind-row" label="Taunt 1" binding="taunt 1"/>
+										<use template="settings-keybind-row" label="Taunt 2" binding="taunt 2"/>
+										<use template="settings-keybind-row" label="Taunt 3" binding="taunt 3"/>
+										<use template="settings-keybind-row" label="Taunt 4" binding="taunt 4"/>
+									<use template="settings-category-row" label="Misc"/>
+										<use template="settings-keybind-row" label="Toggle First Person Spectate" binding="toggle cg_spectate_firstperson"/>
+										<use template="settings-keybind-row" label="Scoreboard Cursor" binding="toggle ui_om_scoreboard_cursor"/>
+								</container>
+								<container type="vertical" width="fill" height="auto" gap="8px" padding="0 0 0 4px">
+									<use template="settings-section-header" label="MOUSE"/>
+									<use template="settings-on-off-row" label="Sensitivity Mode" bind="cvar:ui_modernsettings_sensitivity_mode" commit="change" off-label="Sensitivity" on-label="cm/360" off-value="sensitivity" on-value="cm360"/>
+									<use template="settings-slider-row" label="Sensitivity" bind="cvar:sensitivity" min="0.1" max="30" step="0.001" commit="change" visible="{cvar.ui_modernsettings_sensitivity_mode == sensitivity}"/>
+									<use template="settings-slider-row" label="cm/360" bind="cvar:sensitivity" min="1" max="200" step="0.1" commit="change" value-type="cm360" visible="{cvar.ui_modernsettings_sensitivity_mode == cm360}"/>
+									<use template="settings-number-row" label="Mouse DPI" bind="cvar:ui_modernsettings_dpi" min="100" max="32000" step="50" commit="change" visible="{cvar.ui_modernsettings_sensitivity_mode == cm360}"/>
+									<use template="settings-cyclic-row" label="Zoom Sensitivity" bind="cvar:cg_zoomSensitivity" source="zoom-sensitivity-mode" commit="change"/>
+									<use template="settings-on-off-row" label="Invert mouse" bind="cvar:m_pitch" commit="change" value-type="invert-mouse"/>
+									<use template="settings-on-off-row" label="Mouse smoothing" bind="cvar:m_filter" commit="change"/>
+									<use template="settings-on-off-row" label="Mouse Acceleration" bind="cvar:cl_mouseAccel" commit="change"/>
+									<use template="settings-on-off-row" label="Raw Input" bind="cvar:in_mouse" commit="change" off-label="DirectInput" on-label="Raw Input" off-value="1" on-value="-1"/>
+									<use template="settings-slider-row" label="m_yaw" bind="cvar:m_yaw" min="0.001" max="1" step="0.001" commit="change"/>
+									<use template="settings-slider-row" label="m_pitch" bind="cvar:m_pitch" min="-1" max="1" step="0.001" commit="change"/>
+								</container>
+							</container>
+						</container>
+
+						<!-- VIDEO: display + graphics side by side (one shared scrollbar) -->
+						<container id="settings_page_video" type="vertical" width="100%" height="100%"
+						           overflow="scroll" scrollbar="scrollbar-default" scrollbar-edge="border"
+						           padding="8px 12px 12px 12px"
+						           visible="{cvar.ui_om_settings_tab == video}">
+							<container type="horizontal" width="100%" height="auto" gap="12px">
+								<container type="vertical" width="fill" height="auto" gap="8px" padding="0 4px 0 0">
+									<use template="settings-section-header" label="VIDEO"/>
+									<use template="settings-cyclic-row" label="Display Mode" bind="cvar:r_fullscreen" source="display-mode" commit="apply" value-type="display-mode"/>
+									<use template="settings-cyclic-row" label="Resolution" bind="cvar:r_mode" source="video-modes" commit="apply"/>
+									<use template="settings-on-off-row" label="Vertical sync" bind="cvar:r_swapInterval" commit="apply"/>
+									<use template="settings-cyclic-row" label="Max FPS" bind="cvar:com_maxfps" source="max-fps" commit="change"/>
+									<use template="settings-slider-row" label="Gamma" bind="cvar:r_gamma" min="0.5" max="3" step="0.05" commit="change"/>
+									<use template="settings-on-off-row" label="Color Depth" bind="cvar:r_colorbits" commit="apply"
+									     off-label="16-bit" on-label="32-bit" off-value="16" on-value="32"/>
+									<use template="settings-on-off-row" label="Texture Color Depth" bind="cvar:r_texturebits" commit="apply"
+									     off-label="16-bit" on-label="32-bit" off-value="16" on-value="32"/>
+									<use template="settings-slider-row" label="UI Scale" bind="cvar:ui_scale" min="0.25" max="2" step="0.05" commit="submit"/>
+									<use template="settings-cyclic-row" label="Menu Backdrop" bind="cvar:ui_om_menu_map_view" source="menu-map-views" commit="change"/>
+								</container>
+								<container type="vertical" width="fill" height="auto" gap="8px" padding="0 0 0 4px">
+									<use template="settings-section-header" label="GRAPHICS"/>
+									<use template="settings-cyclic-row" label="Texture Quality (Picmip)" bind="cvar:r_picmip" source="picmip" commit="change"/>
+									<use template="settings-cyclic-row" label="Texture filtering" bind="cvar:r_textureMode" source="texture-filter" commit="change"/>
+									<use template="settings-on-off-row" label="Compressed Textures" bind="cvar:r_ext_compressed_textures" commit="change"/>
+									<use template="settings-cyclic-row" label="Model / World LOD" bind="cvar:r_lodscale" source="lod-scale" commit="change"/>
+									<use template="settings-cyclic-row" label="Shadows" bind="cvar:cg_shadows" source="shadows" commit="change"/>
+									<use template="settings-on-off-row" label="Real Dynamic Lighting" bind="cvar:r_fastentlight" commit="change"/>
+									<use template="settings-on-off-row" label="Full Entity Lighting" bind="cvar:r_entlightmap" commit="change"/>
+									<use template="settings-on-off-row" label="Flares" bind="cvar:r_flares" commit="change"/>
+									<use template="settings-on-off-row" label="Volumetric Smoke" bind="cvar:vss_draw" commit="change"/>
+									<use template="settings-cyclic-row" label="Effect Detail" bind="cvar:cg_effectdetail" source="effect-detail" commit="change"/>
+									<use template="settings-on-off-row" label="Weather Effects" bind="cvar:cg_rain" commit="change"/>
+									<use template="settings-on-off-row" label="Wall Decals" bind="cvar:cg_marks_add" commit="change"/>
+									<use template="settings-on-off-row" label="Static Decals" bind="cvar:r_drawstaticdecals" commit="change"/>
+								</container>
+							</container>
+						</container>
+
+						<!-- AUDIO -->
+						<container id="settings_page_audio" type="vertical" width="100%" height="100%" overflow="scroll" scrollbar="scrollbar-default" scrollbar-edge="border" padding="8px 12px 12px 12px" gap="8px" visible="{cvar.ui_om_settings_tab == audio}">
+								<use template="settings-on-off-row" label="Sound" bind="cvar:s_initsound" commit="change"/>
+								<use template="settings-slider-row" label="Master Volume" bind="cvar:s_volume" min="0" max="100" step="1" commit="change" value-type="percent"
+								     visible="{cvar.s_initsound != 0}"/>
+								<use template="settings-slider-row" label="Music volume" bind="cvar:s_musicvolume" min="0" max="100" step="1" commit="change" value-type="percent"
+								     visible="{cvar.s_initsound != 0}"/>
+								<use template="settings-cyclic-row" label="Speaker Setup" bind="cvar:s_speaker_type" source="speaker-setup" commit="change"
+								     visible="{cvar.s_initsound != 0}"/>
+								<use template="settings-cyclic-row" label="Sound Quality" bind="cvar:s_khz" source="sample-rate" commit="change"
+								     visible="{cvar.s_initsound != 0}"/>
+								<use template="settings-cyclic-row" label="3D Sound Driver" bind="cvar:s_milesdriver" source="miles-driver" commit="change"
+								     visible="{cvar.s_initsound != 0}"/>
+								<use template="settings-on-off-row" label="Doppler Effect" bind="cvar:s_doppler" commit="change"
+								     visible="{cvar.s_initsound != 0}"/>
+								<use template="settings-on-off-row" label="EAX Reverb" bind="cvar:s_reverb" commit="change"
+								     visible="{cvar.s_initsound != 0}"/>
+								<use template="settings-slider-row" label="Mix Ahead" bind="cvar:s_mixahead" min="0.05" max="0.5" step="0.05" commit="change"
+								     visible="{cvar.s_initsound != 0}"/>
+								<use template="settings-on-off-row" label="Mute When Minimized" bind="cvar:s_muteWhenMinimized" commit="change"
+								     visible="{cvar.s_initsound != 0}"/>
+								<use template="settings-on-off-row" label="Mute When Unfocused" bind="cvar:s_muteWhenUnfocused" commit="change"
+								     visible="{cvar.s_initsound != 0}"/>
+						</container>
+
+						<!-- GAMEPLAY -->
+						<container id="settings_page_gameplay" type="vertical" width="100%" height="100%" overflow="scroll" scrollbar="scrollbar-default" scrollbar-edge="border" padding="8px 12px 12px 12px" gap="8px" visible="{cvar.ui_om_settings_tab == gameplay}">
+								<use template="settings-on-off-row" label="Show HUD" bind="cvar:cg_hud" commit="change"/>
+								<use template="settings-cyclic-row" label="HUD" bind="cvar:ui_om_hud" source="hud-packs" commit="change"
+								     visible="{cvar.cg_hud != 0 and !cvar.ui_legacy}"/>
+								<use template="settings-cyclic-row" label="Weapons Bar" bind="cvar:ui_weaponsbar" source="weapons-bar" commit="change"
+								     visible="{cvar.cg_hud != 0}"/>
+								<use template="settings-slider-row" label="Field of View" bind="cvar:cg_fov" min="65" max="120" step="1" commit="change"/>
+								<use template="settings-section-header" label="CROSSHAIR"/>
+								<use template="settings-crosshair-panel"/>
+								<use template="settings-section-header" label="SNIPER SCOPE"/>
+								<use template="settings-sniper-panel"/>
+								<use template="settings-cyclic-row" label="Draw weapon" bind="cvar:cg_drawviewmodel" source="draw-viewmodel" commit="change"/>
+								<use template="settings-on-off-row" label="Always run" bind="cvar:cl_run" commit="change"/>
+								<use template="settings-on-off-row" label="Blood" bind="cvar:com_blood" commit="change"/>
+								<use template="settings-on-off-row" label="Auto-switch Weapons" bind="cvar:cg_autoswitch" commit="change"/>
+								<use template="settings-on-off-row" label="Draw FPS" bind="cvar:fps" commit="change"/>
+						</container>
+					</container>
+
+					<container width="100%" height="1px" fill="{var.fill-chip}"/>
+					<container id="settings_actions" type="horizontal" width="100%" height="auto"
+					           padding="12px 16px" gap="4px" valign="center" halign="space-between"
+					           fill="{var.fill-input}">
+						<button id="btn_settings_defaults" width="auto" height="auto" padding="10px 26px 10px 20px"
+						        shape="skew-rect" skewl="0" skewr="12px"
+						        fill="{var.color-accent}" hoverfill="{var.color-accent-hover}"
+						        color="{var.color-white}" font="control" font-size="{var.text-control}" letter-spacing="2px">
+							DEFAULTS
+							<on event="click"><invoke name="settings-defaults"/></on>
+						</button>
+						<container type="horizontal" width="fill" height="auto" padding="1px"
+						           shape="skew-rect" skewl="12px" skewr="12px" fill="{var.fill-chip}">
+							<input id="field_settings_search" type="text" width="fill" height="auto" padding="8px 16px"
+							       bind="cvar:ui_om_settings_search" commit="change" placeholder="Search settings..."
+							       fill="{var.fill-input}" color="{var.color-white}" font="body" font-size="{var.text-control}"
+							       halign="start" valign="center"/>
+						</container>
+						<button id="btn_settings_apply" width="auto" height="auto" padding="10px 20px 10px 26px"
+						        shape="skew-rect" skewl="12px" skewr="0"
+						        fill="{var.color-accent}" hoverfill="{var.color-accent-hover}"
+						        disabled-fill="{var.fill-hover-ghost}" disabled-color="{var.color-disabled}"
+						        enabled="{cvar.ui_om_settings_tab == video}"
+						        color="{var.color-white}" font="control" font-size="{var.text-control}" letter-spacing="2px">
+							APPLY
+							<on event="click"><invoke name="settings-apply"/></on>
+						</button>
+					</container>
+				</container>
+			</container>
+		</container>
+	</canvas>
+</ui>

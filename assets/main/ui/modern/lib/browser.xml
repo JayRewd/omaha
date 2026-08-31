@@ -1,0 +1,134 @@
+<ui-library version="1">
+	<templates>
+		<template id="browser-sort-header">
+			<props>
+				<prop name="label" type="string" required="true"/>
+				<prop name="column" type="string" required="true"/>
+				<prop name="width" type="string" required="true"/>
+			</props>
+			<button type="horizontal" width="{template.width}" height="100%" padding="0 4px" gap="4px"
+			        fill="{var.fill-transparent}" hoverfill="{var.fill-chip}" halign="start" valign="center">
+				<label font="control" font-size="{var.text-body}" color="{var.color-muted}">{template.label}</label>
+				<container width="10px" height="12px" visible="{cvar.ui_om_browser_sort == {template.column}}">
+					<container width="8px" height="12px" shape="arrow-left" thickness="3px" fill="{var.color-accent}"
+					           shape-rotation="-90" visible="{cvar.ui_om_browser_sort_asc == 1}"/>
+					<container width="8px" height="12px" shape="arrow-left" thickness="3px" fill="{var.color-accent}"
+					           shape-rotation="90" visible="{cvar.ui_om_browser_sort_asc == 0}"/>
+				</container>
+				<on event="click">
+					<set-cvar name="ui_om_browser_sort" value="{template.column}"/>
+					<invoke name="sort-servers"/>
+				</on>
+			</button>
+		</template>
+
+		<template id="server-browser">
+			<container type="vertical" width="fill" height="100%" fill="{var.fill-panel}" gap="0"
+			           stroke="{var.fill-divider}" stroke-width="1px">
+				<container type="vertical" width="100%" height="48px" gap="0">
+					<container id="browser_tabs" type="horizontal" width="100%" height="fill" fill="{var.fill-input}" gap="0"
+					           padding="0" valign="center"
+					           source="browser-gametypes" bind="cvar:ui_om_server_gametype">
+						<foreach mode="all" type="horizontal" width="100%" height="100%" gap="0" valign="center">
+							<button set-index="{item.index}"
+							        width="auto" height="100%" padding="0 20px" shape="skew-rect"
+							        skewl="12px" skewr="12px"
+							        fill="{item.selected ? var.color-accent : var.fill-transparent}"
+							        hoverfill="{item.selected ? var.color-accent-hover : var.fill-hover-ghost}"
+							        color="{item.selected ? var.color-white : var.color-muted}"
+							        font="control" font-size="{var.text-control}" letter-spacing="2px">{item.label}</button>
+							<container width="2px" height="100%" margin="0 -6px 0 -6px" fill="{var.fill-divider-skew}"
+							           shape="angled-line" offset="12px" heightfactor="0.64"
+							           visible="{!item.last}"/>
+						</foreach>
+					</container>
+					<container width="100%" height="1px" fill="{var.fill-divider}"/>
+				</container>
+
+				<container id="browser_list" type="vertical" width="100%" height="fill" source="servers"
+				           bind="cvar:ui_selected_server" fill="{var.fill-transparent}">
+					<container type="vertical" width="100%" height="48px" gap="0">
+						<container type="horizontal" width="100%" height="fill" fill="{var.fill-control}" valign="center"
+						           padding="0 8px">
+							<label width="5%" font="control" font-size="{var.text-body}" color="{var.color-muted}"/>
+							<use template="browser-sort-header" label="SERVER NAME" column="name" width="35%"/>
+							<use template="browser-sort-header" label="MAP" column="map" width="15%"/>
+							<use template="browser-sort-header" label="PLAYERS" column="players" width="10%"/>
+							<use template="browser-sort-header" label="GAMETYPE" column="gametype" width="15%"/>
+							<use template="browser-sort-header" label="PING" column="ping" width="8%"/>
+							<use template="browser-sort-header" label="IP" column="ip" width="12%"/>
+						</container>
+						<container width="100%" height="1px" fill="{var.fill-divider}"/>
+					</container>
+					<container type="vertical" width="100%" height="fill" overflow="scroll" scrollbar="scrollbar-default">
+						<foreach mode="window" row-height="36px">
+							<container type="horizontal" width="100%" height="36px" padding="0 8px" valign="center">
+								<button width="5%" height="100%" padding="0"
+								        fill="{var.fill-transparent}" hoverfill="{var.fill-chip}"
+								        halign="center" valign="center">
+									<shape shape="favorite-icon" width="16px" height="16px"
+									       fill="{item.field.favorite_fill}"/>
+									<on event="click">
+										<set-cvar name="ui_browser_favorite_target" value="{item.value}"/>
+										<invoke name="toggle-server-favorite"/>
+									</on>
+								</button>
+								<button type="horizontal" width="fill" height="100%" padding="0"
+								        set-index="{item.index}" valign="center"
+								        fill="{item.selected ? #1A6FD448 : var.fill-transparent}"
+								        hoverfill="{var.fill-hover-ghost}" pressed-fill="{var.color-accent}">
+									<on event="dblclick"><invoke name="join-selected"/></on>
+									<label width="35%" font="control" font-size="{var.text-control}" color="{var.color-primary}">{item.field.name}</label>
+									<label width="15%" font="control" font-size="{var.text-control}" color="{var.color-primary}">{item.field.map}</label>
+									<label width="10%" font="control" font-size="{var.text-control}" color="{var.color-primary}">{item.field.players}</label>
+									<label width="15%" font="control" font-size="{var.text-control}" color="{var.color-primary}">{item.field.gametype}</label>
+									<label width="8%" font="control" font-size="{var.text-control}" color="{var.color-primary}">{item.field.ping}</label>
+									<label width="12%" font="control" font-size="{var.text-body}" color="{var.color-muted}">{item.value}</label>
+								</button>
+							</container>
+						</foreach>
+					</container>
+				</container>
+
+				<container id="browser_status" type="horizontal" width="100%" height="auto"
+				           fill="{var.color-accent}" padding="8px 16px" gap="16px" valign="center"
+				           halign="space-between">
+					<label id="browser_status_servers" font="control" font-size="{var.text-body}" color="{var.color-white}"
+					       letter-spacing="1px" bind="cvar:ui_om_status_servers"># SERVERS</label>
+					<label font="control" font-size="{var.text-body}" color="{var.color-white}" letter-spacing="1px"
+					       bind="cvar:ui_om_status_phase">READY</label>
+					<label id="browser_status_players" font="control" font-size="{var.text-body}" color="{var.color-white}"
+					       letter-spacing="1px" bind="cvar:ui_om_status_players"># PLAYERS</label>
+				</container>
+
+				<container width="100%" height="1px" fill="{var.fill-chip}"/>
+				<container id="browser_actions" type="horizontal" width="100%" height="auto"
+				           padding="12px 16px" gap="4px" valign="center" halign="space-between"
+				           fill="{var.fill-input}">
+					<button id="btn_refresh" width="auto" height="auto" padding="10px 26px 10px 20px"
+					        shape="skew-rect" skewl="0" skewr="12px"
+					        fill="{var.fill-hover-ghost}" hoverfill="{var.fill-divider}"
+					        color="{var.color-primary}" font="control" font-size="{var.text-control}" letter-spacing="2px">
+						REFRESH
+						<on event="click"><invoke name="refresh-servers"/></on>
+					</button>
+					<container type="horizontal" width="fill" height="auto" padding="1px"
+					           shape="skew-rect" skewl="12px" skewr="12px" fill="{var.fill-chip}">
+						<input id="field_server_search" type="text" width="fill" height="auto" padding="8px 16px"
+						       bind="cvar:ui_om_server_search" commit="change"
+						       placeholder="Search server name..."
+						       fill="{var.fill-input}" color="{var.color-white}" font="body" font-size="{var.text-control}" letter-spacing="1px"
+						       halign="start" valign="center"/>
+					</container>
+					<button id="btn_join" width="auto" height="auto" padding="10px 20px 10px 26px"
+					        shape="skew-rect" skewl="12px" skewr="0"
+					        fill="{var.color-accent}" hoverfill="{var.color-accent-hover}"
+					        color="{var.color-white}" font="control" font-size="{var.text-control}" letter-spacing="2px">
+						JOIN
+						<on event="click"><invoke name="join-selected"/></on>
+					</button>
+				</container>
+			</container>
+		</template>
+	</templates>
+</ui-library>

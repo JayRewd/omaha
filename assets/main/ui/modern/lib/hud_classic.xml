@@ -1,0 +1,439 @@
+<ui-library version="1">
+	<import src="ui/modern/lib/hud_classic_theme.xml"/>
+	<defaults drop-shadow="true"/>
+	<templates>
+		<template id="classic-message-row">
+			<label font="body" font-size="{item.field.bold ? var.text-message-bold : var.text-body}" width="100%" halign="start" text-wrap="word"
+			       color="{item.field.color}"
+			       font-weight="{item.field.bold ? 600 : 400}">
+				{item.field.text}
+			</label>
+		</template>
+
+		<template id="classic-compass-panel">
+			<container type="overlap" width="160px" height="160px" padding="0" fill="{var.fill-transparent}"
+			           visible="{cvar.ui_compass > 0}">
+				<container width="160px" height="160px" background-image="hud-compass-back"
+				           background-fit="stretch"/>
+				<container width="160px" height="160px" background-image="hud-compass-face"
+				           background-fit="stretch" rotation="{cvar.ui_om_hud_compass_angle}"/>
+				<!--
+				  Retail uses compasspainblank ($whiteimage + alphaGen const 0) only as a
+				  headingspinner base material. Drawing it here as a full quad is dangerous:
+				  when damage_angle is ~0 the UI batch path skips shader stages and paints
+				  opaque white (bright square flash). Pain overlay alone is enough.
+				  Keep opacity-only (no visible= gate): visibleExpr caching on the alpha
+				  cvar can miss short/low-damage flashes.
+				-->
+				<container width="160px" height="160px" background-image="hud-compass-damage"
+				           background-fit="stretch" rotation="{cvar.ui_om_hud_damage_angle}"
+				           opacity="{cvar.ui_om_hud_damage_alpha}"/>
+				<container width="160px" height="160px" background-image="hud-compass-obj-arrow"
+				           background-fit="stretch" rotation="{cvar.ui_om_hud_obj_arrow_angle}"
+				           visible="{cvar.ui_om_hud_obj_arrow_visible > 0}"/>
+				<container width="12.5px" height="12.5px" valign="start" halign="start" margin="17.5px 0 0 75.625px"
+				           background-image="hud-compass-obj-ball" background-fit="stretch"
+				           rotation="{cvar.ui_om_hud_obj_left_angle}" rotation-origin="6.25px 62.5px"
+				           visible="{cvar.ui_om_hud_obj_left_visible > 0}"/>
+				<container width="12.5px" height="12.5px" valign="start" halign="start" margin="17.5px 0 0 75.625px"
+				           background-image="hud-compass-obj-ball" background-fit="stretch"
+				           rotation="{cvar.ui_om_hud_obj_right_angle}" rotation-origin="6.25px 62.5px"
+				           visible="{cvar.ui_om_hud_obj_right_visible > 0}"/>
+				<container width="160px" height="160px" background-image="hud-compass-needle"
+				           background-fit="stretch"/>
+			</container>
+		</template>
+
+		<template id="classic-objective-row">
+			<container type="horizontal" width="100%" height="auto" gap="10px" valign="start"
+			           visible="{item.field.hidden == 0}">
+				<container type="overlap" width="20px" height="20px" padding="0">
+					<container width="100%" height="100%" background-image="hud-objective-checked"
+					           background-fit="stretch" visible="{item.field.completed == 1}"/>
+					<container width="100%" height="100%" background-image="hud-objective-unchecked"
+					           background-fit="stretch" visible="{item.field.completed == 0}"/>
+				</container>
+				<label font="body" font-size="{var.text-body}" width="fill" halign="start" text-wrap="word"
+				       visible="{item.field.highlight == 1}" color="{var.color-objective-highlight}">
+					{item.field.text}
+				</label>
+				<label font="body" font-size="{var.text-body}" width="fill" halign="start" text-wrap="word"
+				       visible="{item.field.highlight == 0 && item.field.completed == 1}"
+				       color="{var.color-objective-complete}">
+					{item.field.text}
+				</label>
+				<label font="body" font-size="{var.text-body}" width="fill" halign="start" text-wrap="word"
+				       visible="{item.field.highlight == 0 && item.field.completed == 0}"
+				       color="{var.color-white}">
+					{item.field.text}
+				</label>
+			</container>
+		</template>
+
+		<template id="classic-objectives-stack">
+			<container type="vertical" width="562.5px" height="auto" gap="5px" padding="0" fill="{var.fill-transparent}"
+			           visible="{cvar.ui_om_hud_objectives_visible > 0}">
+				<container width="100%" height="auto" fill="{var.fill-transparent}" padding="10px 12.5px"
+				           background-image="hud-objectives-back" background-fit="stretch"
+				           opacity="{cvar.ui_om_hud_objectives_alpha}"
+				           visible="{cvar.ui_om_hud_objectives_alpha > 0.02}">
+					<container type="vertical" width="100%" height="auto" gap="7.5px">
+						<label font="body" font-size="{var.text-body}" color="{var.color-white}" halign="start">
+							Mission Objectives:
+						</label>
+						<container width="100%" height="1.25px" fill="{var.fill-objective-divider}"/>
+						<container type="vertical" width="100%" height="auto" gap="10px"
+						           source="hud-objectives" fill="{var.fill-transparent}">
+							<foreach mode="all">
+								<use template="classic-objective-row"/>
+							</foreach>
+						</container>
+					</container>
+				</container>
+			</container>
+		</template>
+
+		<template id="classic-boss-panel">
+			<container width="50%" height="auto" halign="center" valign="start"
+			           visible="{cvar.ui_om_hud_boss_health > 0}">
+				<container type="overlap" width="100%" height="20px" padding="0" fill="{var.fill-transparent}">
+					<container width="100%" height="100%" background-image="hud-boss-back"
+					           background-fit="stretch"/>
+					<container width="100%" height="100%" background-image="hud-boss-meter"
+					           background-fit="stretch" shape="edge-clip" left="0" top="0"
+					           right="{cvar.ui_om_hud_boss_right}" bottom="1"/>
+				</container>
+			</container>
+		</template>
+
+		<template id="classic-score-label">
+			<container type="vertical" width="auto" height="auto" halign="end" valign="start" gap="2.5px">
+				<label font="body" font-size="{var.text-body}" color="{var.color-score-gold}" halign="end"
+				       bind="cvar:ui_om_hud_score_text" visible="{cvar.ui_om_hud_score_text != ''}"/>
+				<label font="body" font-size="{var.text-body}" color="{var.color-score-gold}" halign="end"
+				       bind="cvar:ui_om_hud_frag_limit_text"
+				       visible="{cvar.ui_om_hud_frag_limit_text != ''}"/>
+			</container>
+		</template>
+
+		<template id="classic-target-info-panel">
+			<container type="horizontal" width="auto" height="auto" gap="7.5px" valign="center"
+			           visible="{cvar.ui_om_hud_info_health > 0}">
+				<container width="20px" height="20px" background-image="hud-allies"
+				           background-fit="stretch" visible="{cvar.ui_om_hud_info_team == 3}"/>
+				<container width="20px" height="20px" background-image="hud-axis"
+				           background-fit="stretch" visible="{cvar.ui_om_hud_info_team == 4}"/>
+				<container type="vertical" width="auto" height="auto" gap="2.5px">
+					<label font="body" font-size="{var.text-body}"
+					       color="{cvar.ui_om_hud_info_friendly ? var.color-friendly : var.color-enemy}"
+					       bind="cvar:ui_om_hud_info_name">{cvar.ui_om_hud_info_name}</label>
+					<label font="body" font-size="{var.text-body}"
+					       color="{cvar.ui_om_hud_info_friendly ? var.color-friendly : var.color-enemy}"
+					       bind="cvar:ui_om_hud_info_health">{cvar.ui_om_hud_info_health}</label>
+				</container>
+			</container>
+		</template>
+
+		<template id="classic-vote-panel">
+			<container type="vertical" width="60%" height="auto" gap="5px"
+			           visible="{cvar.ui_om_hud_vote_seconds > 0}" fill="{var.fill-input}" padding="5px 10px">
+				<label font="body" font-size="{var.text-caption}" color="{var.color-white}"
+				       bind="cvar:ui_om_hud_vote_text" text-wrap="word">{cvar.ui_om_hud_vote_text}</label>
+				<label font="body" font-size="{var.text-caption}" color="{var.color-white}"
+				       bind="cvar:ui_om_hud_vote_stats">{cvar.ui_om_hud_vote_stats}</label>
+				<label font="body" font-size="{var.text-caption}" color="{var.color-friendly}" text-wrap="word"
+				       visible="{cvar.ui_om_hud_vote_prompt != ''}"
+				       bind="cvar:ui_om_hud_vote_prompt">{cvar.ui_om_hud_vote_prompt}</label>
+				<label font="body" font-size="{var.text-caption}" color="{var.color-friendly}"
+				       visible="{cvar.ui_om_hud_vote_keys != ''}"
+				       bind="cvar:ui_om_hud_vote_keys">{cvar.ui_om_hud_vote_keys}</label>
+			</container>
+		</template>
+
+		<template id="classic-centerprint">
+			<container width="80%" height="auto" halign="center" valign="center"
+			           visible="{cvar.ui_om_hud_centerprint != ''}">
+				<label font="body" font-size="{var.text-heading}" color="{var.color-white}" halign="center" text-wrap="word"
+				       bind="cvar:ui_om_hud_centerprint">{cvar.ui_om_hud_centerprint}</label>
+			</container>
+		</template>
+
+		<template id="classic-pause-panel">
+			<container width="160px" height="40px" halign="center" valign="center"
+			           visible="{cvar.ui_om_hud_pause_icon > 0 or cvar.ui_om_hud_level_exit_icon > 0}">
+				<container type="overlap" width="160px" height="40px" padding="0" fill="{var.fill-transparent}">
+					<container width="160px" height="40px" background-image="hud-pause"
+					           background-fit="stretch" visible="{cvar.ui_om_hud_pause_icon > 0}"/>
+					<container width="160px" height="40px" background-image="hud-levelexit"
+					           background-fit="stretch" visible="{cvar.ui_om_hud_level_exit_icon > 0}"/>
+				</container>
+			</container>
+		</template>
+
+		<template id="classic-health-panel">
+			<container type="horizontal" width="auto" height="auto" gap="7.5px" valign="end">
+				<container type="overlap" width="20px" height="80px" padding="0" fill="{var.fill-transparent}">
+					<container width="20px" height="80px" background-image="hud-healthback"
+					           background-fit="stretch"/>
+					<container width="20px" height="80px" background-image="hud-healthmeter"
+					           background-fit="stretch" shape="edge-clip" left="0"
+					           top="{cvar.ui_om_hud_health_top}" right="1" bottom="1"/>
+					<container width="20px" height="80px" background-image="hud-healthmeter-flash"
+					           background-fit="stretch" shape="edge-clip" left="0"
+					           top="{cvar.ui_om_hud_health_top}" right="1" bottom="1"
+					           opacity="{cvar.ui_om_hud_damage_alpha}"
+					           visible="{cvar.ui_om_hud_damage_alpha > 0.02}"/>
+				</container>
+				<container type="vertical" width="auto" height="auto" gap="2.5px" valign="end">
+					<label font="body" font-size="{var.text-body}" color="{var.color-health-label}" halign="start">Health</label>
+					<label font="body" font-size="{var.text-body}" color="{var.color-white}" halign="start"
+					       bind="cvar:ui_om_hud_health">{cvar.ui_om_hud_health}</label>
+				</container>
+			</container>
+		</template>
+
+		<template id="classic-team-time-row">
+			<container type="horizontal" width="auto" height="auto" gap="15px" padding="0" valign="end">
+				<container width="30px" height="30px" background-image="hud-allies"
+				           background-fit="stretch"
+				           visible="{cvar.cg_gametype > 1 and cvar.ui_om_hud_team == 3}"/>
+				<container width="30px" height="30px" background-image="hud-axis"
+				           background-fit="stretch"
+				           visible="{cvar.cg_gametype > 1 and cvar.ui_om_hud_team == 4}"/>
+				<label font="body" font-size="{var.text-body}" color="{var.color-white}" valign="end"
+				       bind="cvar:ui_om_hud_time_message"
+				       visible="{cvar.ui_om_hud_time_message != ''}"/>
+			</container>
+		</template>
+
+		<template id="classic-attacker-panel">
+			<container type="horizontal" width="auto" height="auto" gap="7.5px" valign="end"
+			           visible="{cvar.ui_om_hud_attacker_name != ''}">
+				<container width="30px" height="30px" background-image="hud-allies"
+				           background-fit="stretch"
+				           visible="{cvar.cg_gametype > 1 and cvar.ui_om_hud_attacker_team == 3}"/>
+				<container width="30px" height="30px" background-image="hud-axis"
+				           background-fit="stretch"
+				           visible="{cvar.cg_gametype > 1 and cvar.ui_om_hud_attacker_team == 4}"/>
+				<label font="body" font-size="{var.text-body}"
+				       color="{cvar.ui_om_hud_attacker_friendly ? var.color-friendly : var.color-enemy}"
+				       bind="cvar:ui_om_hud_attacker_name">{cvar.ui_om_hud_attacker_name}</label>
+			</container>
+		</template>
+
+		<template id="classic-spectator-banner">
+			<container width="80%" height="auto" halign="center" visible="{cvar.ui_om_hud_spectator_text != ''}">
+				<label font="body" font-size="{var.text-body}" color="{var.color-white}" halign="center" text-wrap="word"
+				       bind="cvar:ui_om_hud_spectator_text">{cvar.ui_om_hud_spectator_text}</label>
+			</container>
+		</template>
+
+		<template id="classic-stopwatch-fuse">
+			<container type="overlap" width="160px" height="80px" padding="0" fill="{var.fill-transparent}"
+			           visible="{cvar.ui_om_hud_stopwatch_type == 1 or cvar.ui_om_hud_stopwatch_type == 2}">
+				<container width="160px" height="80px" valign="start"
+				           background-image="hud-fuse-base" background-fit="stretch"
+				           visible="{cvar.ui_om_hud_stopwatch_type == 1}"/>
+				<container width="160px" height="80px" valign="start"
+				           background-image="hud-fuse-base-wet" background-fit="stretch"
+				           visible="{cvar.ui_om_hud_stopwatch_type == 2}"/>
+				<container width="160px" height="80px" valign="start"
+				           background-image="hud-fuse-tile" background-fit="stretch"
+				           shape="edge-clip" left="0" top="0"
+				           right="{cvar.ui_om_hud_fuse_right}" bottom="1"/>
+			</container>
+		</template>
+
+		<template id="classic-stopwatch-dial">
+			<container type="overlap" width="160px" height="160px" padding="0" fill="{var.fill-transparent}"
+			           visible="{cvar.ui_om_hud_stopwatch_type != 1 and cvar.ui_om_hud_stopwatch_type != 2}">
+				<container width="160px" height="160px" background-image="hud-stopwatch-base"
+				           background-fit="stretch"/>
+				<container width="160px" height="160px" background-image="hud-stopwatch-hand"
+				           background-fit="stretch" rotation="{cvar.ui_om_hud_stopwatch_angle}"/>
+			</container>
+		</template>
+
+		<template id="classic-stopwatch-row">
+			<container type="vertical" width="auto" height="auto" gap="0" halign="start" valign="center"
+			           visible="{cvar.ui_om_hud_stopwatch_ms > 0}">
+				<use template="classic-stopwatch-fuse"/>
+				<use template="classic-stopwatch-dial"/>
+			</container>
+		</template>
+
+		<template id="classic-im-panel">
+			<container width="auto" height="auto" visible="{cvar.ui_om_hud_im_menu != 0}"
+			           background-image="{cvar.ui_om_hud_im_image}" background-fit="stretch"/>
+		</template>
+
+		<template id="classic-weapon-slot-pistol">
+			<container type="overlap" width="80px" height="40px" padding="0" fill="{var.fill-transparent}">
+				<container width="80px" height="40px" background-image="hud-weap-pistol"
+				           background-fit="stretch"
+				           visible="{cvar.ui_om_hud_weap_pistol_state == 1 or cvar.ui_om_hud_weap_pistol_state == 2}"/>
+				<container width="80px" height="40px" background-image="hud-weap-pistol-s"
+				           background-fit="stretch" visible="{cvar.ui_om_hud_weap_pistol_state == 2}"/>
+				<container width="80px" height="40px" background-image="hud-weap-pistol-x"
+				           background-fit="stretch" visible="{cvar.ui_om_hud_weap_pistol_state == 3}"/>
+			</container>
+		</template>
+
+		<template id="classic-weapon-slot-rifle">
+			<container type="overlap" width="80px" height="40px" padding="0" fill="{var.fill-transparent}">
+				<container width="80px" height="40px" background-image="hud-weap-rifle"
+				           background-fit="stretch"
+				           visible="{cvar.ui_om_hud_weap_rifle_state == 1 or cvar.ui_om_hud_weap_rifle_state == 2}"/>
+				<container width="80px" height="40px" background-image="hud-weap-rifle-s"
+				           background-fit="stretch" visible="{cvar.ui_om_hud_weap_rifle_state == 2}"/>
+				<container width="80px" height="40px" background-image="hud-weap-rifle-x"
+				           background-fit="stretch" visible="{cvar.ui_om_hud_weap_rifle_state == 3}"/>
+			</container>
+		</template>
+
+		<template id="classic-weapon-slot-smg">
+			<container type="overlap" width="80px" height="40px" padding="0" fill="{var.fill-transparent}">
+				<container width="80px" height="40px" background-image="hud-weap-smg"
+				           background-fit="stretch"
+				           visible="{cvar.ui_om_hud_weap_smg_state == 1 or cvar.ui_om_hud_weap_smg_state == 2}"/>
+				<container width="80px" height="40px" background-image="hud-weap-smg-s"
+				           background-fit="stretch" visible="{cvar.ui_om_hud_weap_smg_state == 2}"/>
+				<container width="80px" height="40px" background-image="hud-weap-smg-x"
+				           background-fit="stretch" visible="{cvar.ui_om_hud_weap_smg_state == 3}"/>
+			</container>
+		</template>
+
+		<template id="classic-weapon-slot-mg">
+			<container type="overlap" width="80px" height="40px" padding="0" fill="{var.fill-transparent}">
+				<container width="80px" height="40px" background-image="hud-weap-mg"
+				           background-fit="stretch"
+				           visible="{cvar.ui_om_hud_weap_mg_state == 1 or cvar.ui_om_hud_weap_mg_state == 2}"/>
+				<container width="80px" height="40px" background-image="hud-weap-mg-s"
+				           background-fit="stretch" visible="{cvar.ui_om_hud_weap_mg_state == 2}"/>
+				<container width="80px" height="40px" background-image="hud-weap-mg-x"
+				           background-fit="stretch" visible="{cvar.ui_om_hud_weap_mg_state == 3}"/>
+			</container>
+		</template>
+
+		<template id="classic-weapon-slot-grenade">
+			<container type="overlap" width="80px" height="40px" padding="0" fill="{var.fill-transparent}">
+				<container width="80px" height="40px" background-image="hud-weap-grenade"
+				           background-fit="stretch"
+				           visible="{cvar.ui_om_hud_weap_grenade_state == 1 or cvar.ui_om_hud_weap_grenade_state == 2}"/>
+				<container width="80px" height="40px" background-image="hud-weap-grenade-s"
+				           background-fit="stretch" visible="{cvar.ui_om_hud_weap_grenade_state == 2}"/>
+				<container width="80px" height="40px" background-image="hud-weap-grenade-x"
+				           background-fit="stretch" visible="{cvar.ui_om_hud_weap_grenade_state == 3}"/>
+			</container>
+		</template>
+
+		<template id="classic-weapon-slot-heavy">
+			<container type="overlap" width="80px" height="40px" padding="0" fill="{var.fill-transparent}">
+				<container width="80px" height="40px" background-image="hud-weap-heavy"
+				           background-fit="stretch"
+				           visible="{cvar.ui_om_hud_weap_heavy_state == 1 or cvar.ui_om_hud_weap_heavy_state == 2}"/>
+				<container width="80px" height="40px" background-image="hud-weap-heavy-s"
+				           background-fit="stretch" visible="{cvar.ui_om_hud_weap_heavy_state == 2}"/>
+				<container width="80px" height="40px" background-image="hud-weap-heavy-x"
+				           background-fit="stretch" visible="{cvar.ui_om_hud_weap_heavy_state == 3}"/>
+			</container>
+		</template>
+
+		<template id="classic-weapons-bar">
+			<container type="horizontal" width="480px" height="80px" gap="0" padding="20px 0 0 0" fill="{var.fill-transparent}"
+			           visible="{cvar.ui_om_hud_weapons_visible > 0}">
+				<use template="classic-weapon-slot-pistol"/>
+				<use template="classic-weapon-slot-rifle"/>
+				<use template="classic-weapon-slot-smg"/>
+				<use template="classic-weapon-slot-mg"/>
+				<use template="classic-weapon-slot-grenade"/>
+				<use template="classic-weapon-slot-heavy"/>
+			</container>
+		</template>
+
+		<template id="classic-item-slot-0">
+			<container type="vertical" width="80px" height="auto" gap="2.5px" halign="center">
+				<container type="overlap" width="80px" height="80px" padding="0">
+					<container width="80px" height="80px" background-image="hud-item-empty"
+					           background-fit="stretch"/>
+					<container width="80px" height="80px" background-image="{cvar.ui_om_hud_item0_image}"
+					           background-fit="stretch" visible="{cvar.ui_om_hud_item0_state == 1 or cvar.ui_om_hud_item0_state == 2}"/>
+					<container width="80px" height="80px" background-image="hud-item-selected"
+					           background-fit="stretch" visible="{cvar.ui_om_hud_item0_state == 2}"/>
+					<container width="80px" height="80px" background-image="hud-item-highlight"
+					           background-fit="stretch" visible="{cvar.ui_om_hud_item0_state == 2}"/>
+				</container>
+				<label font="body" font-size="{var.text-caption}" color="{var.color-white}" halign="center" text-wrap="word"
+				       bind="cvar:ui_om_hud_item0_name" visible="{cvar.ui_om_hud_item0_name != ''}"/>
+			</container>
+		</template>
+
+		<template id="classic-item-slot-1">
+			<container type="vertical" width="80px" height="auto" gap="2.5px" halign="center">
+				<container type="overlap" width="80px" height="80px" padding="0">
+					<container width="80px" height="80px" background-image="hud-item-empty"
+					           background-fit="stretch"/>
+					<container width="80px" height="80px" background-image="{cvar.ui_om_hud_item1_image}"
+					           background-fit="stretch" visible="{cvar.ui_om_hud_item1_state == 1 or cvar.ui_om_hud_item1_state == 2}"/>
+					<container width="80px" height="80px" background-image="hud-item-selected"
+					           background-fit="stretch" visible="{cvar.ui_om_hud_item1_state == 2}"/>
+					<container width="80px" height="80px" background-image="hud-item-highlight"
+					           background-fit="stretch" visible="{cvar.ui_om_hud_item1_state == 2}"/>
+				</container>
+				<label font="body" font-size="{var.text-caption}" color="{var.color-white}" halign="center" text-wrap="word"
+				       bind="cvar:ui_om_hud_item1_name" visible="{cvar.ui_om_hud_item1_name != ''}"/>
+			</container>
+		</template>
+
+		<template id="classic-item-slot-2">
+			<container type="vertical" width="80px" height="auto" gap="2.5px" halign="center">
+				<container type="overlap" width="80px" height="80px" padding="0">
+					<container width="80px" height="80px" background-image="hud-item-empty"
+					           background-fit="stretch"/>
+					<container width="80px" height="80px" background-image="{cvar.ui_om_hud_item2_image}"
+					           background-fit="stretch" visible="{cvar.ui_om_hud_item2_state == 1 or cvar.ui_om_hud_item2_state == 2}"/>
+					<container width="80px" height="80px" background-image="hud-item-selected"
+					           background-fit="stretch" visible="{cvar.ui_om_hud_item2_state == 2}"/>
+					<container width="80px" height="80px" background-image="hud-item-highlight"
+					           background-fit="stretch" visible="{cvar.ui_om_hud_item2_state == 2}"/>
+				</container>
+				<label font="body" font-size="{var.text-caption}" color="{var.color-white}" halign="center" text-wrap="word"
+				       bind="cvar:ui_om_hud_item2_name" visible="{cvar.ui_om_hud_item2_name != ''}"/>
+			</container>
+		</template>
+
+		<template id="classic-item-slot-3">
+			<container type="vertical" width="80px" height="auto" gap="2.5px" halign="center">
+				<container type="overlap" width="80px" height="80px" padding="0">
+					<container width="80px" height="80px" background-image="hud-item-empty"
+					           background-fit="stretch"/>
+					<container width="80px" height="80px" background-image="{cvar.ui_om_hud_item3_image}"
+					           background-fit="stretch" visible="{cvar.ui_om_hud_item3_state == 1 or cvar.ui_om_hud_item3_state == 2}"/>
+					<container width="80px" height="80px" background-image="hud-item-selected"
+					           background-fit="stretch" visible="{cvar.ui_om_hud_item3_state == 2}"/>
+					<container width="80px" height="80px" background-image="hud-item-highlight"
+					           background-fit="stretch" visible="{cvar.ui_om_hud_item3_state == 2}"/>
+				</container>
+				<label font="body" font-size="{var.text-caption}" color="{var.color-white}" halign="center" text-wrap="word"
+				       bind="cvar:ui_om_hud_item3_name" visible="{cvar.ui_om_hud_item3_name != ''}"/>
+			</container>
+		</template>
+
+		<template id="classic-items-bar">
+			<container type="horizontal" width="640px" height="auto" gap="80px" padding="0 0 0 40px" fill="{var.fill-transparent}"
+			           visible="{cvar.ui_om_hud_items_visible > 0}">
+				<use template="classic-item-slot-0"/>
+				<use template="classic-item-slot-1"/>
+				<use template="classic-item-slot-2"/>
+				<use template="classic-item-slot-3"/>
+			</container>
+		</template>
+
+		<template id="classic-weapons-stack">
+			<container type="vertical" width="auto" height="auto" gap="5px" halign="center" valign="end">
+				<use template="classic-weapons-bar"/>
+				<use template="classic-items-bar"/>
+			</container>
+		</template>
+	</templates>
+</ui-library>

@@ -21,6 +21,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
 
 #include "ui_local.h"
+#include "../uidesign/uid_profile.h"
 
 Event W_MouseExited
 (
@@ -242,21 +243,28 @@ void UIWindowManager::UpdateViews(void)
     int x, y;
 
     if (m_backgroundwidget) {
+        /* Background is View3D — timed as legacy_view3d inside View3D::Draw. */
         m_backgroundwidget->Display(m_frame, 1.0);
 
+        /* Added in OPM: URC/menu/HUD widgets only (excludes View3D). */
+        UID_ProfileBegin(UID_PROF_LEGACY_URC);
         n = m_children.NumObjects();
         for (i = 1; i <= n; i++) {
             if (m_children.ObjectAt(i) != m_backgroundwidget) {
                 m_children.ObjectAt(i)->Display(m_frame, 1.0);
             }
         }
+        UID_ProfileEnd(UID_PROF_LEGACY_URC);
     } else {
+        UID_ProfileBegin(UID_PROF_LEGACY_URC);
         Display(m_frame, 1.0);
+        UID_ProfileEnd(UID_PROF_LEGACY_URC);
     }
 
     if (m_cursor && m_showcursor && uid.uiHasMouse) {
         vec4_t col;
 
+        UID_ProfileBegin(UID_PROF_LEGACY_URC);
         set2D();
 
         // Added in OPM
@@ -275,6 +283,7 @@ void UIWindowManager::UpdateViews(void)
             y = uid.mouseY - 10;
             m_font->Print(x, y, va("%d:%d", uid.mouseX, uid.mouseY), -1, m_bVirtual ? m_vVirtualScale : NULL);
         }
+        UID_ProfileEnd(UID_PROF_LEGACY_URC);
     }
 }
 

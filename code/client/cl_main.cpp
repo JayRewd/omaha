@@ -24,6 +24,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "client.h"
 #include "../server/server.h"
 #include "cl_ui.h"
+#include "cl_uirender.h"
 #include "../corepp/tiki.h"
 #include "../qcommon/cm_terrain.h"
 #include "../qcommon/localization.h"
@@ -1631,17 +1632,23 @@ void CL_Vid_Restart_f( void ) {
 	CL_ShutdownCGame();
 	// initialize the renderer interface
 	CL_InitRef();
-	// initialize the UI
-	//CL_InitializeUI();
-	// initialize the ui library
-	UI_ResolutionChange();
 	// clear aliases
 	Alias_Clear();
 
-	// unpause so the cgame definately gets a snapshot and renders a frame
-	Com_Unpause();
-
+	/*
+	 * BeginRegistration (inside StartHunkUsers) copies the new renderer glConfig
+	 * into cls.glconfig. Do not call UI_ResolutionChange before that — stale
+	 * cls.glconfig maps the modern UI viewport off-screen (black/garbled screen).
+	 */
 	CL_StartHunkUsers(qfalse);
+	IN_Restart();
+
+	if (CL_UIR_IsModernMainActive()) {
+		CL_UIR_OnRendererRegistration();
+	}
+
+	// unpause only after renderer + input + modern UI are fully refreshed
+	Com_Unpause();
 
 #if !defined(NO_MODERN_DMA) || !NO_MODERN_DMA
     s_bSoundPaused = true;
@@ -2703,15 +2710,32 @@ void CL_Frame ( int msec ) {
 
 	if (CL_FinishedIntro()) {
 		if (clc.state == CA_DISCONNECTED) {
-			if (!UI_MenuActive() && !com_sv_running->integer) {
-				// if disconnected, bring up the menu
+			/* Changed in OPM: SyncAutoMenus opens modern main before UI_MenuActive()
+			 * would be checked — sample intro music first, then sync/activate menu. */
+			const qboolean bringingUpMenu =
+				!UI_MenuActive() && !com_sv_running->integer && !server_loading;
+
+			if (bringingUpMenu) {
 				S_StopAllSounds2(qtrue);
 				S_TriggeredMusic_PlayIntroMusic();
-				UI_MenuEscape("main");
+				if (!CL_UIR_UseLegacyMain()) {
+					Cvar_Set("ui_om_main_panel", "play");
+				}
+			}
+
+			CL_UIR_SyncEligibility();
+
+			if (bringingUpMenu) {
+				if (CL_UIR_UseLegacyMain()) {
+					UI_MenuEscape("main");
+				} else if (CL_UIR_IsEligibleForModernMain()) {
+					CL_UIR_ActivateModernMain();
+				}
 			}
 
             CL_VerifyUpdate();
 		} else if (clc.state == CA_CINEMATIC) {
+			CL_UIR_DeactivateModernMain();
 			UI_ForceMenuOff(qtrue);
 		}
 	}
@@ -2867,7 +2891,16 @@ static Q_PRINTF_FUNC(2, 3) void QDECL CL_RefPrintf( int print_level, const char 
 	va_end(argptr);
 
 	if (print_level == PRINT_ALL) {
-		Com_Printf("%s", msg);
+		/*
+		 * Fixed in OPM: R_SetupShaders prints during re.BeginRegistration; routing
+		 * that through the legacy console reloads fonts mid-call and can crash on
+		 * vid_restart. Scope is only the BeginRegistration call, not until EndRegistration.
+		 */
+		if (CL_IsBeginRegistrationActive()) {
+			Sys_Print(msg);
+		} else {
+			Com_Printf("%s", msg);
+		}
 	}
 	else if (print_level == PRINT_WARNING || print_level == PRINT_DEVELOPER) {
 		Com_DPrintf("%s", msg);
@@ -2933,6 +2966,7 @@ void CL_StartHunkUsers( qboolean rendererOnly ) {
 		cls.rendererRegistered = qtrue;
 		CL_BeginRegistration();
 		UI_ResolutionChange();
+		CL_UIR_OnRendererRegistration();
 	}
 
 	if( !cls.cgameStarted ) {
@@ -3200,7 +3234,14 @@ void CL_InitRef( void ) {
 #define RENDERER_ARCH_DLL_EXT DLL_SUFFIX DLL_EXT
 
 #ifdef USE_RENDERER_DLOPEN
-	cl_renderer = Cvar_Get("cl_renderer", "opengl1", CVAR_ARCHIVE | CVAR_LATCH);
+	/* Added in OPM: lock to opengl1 unless +set cl_renderer on the command line (bake tools). */
+	cl_renderer = Cvar_Get("cl_renderer", "opengl1", CVAR_LATCH);
+
+	if (!Com_CommandLineCvarSpecified("cl_renderer")) {
+		Cvar_Set2("cl_renderer", "opengl1", qtrue);
+	}
+
+	Com_Printf("Loading renderer: %s\n", cl_renderer->string);
 
 	Com_sprintf(dllName, sizeof(dllName), "renderer_%s" RENDERER_ARCH_DLL_EXT, cl_renderer->string);
 
@@ -3564,6 +3605,9 @@ void CL_Init( void ) {
 	cls.realtime = 0;
 
 	CL_InitInput ();
+
+	/* Launch-time UI ownership must be registered before hunk users / UI init. */
+	CL_UIR_RegisterCvars();
 
 	if( !L_EventSystemStarted() ) {
 		L_InitEvents();

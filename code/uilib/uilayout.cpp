@@ -22,6 +22,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include "ui_local.h"
 #include "../script/scriptexception.h"
+#include "../uidesign/uid_profile.h"
 
 Event EV_Layout_Menu
 (
@@ -215,17 +216,24 @@ void UILayout::ProcessCommands(bool bFullLoad)
 
 void UILayout::Load(const char *filename, bool bFullLoad)
 {
-    m_bLoaded = true;
+	/* Added in OPM: ui_profile legacy_load phase (URC parse + widget create). */
+	UID_ProfileResetLoad();
+	UID_ProfileSetLoadLabel(filename ? filename : "<urc>");
+	UID_ProfileBegin(UID_PROF_LEGACY_LOAD);
 
-    m_script = new Script;
-    m_script->LoadFile(filename);
+	m_bLoaded = true;
 
-    ProcessCommands(bFullLoad);
+	m_script = new Script;
+	m_script->LoadFile(filename);
 
-    m_bLoaded = bFullLoad;
+	ProcessCommands(bFullLoad);
 
-    delete m_script;
-    m_script = NULL;
+	m_bLoaded = bFullLoad;
+
+	delete m_script;
+	m_script = NULL;
+
+	UID_ProfileEnd(UID_PROF_LEGACY_LOAD);
 }
 
 int UILayout::ForceLoad(void)

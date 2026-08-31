@@ -1,0 +1,13 @@
+<ui-library version="1">
+	<!-- Added in OPM: classic pause chrome (PK3 shaders). Labels live in textures. -->
+	<images>
+		<image id="pause-escmenu" src="textures/mohmenu/escmenu"/>
+		<image id="pause-selectteam" src="textures/mohmenu/selectteam"/>
+		<image id="pause-selectprimary" src="textures/mohmenu/selectprimary"/>
+		<image id="pause-objteam" src="textures/mohmenu/objteamselect"/>
+		<image id="pause-selectmodel" src="textures/mohmenu/selectmodel"/>
+		<image id="pause-vote-button" src="textures/mohmenu/vote_button"/>
+		<image id="pause-already-voted" src="textures/mohmenu/already_voted"/>
+		<image id="pause-cant-vote" src="textures/mohmenu/cant_vote"/>
+	</images>
+</ui-library>

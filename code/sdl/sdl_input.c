@@ -26,6 +26,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #	include <SDL.h>
 #endif
 
+#include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -409,9 +410,53 @@ static void IN_DeactivateMouse( qboolean isFullscreen )
 		SDL_SetWindowGrab( SDL_window, SDL_FALSE );
 		SDL_SetRelativeMouseMode( SDL_FALSE );
 
-		// Don't warp the mouse unless the cursor is within the window
-		if( SDL_GetWindowFlags( SDL_window ) & SDL_WINDOW_MOUSE_FOCUS )
-			SDL_WarpMouseInWindow( SDL_window, cls.glconfig.vidWidth / 2, cls.glconfig.vidHeight / 2 );
+		/*
+		 * Fixed in OPM: do not center-warp on in_guimouse-only deactivates while
+		 * in-game (catcher has no UI/console). Scoreboard pointer / brief MouseOn
+		 * flickers were warping to window center and snapping aim; vid_restart
+		 * cleared the bad grab/relative cycle. Real menus still warp (KEYCATCH_UI).
+		 */
+		{
+			const int catcher = Key_GetCatcher();
+			/*
+			 * Fixed in OPM: never center-warp while CA_ACTIVE on modern UI.
+			 * Scoreboard pointer calls EnterModernInputModeKeepKeys → View3D::OnDeactivate
+			 * latches KEYCATCH_UI, which previously made allowWarp true and snapped aim
+			 * (same dead-zone class as guimouse-only warps). Chat is KEYCATCH_UI without
+			 * a cursor. Real menus get absolute position via IN_MouseOn.
+			 */
+			const qboolean allowWarp =
+				(catcher & KEYCATCH_CONSOLE)
+				|| clc.state != CA_ACTIVE
+				|| Cvar_VariableIntegerValue( "ui_legacy" );
+
+			if( allowWarp && ( SDL_GetWindowFlags( SDL_window ) & SDL_WINDOW_MOUSE_FOCUS ) )
+			{
+				int warpW = 0;
+				int warpH = 0;
+
+				/*
+				 * Changed in OPM: modern warps to SDL window center; ui_legacy uses
+				 * glconfig (vanilla).
+				 */
+				if( Cvar_VariableIntegerValue( "ui_legacy" ) )
+				{
+					warpW = cls.glconfig.vidWidth;
+					warpH = cls.glconfig.vidHeight;
+				}
+				else
+				{
+					IN_GetWindowLogicalSize( &warpW, &warpH );
+					if( warpW <= 0 ) {
+						warpW = cls.glconfig.vidWidth;
+					}
+					if( warpH <= 0 ) {
+						warpH = cls.glconfig.vidHeight;
+					}
+				}
+				SDL_WarpMouseInWindow( SDL_window, warpW / 2, warpH / 2 );
+			}
+		}
 
 		mouseActive = qfalse;
 	}
@@ -1256,10 +1301,51 @@ void IN_Frame( void )
 	// update isFullscreen since it might of changed since the last vid_restart
 	cls.glconfig.isFullscreen = Cvar_VariableIntegerValue( "r_fullscreen" ) != 0;
 
-	if( !cls.glconfig.isFullscreen && ( Key_GetCatcher( ) & (KEYCATCH_CONSOLE|KEYCATCH_UI) ) )
+	/*
+	 * Changed in OPM: modern UI needs absolute mouse in fullscreen (layout uses
+	 * surface size S, not glconfig). ui_legacy restores vanilla: KEYCATCH only
+	 * deactivates when windowed; FS keeps relative/grab except HUD in_guimouse.
+	 */
+	if( Cvar_VariableIntegerValue( "ui_legacy" ) )
 	{
-		// Console is down in windowed mode
+		if( in_guimouse && clc.state == CA_ACTIVE )
+		{
+			IN_DeactivateMouse( cls.glconfig.isFullscreen );
+			SDL_ShowCursor( SDL_ENABLE );
+		}
+		else if( !cls.glconfig.isFullscreen && ( Key_GetCatcher( ) & (KEYCATCH_CONSOLE|KEYCATCH_UI) ) )
+		{
+			// Console is down in windowed mode
+			IN_DeactivateMouse( cls.glconfig.isFullscreen );
+		}
+		else if( !cls.glconfig.isFullscreen && loading )
+		{
+			// Loading in windowed mode
+			IN_DeactivateMouse( cls.glconfig.isFullscreen );
+		}
+		else if( !( SDL_GetWindowFlags( SDL_window ) & SDL_WINDOW_INPUT_FOCUS ) )
+		{
+			// Window not got focus
+			IN_DeactivateMouse( cls.glconfig.isFullscreen );
+		}
+		else
+			IN_ActivateMouse( cls.glconfig.isFullscreen );
+	}
+	else if( in_guimouse || ( Key_GetCatcher( ) & KEYCATCH_CONSOLE ) )
+	{
 		IN_DeactivateMouse( cls.glconfig.isFullscreen );
+		SDL_ShowCursor( SDL_ENABLE );
+	}
+	else if( Key_GetCatcher( ) & KEYCATCH_UI )
+	{
+		/*
+		 * Fixed in OPM: KEYCATCH_UI without in_guimouse is keyboard-only UI
+		 * (in-HUD chat compose). Release relative look so aim freezes while
+		 * typing, but do not show an OS cursor — menus that need a pointer
+		 * call IN_MouseOn / EnterModernInputMode first.
+		 */
+		IN_DeactivateMouse( cls.glconfig.isFullscreen );
+		SDL_ShowCursor( SDL_DISABLE );
 	}
 	else if( !cls.glconfig.isFullscreen && loading )
 	{
@@ -1306,6 +1392,12 @@ void IN_Init( void *windowData )
 
 	Com_DPrintf( "\n------- Input Initialization -------\n" );
 
+	/*
+	 * Fixed in OPM: prefer raw relative mouse; warp-relative fallback can feel
+	 * like a center dead-zone that only clears after vid_restart.
+	 */
+	SDL_SetHintWithPriority( SDL_HINT_MOUSE_RELATIVE_MODE_WARP, "0", SDL_HINT_OVERRIDE );
+
 	in_keyboardDebug = Cvar_Get( "in_keyboardDebug", "0", CVAR_ARCHIVE );
 
 	// mouse variables
@@ -1330,6 +1422,65 @@ void IN_Init( void *windowData )
 
 	IN_InitJoystick( );
 	Com_DPrintf( "------------------------------------\n" );
+}
+
+/*
+===============
+IN_GetWindowLogicalSize
+
+SDL drawable / window size in points (not necessarily FB pixels on HiDPI).
+Falls back to glconfig when the window handle is unavailable.
+===============
+*/
+void IN_GetWindowLogicalSize( int *w, int *h )
+{
+	int width = 0;
+	int height = 0;
+
+	if ( SDL_window ) {
+		SDL_GetWindowSize( SDL_window, &width, &height );
+	}
+
+	if ( width <= 0 || height <= 0 ) {
+		width = cls.glconfig.vidWidth;
+		height = cls.glconfig.vidHeight;
+	}
+
+	if ( w ) {
+		*w = width;
+	}
+	if ( h ) {
+		*h = height;
+	}
+}
+
+/*
+===============
+IN_GetWindowFramebufferSize
+
+SDL GL drawable size in pixels. Falls back to glconfig when unavailable.
+===============
+*/
+void IN_GetWindowFramebufferSize( int *w, int *h )
+{
+	int width = 0;
+	int height = 0;
+
+	if ( SDL_window ) {
+		SDL_GL_GetDrawableSize( SDL_window, &width, &height );
+	}
+
+	if ( width <= 0 || height <= 0 ) {
+		width = cls.glconfig.vidWidth;
+		height = cls.glconfig.vidHeight;
+	}
+
+	if ( w ) {
+		*w = width;
+	}
+	if ( h ) {
+		*h = height;
+	}
 }
 
 /*

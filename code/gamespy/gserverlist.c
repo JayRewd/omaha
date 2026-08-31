@@ -39,6 +39,7 @@ Fax(714)549-0757
  */
 #include "goaceng.h"
 #include "gserver.h"
+#include "gserverlist_scheduler.h"
 #if defined(applec) || defined(THINK_C) || defined(__MWERKS__) && !defined(__KATANA__)
     #include "::nonport.h"
 #else
@@ -60,6 +61,7 @@ Fax(714)549-0757
 #define assert(a)
 #endif
 #include <stdio.h>
+#include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
 
@@ -95,6 +97,7 @@ typedef struct
     GServer currentserver;
     unsigned long starttime;
     struct sockaddr_in saddr;
+    int attempt;
 } UpdateInfo;
 
 typedef enum { pi_fieldcount, pi_fields, pi_servers } GParseInfoState;
@@ -114,13 +117,13 @@ struct GServerListImplementation
 {
     GServerListState state;
     DArray servers;
+    DArray retryservers;
     UpdateInfo *updatelist; //dynamic array of updateinfos
     char gamename[32];
     char seckey[32];
     char enginename[32];
     char filter[256];
     int maxupdates;
-    int nextupdate;
     int abortupdate;
     ListCallBackFn CallBackFn;
     void *instance;
@@ -143,6 +146,13 @@ struct GServerListImplementation
     gbool async;
 
     GParseInfoState pistate;
+
+    gbool updateinitialized;
+    gbool pipelinequeries;
+    gbool retryqueries;
+    unsigned long firstquerytimeout;
+    unsigned long retryquerytimeout;
+    GServerListScheduler scheduler;
 };
 
 GServerList g_sortserverlist; //global serverlist for sorting info!!
@@ -162,6 +172,8 @@ static int KeyValHashKeyA(const void *elem, int numbuckets);
 static gbool ServerListHasFinishedFetchingList(GServerList serverlist);
 static GError ServerListCheckSocketError(GServerList serverlist, GServerListSocket slsocket);
 static GError ServerListStartQuery(GServerList serverlist, GServerListSocket slsocket, gbool async);
+static GError FreeUpdateList(GServerList serverlist);
+static void ServerListRemoveRetry(GServerList serverlist, GServer server);
 GError ServerListThinkSocket(GServerList serverlist, GServerListSocket slsocket);
 
 /* ServerListNew
@@ -170,11 +182,13 @@ Creates and returns a new (empty) GServerList. */
 GServerList	ServerListNew(const char *gamename, const char *enginename, const char *seckey, int maxconcupdates, void *CallBackFn, int CallBackFnType, void *instance)
 {
     GServerList list;
+    int i;
 
     list = (GServerList) gsimalloc(sizeof(struct GServerListImplementation));
     assert(list != NULL);
     list->state = sl_idle;
     list->servers = ArrayNew(sizeof(GServer), SERVER_GROWBY, ServerFree);
+    list->retryservers = ArrayNew(sizeof(GServer), SERVER_GROWBY, NULL);
     list->keylist = TableNew2(sizeof(char *),LIST_NUMKEYBUCKETS,LIST_NUMKEYCHAINS,GStringHash, GCaseInsensitiveCompare, GStringFree);
     list->maxupdates = maxconcupdates;
     list->updatelist = gsimalloc(maxconcupdates * sizeof(UpdateInfo));
@@ -193,6 +207,13 @@ GServerList	ServerListNew(const char *gamename, const char *enginename, const ch
     list->encryptdata = 1;
     list->async = 0;
 
+    list->updateinitialized = 0;
+    list->pipelinequeries = 0;
+    list->retryqueries = 0;
+    list->firstquerytimeout = SERVER_TIMEOUT;
+    list->retryquerytimeout = SERVER_TIMEOUT;
+    GServerListSchedulerInit(&list->scheduler);
+
     list->numslsockets = maxconcupdates / 4;
     if (list->numslsockets < 1) {
         list->numslsockets = 1;
@@ -202,6 +223,9 @@ GServerList	ServerListNew(const char *gamename, const char *enginename, const ch
     }
     list->slsockets = (GServerListSocket)gsimalloc(sizeof(struct GServerListSocketImplementation) * list->numslsockets);
     memset(list->slsockets, 0, sizeof(struct GServerListSocketImplementation) * list->numslsockets);
+    for (i = 0; i < list->numslsockets; i++) {
+        list->slsockets[i].s = INVALID_SOCKET;
+    }
     list->startslindex = 0;
     list->lastsltime = current_time();
 
@@ -214,6 +238,16 @@ GServerList	ServerListNew(const char *gamename, const char *enginename, const ch
 Free a GServerList and all internal sturctures and servers */
 void ServerListFree(GServerList serverlist)
 {
+    int i;
+
+    FreeUpdateList(serverlist);
+    for (i = 0; i < serverlist->numslsockets; i++) {
+        if (serverlist->slsockets[i].s != INVALID_SOCKET) {
+            closesocket(serverlist->slsockets[i].s);
+            serverlist->slsockets[i].s = INVALID_SOCKET;
+        }
+    }
+    ArrayFree(serverlist->retryservers);
     ArrayFree(serverlist->servers);
     TableFree(serverlist->keylist);
     gsifree(serverlist->updatelist);
@@ -228,6 +262,10 @@ static GError InitUpdateList(GServerList serverlist)
 {
     int i;
 
+    if (serverlist->updateinitialized) {
+        return 0;
+    }
+
     for (i = 0 ; i < serverlist->maxupdates ; i++)
     {
         serverlist->updatelist[i].s = socket(AF_INET, SOCK_DGRAM,IPPROTO_UDP);
@@ -236,11 +274,13 @@ static GError InitUpdateList(GServerList serverlist)
             if (i == 0)
                 return GE_NOSOCKET;
             serverlist->maxupdates = i;
-            return 0;
+            break;
         }
         serverlist->updatelist[i].currentserver = NULL;
         serverlist->updatelist[i].starttime = 0;
+        serverlist->updatelist[i].attempt = 0;
     }
+    serverlist->updateinitialized = 1;
     return 0;
 
 
@@ -250,10 +290,20 @@ static GError InitUpdateList(GServerList serverlist)
 static GError FreeUpdateList(GServerList serverlist) 
 {
     int i;
+
+    if (!serverlist->updateinitialized) {
+        return 0;
+    }
+
     for (i = 0 ; i < serverlist->maxupdates ; i++)
     {
-        closesocket(serverlist->updatelist[i].s);
+        if (serverlist->updatelist[i].s != INVALID_SOCKET) {
+            closesocket(serverlist->updatelist[i].s);
+            serverlist->updatelist[i].s = INVALID_SOCKET;
+        }
+        serverlist->updatelist[i].currentserver = NULL;
     }
+    serverlist->updateinitialized = 0;
     return 0;
 
 
@@ -267,6 +317,7 @@ static GError CreateServerListSocket(GServerList serverlist, GServerListSocket s
     int lasterr;
     int port;
     const char *host;
+    unsigned int masterindex;
 
     if (serverlist->startslindex >= ServerListGetNumMasters()) {
         return GE_NODNS;
@@ -277,8 +328,9 @@ static GError CreateServerListSocket(GServerList serverlist, GServerListSocket s
         slsocket->s = INVALID_SOCKET;
     }
 
-    port = ServerListGetMsPort(serverlist->startslindex);
-    host = ServerListGetHost(serverlist->startslindex);
+    masterindex = serverlist->startslindex++;
+    port = ServerListGetMsPort(masterindex);
+    host = ServerListGetHost(masterindex);
 
     saddr.sin_family = AF_INET;
     saddr.sin_port = htons(port);
@@ -299,7 +351,7 @@ static GError CreateServerListSocket(GServerList serverlist, GServerListSocket s
     }
 
     if (connect ( slsocket->s, (struct sockaddr *) &saddr, sizeof saddr ) != 0
-        && (lasterr = GOAGetLastError(slsocket->slsocket), lasterr != WSAEWOULDBLOCK && lasterr != WSAEINPROGRESS))
+        && (lasterr = GOAGetLastError(slsocket->s), lasterr != WSAEWOULDBLOCK && lasterr != WSAEINPROGRESS))
     {
         closesocket(slsocket->s);
         slsocket->s = INVALID_SOCKET;
@@ -310,7 +362,6 @@ static GError CreateServerListSocket(GServerList serverlist, GServerListSocket s
     slsocket->oldlen = 0;
     slsocket->cryptkey.index = -1; //mark as uninitialized
     slsocket->lastreplytime = current_time();
-    serverlist->startslindex++;
 
     //else we are connected
     return 0;
@@ -330,6 +381,115 @@ static GError CreateServerListForAvailableSockets(GServerList serverlist, gbool 
     }
 
     return 0;
+}
+
+GError ServerListSetMasterConcurrency(GServerList serverlist, int maxmasters)
+{
+    int available;
+    int i;
+    GServerListSocket newsockets;
+
+    if (serverlist->state != sl_idle) {
+        return GE_BUSY;
+    }
+
+    available = (int)ServerListGetNumMasters();
+    if (available < 1) {
+        return GE_NODNS;
+    }
+
+    if (maxmasters < 1) {
+        maxmasters = 1;
+    } else if (maxmasters > available) {
+        maxmasters = available;
+    }
+
+    if (maxmasters == serverlist->numslsockets) {
+        return GE_NOERROR;
+    }
+
+    newsockets = (GServerListSocket)gsimalloc(
+        sizeof(struct GServerListSocketImplementation) * maxmasters
+    );
+    if (!newsockets) {
+        return GE_NOSOCKET;
+    }
+    memset(newsockets, 0, sizeof(struct GServerListSocketImplementation) * maxmasters);
+    for (i = 0; i < maxmasters; i++) {
+        newsockets[i].s = INVALID_SOCKET;
+    }
+
+    gsifree(serverlist->slsockets);
+    serverlist->slsockets = newsockets;
+    serverlist->numslsockets = maxmasters;
+    return GE_NOERROR;
+}
+
+GError ServerListSetQueryTimeout(GServerList serverlist, unsigned long timeout)
+{
+    if (serverlist->state != sl_idle) {
+        return GE_BUSY;
+    }
+
+    serverlist->retryqueries = 0;
+    serverlist->firstquerytimeout = timeout;
+    serverlist->retryquerytimeout = timeout;
+    return GE_NOERROR;
+}
+
+GError ServerListSetRetryTimeouts(
+    GServerList serverlist, unsigned long firstTimeout, unsigned long retryTimeout
+)
+{
+    if (serverlist->state != sl_idle) {
+        return GE_BUSY;
+    }
+
+    serverlist->retryqueries = 1;
+    serverlist->firstquerytimeout = firstTimeout;
+    serverlist->retryquerytimeout = retryTimeout;
+    return GE_NOERROR;
+}
+
+GError ServerListSetPipelining(GServerList serverlist, gbool enabled)
+{
+    if (serverlist->state != sl_idle) {
+        return GE_BUSY;
+    }
+
+    serverlist->pipelinequeries = enabled;
+    return GE_NOERROR;
+}
+
+void ServerListGetQueryStats(
+    GServerList serverlist, int *discovered, int *completed, int *responsive, int *timedout, int *active
+)
+{
+    int i;
+    int activecount = 0;
+
+    if (discovered) {
+        *discovered = ArrayLength(serverlist->servers);
+    }
+    if (completed) {
+        *completed = serverlist->scheduler.completed;
+    }
+    if (responsive) {
+        *responsive = serverlist->scheduler.responsive;
+    }
+    if (timedout) {
+        *timedout = serverlist->scheduler.timedout;
+    }
+    if (active) {
+        if (serverlist->updateinitialized) {
+            for (i = 0; i < serverlist->maxupdates; i++) {
+                if (serverlist->updatelist[i].currentserver != NULL) {
+                    activecount++;
+                }
+            }
+        }
+        *active = activecount;
+    }
 }
 
 
@@ -484,10 +644,8 @@ GError ServerListUpdate2(GServerList serverlist, gbool async, char *filter, GQue
         return GE_BUSY;
 
     serverlist->querytype = querytype;
-    error = CreateServerListForAvailableSockets(serverlist, async);
-    //if (error) return error;
-
-    serverlist->nextupdate = 0;
+    GServerListSchedulerInit(&serverlist->scheduler);
+    ArrayClear(serverlist->retryservers);
     serverlist->abortupdate = 0;
     // Added in 2.0
     serverlist->auxinsertcount = ServerListCount(serverlist);
@@ -495,11 +653,23 @@ GError ServerListUpdate2(GServerList serverlist, gbool async, char *filter, GQue
     //serverlist->cryptkey.index = -1;
     if (filter) {
         strncpy(serverlist->filter, filter, sizeof(serverlist->filter));
+        serverlist->filter[sizeof(serverlist->filter) - 1] = 0;
     } else {
         serverlist->filter[0] = 0;
     }
 
     serverlist->async = async;
+    serverlist->startslindex = 0;
+
+    if (querytype != qt_grouprooms && querytype != qt_masterinfo) {
+        error = InitUpdateList(serverlist);
+        if (error) {
+            return error;
+        }
+    }
+
+    error = CreateServerListForAvailableSockets(serverlist, async);
+    //if (error) return error;
 
     if (async) {
         // As it's asynchronous, set the state to transfering
@@ -526,13 +696,15 @@ GError ServerListLANUpdate(GServerList serverlist, gbool async, int startsearchp
     if (serverlist->state != sl_idle)
         return GE_BUSY;
 
+    GServerListSchedulerInit(&serverlist->scheduler);
+    ArrayClear(serverlist->retryservers);
+
     error = InitUpdateList(serverlist);
     if (error) return error;
     error = CreateServerListLANSocket(serverlist);
     if (error) return error;
     error = SendBroadcastRequest(serverlist, startsearchport, endsearchport, searchdelta);
     if (error) return error;
-    serverlist->nextupdate = 0;
     serverlist->abortupdate = 0;
     if (!async)
         DoSyncLoop(serverlist);
@@ -623,16 +795,35 @@ void ServerListRemoveServer(GServerList serverlist, char *ip, int port)
     if (currentindex == -1)
         return; //can't do anything, it doesn't exist
 
-    //check to see whether we need to change the updatelist or move the nextupdate
-    if (serverlist->state != sl_idle && serverlist->nextupdate > currentindex) 
+    //check to see whether we need to change the updatelist or move the next claim
+    if (serverlist->state != sl_idle && serverlist->scheduler.next > currentindex) 
     {
         GServer holdserver = *(GServer *)ArrayNth(serverlist->servers,currentindex);
         updateindex = ServerListFindServerInUpdateList(serverlist, holdserver);
         if (updateindex != -1) //is currently being queried, stop it
             serverlist->updatelist[updateindex].currentserver = NULL;
-        serverlist->nextupdate--; //decrement the next update, since we are removing a server
+        serverlist->scheduler.next--; //decrement the next update, since we are removing a server
     }
+    ServerListRemoveRetry(serverlist, *(GServer *)ArrayNth(serverlist->servers, currentindex));
     ArrayDeleteAt(serverlist->servers, currentindex); 
+}
+
+static void ServerListRemoveRetry(GServerList serverlist, GServer server)
+{
+    int i;
+
+    for (i = 0; i < ArrayLength(serverlist->retryservers); i++) {
+        if (*(GServer *)ArrayNth(serverlist->retryservers, i) == server) {
+            ArrayDeleteAt(serverlist->retryservers, i);
+            if (serverlist->scheduler.retryCount > 0) {
+                serverlist->scheduler.retryCount--;
+            }
+            if (serverlist->scheduler.nextRetry > i) {
+                serverlist->scheduler.nextRetry--;
+            }
+            return;
+        }
+    }
 }
 
 /* ServerListUpdate
@@ -655,7 +846,9 @@ GError ServerListAuxUpdate(GServerList serverlist, const char *ip, int port, gbo
         //prepare as if we're going to do a normal list fetch,
         //but skip the call to SendListRequest().
 
-        
+        GServerListSchedulerInit(&serverlist->scheduler);
+        ArrayClear(serverlist->retryservers);
+
         error = InitUpdateList(serverlist);
         if (error) return error;
         if (currentindex != -1) //we need to "move" this server to the end of the list
@@ -670,7 +863,7 @@ GError ServerListAuxUpdate(GServerList serverlist, const char *ip, int port, gbo
             ServerListAddServer(serverlist, real_ip, (unsigned short)port, querytype);
         }
         
-        serverlist->nextupdate = ArrayLength(serverlist->servers) - 1;
+        serverlist->scheduler.next = ArrayLength(serverlist->servers) - 1;
         serverlist->abortupdate = 0;
 
         //chane the mode straight to querying
@@ -689,23 +882,23 @@ GError ServerListAuxUpdate(GServerList serverlist, const char *ip, int port, gbo
         //note: this should NEVER be called in a different thread from think!!
         if (currentindex == -1) //it doesn't exist yet
         {
-            ServerListInsertServer(serverlist, real_ip, (unsigned short)port, serverlist->nextupdate, querytype);
+            ServerListInsertServer(serverlist, real_ip, (unsigned short)port, serverlist->scheduler.next, querytype);
             if (serverlist->state == sl_listxfer || serverlist->state == sl_lanlist) //list is still being xfer'd - make sure it won't add this again!
                 serverlist->auxinsertcount++;
         }
         else 
         { //it exists, find out whats happening to it
             GServer holdserver = *(GServer *)ArrayNth(serverlist->servers,currentindex);
-            if (currentindex >= serverlist->nextupdate) //hasn't been queried yet!
+            if (currentindex >= serverlist->scheduler.next) //hasn't been queried yet!
                 return 0; //it will be queried soon anyway
             holdserver->querytype = querytype;
             holdserver->ping = 9999;//clear the ping so it gets recalculated
             updateindex = ServerListFindServerInUpdateList(serverlist, holdserver);
             if (updateindex != -1) //is currently being queried, stop it
                 serverlist->updatelist[updateindex].currentserver = NULL;
-            ArrayInsertAt(serverlist->servers,&holdserver, serverlist->nextupdate); //insert at new place
+            ArrayInsertAt(serverlist->servers,&holdserver, serverlist->scheduler.next); //insert at new place
             ArrayRemoveAt(serverlist->servers,currentindex); //remove the old one
-            serverlist->nextupdate--; //decrement the next update, since we are removing a server
+            serverlist->scheduler.next--; //decrement the next update, since we are removing a server
         }
     }
     return 0;
@@ -943,7 +1136,19 @@ static GError ServerListReadList(GServerList serverlist, GServerListSocket slsoc
                 //  Use the entire array instead
                 currentindex = ServerListFindServer(serverlist,ip,ntohs(port));
                 if (currentindex == -1)
-                    ServerListAddServer(serverlist,ip,  ntohs(port), serverlist->querytype );	
+                {
+                    GServer server = ServerListAddServer(serverlist,ip,  ntohs(port), serverlist->querytype );
+                    serverlist->CallBackFn(
+                        serverlist,
+                        LIST_SERVERADDED,
+                        serverlist->instance,
+                        server,
+                        NULL
+                    );
+                    if (serverlist->pipelinequeries && serverlist->state == sl_listxfer) {
+                        ServerListModeChange(serverlist, sl_querying);
+                    }
+                }
             }
         }
     }
@@ -954,29 +1159,66 @@ static GError ServerListReadList(GServerList serverlist, GServerListSocket slsoc
 }
 
 //loop through pending queries and send out new ones
+static void ServerListHandleQueryFailure(GServerList serverlist, int updateindex)
+{
+    UpdateInfo *update = &serverlist->updatelist[updateindex];
+    GServer server = update->currentserver;
+
+    if (serverlist->retryqueries && update->attempt == 0) {
+        ArrayAppend(serverlist->retryservers, &server);
+        GServerListSchedulerQueueRetry(&serverlist->scheduler);
+        server->ping = 9999;
+        serverlist->CallBackFn(
+            serverlist,
+            LIST_QUERYRETRY,
+            serverlist->instance,
+            server,
+            NULL
+        );
+    } else {
+        GServerListSchedulerComplete(&serverlist->scheduler, 0);
+        serverlist->CallBackFn(
+            serverlist,
+            LIST_QUERYTIMEOUT,
+            serverlist->instance,
+            server,
+            NULL
+        );
+    }
+
+    update->currentserver = NULL;
+}
+
 static GError ServerListQueryLoop(GServerList serverlist)
 {
-    int i, scount = 0, error, final;
+    int i, active = 0, error, final;
+    int serverindex;
+    int retryindex;
+    int percent;
+    int discovered;
+    int mastersFinished;
     fd_set set;
     struct timeval timeout = {0,0};
     char indata[1500];
     struct sockaddr_in saddr;
     int saddrlen = sizeof(saddr);
     GServer server;
+    UpdateInfo *update;
+    unsigned long querytimeout;
 
 //first, check for available data
     FD_ZERO(&set);
     for (i = 0 ; i < serverlist->maxupdates ; i++)
         if (serverlist->updatelist[i].currentserver != NULL) //there is a server waiting
         {
-            scount++;
+            active++;
             FD_SET( serverlist->updatelist[i].s, &set);
-
         }
-    if (scount > 0) //there are sockets to check for data
+    if (active > 0)
     {
         error = select(FD_SETSIZE, &set, NULL, NULL, &timeout);
         if (!gsiSocketIsError(error) && 0 != error)
+        {
             for (i = 0 ; i < serverlist->maxupdates ; i++)
                 if (serverlist->updatelist[i].currentserver != NULL && FD_ISSET(serverlist->updatelist[i].s, &set) ) //there is a server waiting
                 { //we can read data!!
@@ -997,67 +1239,133 @@ static GError ServerListQueryLoop(GServerList serverlist)
                         ServerParseKeyVals(server, indata); 
                         if (final) //it's all done
                         {
+                            GServerListSchedulerComplete(&serverlist->scheduler, 1);
+                            discovered = ArrayLength(serverlist->servers);
+                            percent = discovered > 0
+                                ? (serverlist->scheduler.completed * 100) / discovered
+                                : 0;
                             serverlist->CallBackFn(serverlist, 
                                                     LIST_PROGRESS, 
                                                     serverlist->instance,
                                                     server,
-                                                    (void *)((serverlist->nextupdate * 100) / ArrayLength(serverlist->servers))); //percent done
+                                                    (void *)(uintptr_t)percent); //percent done
                             serverlist->updatelist[i].currentserver = NULL; //reuse the updatelist
                         } 
-                    } else
-                        serverlist->updatelist[i].currentserver = NULL; //reuse the updatelist
+                    } else {
+                        ServerListHandleQueryFailure(serverlist, i);
+                    }
                     
                 }
+        }
     }
     //kill expired ones
     for (i = 0 ; i < serverlist->maxupdates ; i++)
-        if (serverlist->updatelist[i].currentserver != NULL && current_time() - serverlist->updatelist[i].starttime > SERVER_TIMEOUT ) 
-        {
-            /* serverlist->CallBackFn(serverlist,  //do we want to notify of dead servers? if so, uncomment!
-                LIST_PROGRESS, 
-                serverlist->instance,
-                *(GServer *)serverlist->updatelist[i].currentserver,
-                (void *)((serverlist->nextupdate * 100) / ArrayLength(serverlist->servers))); //percent done
-                */
-            serverlist->updatelist[i].currentserver = NULL; //reuse the updatelist
+    {
+        update = &serverlist->updatelist[i];
+        if (update->currentserver == NULL) {
+            continue;
         }
-        
-    if (serverlist->abortupdate || (serverlist->nextupdate >= ArrayLength(serverlist->servers) && scount == 0)) 
+        querytimeout = update->attempt
+            ? serverlist->retryquerytimeout
+            : serverlist->firstquerytimeout;
+        if (current_time() - update->starttime > querytimeout) {
+            ServerListHandleQueryFailure(serverlist, i);
+        }
+    }
+
+    // recount active slots after receive/timeout processing
+    active = 0;
+    for (i = 0 ; i < serverlist->maxupdates ; i++) {
+        if (serverlist->updatelist[i].currentserver != NULL) {
+            active++;
+        }
+    }
+
+    if (serverlist->abortupdate)
     { //we are done!!
         FreeUpdateList(serverlist);
-        if (serverlist->abortupdate) {
-            ServerListModeChange(serverlist, sl_idle);
-            return 0;
-        }
-
-        if (serverlist->startslindex < ServerListGetNumMasters() || !ServerListHasFinishedFetchingList(serverlist)) {
-            ServerListModeChange(serverlist, sl_listxfer);
-        } else {
-            // No more masters
-            ServerListModeChange(serverlist, sl_idle);
-        }
+        ServerListModeChange(serverlist, sl_idle);
         return 0;
     }
 
-    if (!ServerListHasFinishedFetchingList(serverlist) && current_time() < serverlist->lastsltime + SERVER_QUERY_MAX_PAUSE) {
-        // Make sure to not send out other queries if currently fetching from other lists
-        // to avoid overloading the network
-        return GE_BUSY;
+    // non-pipelined callers: pause querying while masters are still transferring
+    if (!serverlist->pipelinequeries) {
+        if (serverlist->scheduler.next >= ArrayLength(serverlist->servers) && active == 0
+            && (serverlist->startslindex < ServerListGetNumMasters()
+                || !ServerListHasFinishedFetchingList(serverlist))) {
+            ServerListModeChange(serverlist, sl_listxfer);
+            return 0;
+        }
+
+        if (!ServerListHasFinishedFetchingList(serverlist)
+            && current_time() < serverlist->lastsltime + SERVER_QUERY_MAX_PAUSE) {
+            // Make sure to not send out other queries if currently fetching from other lists
+            // to avoid overloading the network
+            return GE_BUSY;
+        }
+    }
+
+    mastersFinished = serverlist->startslindex >= ServerListGetNumMasters()
+        && ServerListHasFinishedFetchingList(serverlist);
+    if (GServerListSchedulerDone(
+            &serverlist->scheduler,
+            ArrayLength(serverlist->servers),
+            active,
+            mastersFinished
+        ))
+    {
+        FreeUpdateList(serverlist);
+        ServerListModeChange(serverlist, sl_idle);
+        return 0;
     }
 
 //now, send out queries on available sockets
-    for (i = 0 ; i < serverlist->maxupdates && serverlist->nextupdate < ArrayLength(serverlist->servers) ; i++)
-        if (serverlist->updatelist[i].currentserver == NULL) //it's availalbe
-        {
-            server = *(GServer *)ArrayNth(serverlist->servers,serverlist->nextupdate);
-            serverlist->nextupdate++;
-            serverlist->updatelist[i].currentserver = server;
-            serverlist->updatelist[i].saddr.sin_family = AF_INET;
-            serverlist->updatelist[i].saddr.sin_addr.s_addr = inet_addr(ServerGetAddress(server));
-            serverlist->updatelist[i].saddr.sin_port = htons((short)ServerGetQueryPort(server));
-            sendto(serverlist->updatelist[i].s,querystrings[server->querytype] ,querylengths[server->querytype],0,(struct sockaddr *)&serverlist->updatelist[i].saddr,sizeof(struct sockaddr_in));
-            serverlist->updatelist[i].starttime = current_time();
+    for (i = 0 ; i < serverlist->maxupdates ; i++)
+    {
+        if (serverlist->updatelist[i].currentserver != NULL) {
+            continue;
         }
+
+        serverindex = GServerListSchedulerClaim(
+            &serverlist->scheduler, ArrayLength(serverlist->servers)
+        );
+        if (serverindex >= 0) {
+            server = *(GServer *)ArrayNth(serverlist->servers, serverindex);
+            serverlist->updatelist[i].attempt = 0;
+        } else {
+            retryindex = GServerListSchedulerClaimRetry(&serverlist->scheduler);
+            if (retryindex < 0) {
+                break;
+            }
+            server = *(GServer *)ArrayNth(serverlist->retryservers, retryindex);
+            serverlist->updatelist[i].attempt = 1;
+        }
+
+        serverlist->updatelist[i].currentserver = server;
+        serverlist->updatelist[i].saddr.sin_family = AF_INET;
+        serverlist->updatelist[i].saddr.sin_addr.s_addr = inet_addr(ServerGetAddress(server));
+        serverlist->updatelist[i].saddr.sin_port = htons((short)ServerGetQueryPort(server));
+        error = sendto(
+            serverlist->updatelist[i].s,
+            querystrings[server->querytype],
+            querylengths[server->querytype],
+            0,
+            (struct sockaddr *)&serverlist->updatelist[i].saddr,
+            sizeof(struct sockaddr_in)
+        );
+        if (gsiSocketIsError(error)) {
+            ServerListHandleQueryFailure(serverlist, i);
+            continue;
+        }
+        serverlist->updatelist[i].starttime = current_time();
+        serverlist->CallBackFn(
+            serverlist,
+            LIST_QUERYSTARTED,
+            serverlist->instance,
+            server,
+            NULL
+        );
+    }
 
 
     return 0;
@@ -1075,13 +1383,34 @@ GError ServerListThink(GServerList serverlist)
         ServerListThinkSocket(serverlist, &serverlist->slsockets[i]);
     }
 
+    if (serverlist->abortupdate) {
+        for (i = 0; i < serverlist->numslsockets; i++) {
+            if (serverlist->slsockets[i].s != INVALID_SOCKET) {
+                closesocket(serverlist->slsockets[i].s);
+                serverlist->slsockets[i].s = INVALID_SOCKET;
+            }
+            serverlist->slsockets[i].socketstate = ls_none;
+        }
+        FreeUpdateList(serverlist);
+        if (serverlist->state != sl_idle) {
+            ServerListModeChange(serverlist, sl_idle);
+        }
+        return GE_NOERROR;
+    }
+
+    if ((serverlist->state == sl_listxfer
+            || (serverlist->state == sl_querying && serverlist->pipelinequeries))
+        && serverlist->startslindex < ServerListGetNumMasters()) {
+        CreateServerListForAvailableSockets(serverlist, serverlist->async);
+    }
+
     switch(serverlist->state)
     {
         case sl_idle:
+            break;
         case sl_listxfer:
-            if (!serverlist->abortupdate && serverlist->startslindex < ServerListGetNumMasters()) {
-                CreateServerListForAvailableSockets(serverlist, serverlist->async);
-            } else if (serverlist->state == sl_listxfer && ServerListHasFinishedFetchingList(serverlist)) {
+            if (serverlist->startslindex >= ServerListGetNumMasters()
+                && ServerListHasFinishedFetchingList(serverlist)) {
                 ServerListModeChange(serverlist, sl_idle);
             }
             break;
@@ -1116,11 +1445,13 @@ GError ServerListClear(GServerList serverlist)
     if (serverlist->state != sl_idle)
         return GE_BUSY;
     //fastest way to clear is kill and recreate
+    ArrayClear(serverlist->retryservers);
     ArrayFree(serverlist->servers);
     serverlist->servers = ArrayNew(sizeof(GServer), SERVER_GROWBY, ServerFree);
     TableFree(serverlist->keylist);
     serverlist->keylist = TableNew2(sizeof(char *),LIST_NUMKEYBUCKETS,LIST_NUMKEYCHAINS,GStringHash, GCaseInsensitiveCompare, GStringFree);
     serverlist->auxinsertcount = 0;
+    GServerListSchedulerInit(&serverlist->scheduler);
     return 0;
 }
 
@@ -1304,10 +1635,6 @@ static GError ServerListStartQuery(GServerList serverlist, GServerListSocket sls
 
     error = SendListRequest(serverlist, slsocket, serverlist->filter);
     if (error) return error;
-    if (serverlist->querytype != qt_grouprooms && serverlist->querytype != qt_masterinfo) {
-        error = InitUpdateList(serverlist);
-        if (error) return error;
-    }
 
     if (!async)
         DoSyncLoop(serverlist);

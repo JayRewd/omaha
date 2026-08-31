@@ -1,0 +1,8 @@
+<ui-library version="1">
+	<vars>
+		<var id="color-lab-red" value="#E74C3CFF"/>
+		<var id="color-lab-green" value="#2ECC71FF"/>
+		<var id="color-lab-blue" value="#3498DBFF"/>
+		<var id="fill-cyan-glow" value="#00FFF044"/>
+	</vars>
+</ui-library>

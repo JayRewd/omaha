@@ -707,7 +707,10 @@ void	Cvar_CompleteCvarName(const char* args, int argNum);
 cvar_t  *Cvar_Unset(cvar_t *cv);
 
 extern	int			cvar_modifiedFlags;
+extern	int			cvar_globalModCount; /* Added in OPM: UI cvar-epoch memo */
 extern	qboolean	cvar_global_force;
+/* Added in OPM: monotonic epoch for UI binding expression memos. */
+int	Cvar_GlobalModCount(void);
 // whenever a cvar is modifed, its flags will be OR'd into this, so
 // a single check can determine if any CVAR_USERINFO, CVAR_SERVERINFO,
 // etc, variables have been modified since the last check.  The bit
@@ -1012,6 +1015,7 @@ void		Com_RunAndTimeServerPacket(netadr_t *evFrom, msg_t *buf);
 qboolean	Com_IsVoipTarget(uint8_t *voipTargets, int voipTargetsSize, int clientNum);
 
 void		Com_StartupVariable( const char *match );
+qboolean	Com_CommandLineCvarSpecified( const char *name );
 // checks for and removes command line "+set var arg" constructs
 // if match is NULL, all set commands will be executed, otherwise
 // only a set with the exact name.  Only used during startup.

@@ -29,7 +29,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 extern "C" {
 #endif
 
-#define PRODUCT_NAME					"OpenMoHAA"
+#define PRODUCT_NAME					"Project: Omaha" /* Changed in OPM: fork product name */
 #define PRODUCT_DATE					__DATE__
 
 #define BASEGAME				"main"

@@ -59,6 +59,7 @@ const char *CvarGetForUI(const char *name, const char *defval);
 void        UI_ClearState(void);
 void        CL_BeginRegistration(void);
 void        CL_EndRegistration(void);
+qboolean    CL_IsBeginRegistrationActive(void);
 float       UI_GetObjectivesTop(void);
 void        UI_GetHighResolutionScale(vec2_t scale);
 
@@ -70,15 +71,22 @@ extern Menu *ui_pLoadingMenu;
 void     UI_ShowMenu(const char *name, qboolean bForce);
 void     UI_HideMenu(const char *name, qboolean bForce);
 void     UI_ForceMenuOff(bool force);
+void     UI_GetPlayerModel_f(void);
+void     UI_ApplyPlayerModel_f(void);
 void     UI_PushMenu(const char *name);
 void     UI_ForceMenu(const char *name);
 qboolean UI_BindActive(void);
 void     UI_SetReturnMenuToCurrent(void);
 void     UI_ActivateView3D(void);
+void     UI_EnterModernInputMode(void);
+void     UI_EnterModernInputModeKeepKeys(void);
+void     UI_LeaveModernInputMode(void);
 void     UI_MenuEscape(const char *name);
 void     UI_CreateScoreboard(void);
 qboolean UI_MenuActive(void);
 qboolean UI_MenuUp(void);
+/* Added in OPM: letterbox state for modern HUD suppress. */
+qboolean UI_LetterboxActive(void);
 void     UI_FocusMenuIfExists(void);
 void     UI_DrawConnect(void);
 void     UI_CreateDialog(
@@ -135,6 +143,8 @@ void UI_DeactiveFloatingWindows(void);
 // console
 //
 void     UI_OpenConsole(void);
+void     UI_EnsureConsoleFocused(void);
+void     UI_WantsKeyboard(void);
 qboolean UI_ConsoleIsVisible(void);
 qboolean UI_ConsoleIsOpen(void);
 void     UI_CloseConsole(void);
@@ -146,11 +156,14 @@ void     UI_OpenDeveloperConsole(void);
 void     UI_CloseDeveloperConsole(void);
 void     UI_PrintConsole(const char *msg);
 
+/* Added in OPM: legacy surfaces that should suspend modern design input. */
+qboolean UI_LegacyOverlayOwnsInput(void);
+
 //
 // callbacks
 //
 void UI_Update(void);
 void UI_ServerLoaded(void);
 void UI_ResolutionChange(void);
-void UI_KeyEvent(int key, unsigned int time);
+void UI_KeyEvent(int key, qboolean down, unsigned int time);
 void UI_CharEvent(int ch);

@@ -1,0 +1,114 @@
+<ui version="1">
+	<definitions hud-id="classic" hud-label="Classic" draw-order="4">
+		<import src="ui/modern/lib/hud_classic_theme.xml"/>
+		<import src="ui/modern/lib/shapes.xml"/>
+		<import src="ui/modern/lib/hud_images.xml"/>
+		<import src="ui/modern/lib/hud_messaging.xml"/>
+		<import src="ui/modern/lib/hud_classic.xml"/>
+		<import src="ui/modern/lib/hud_ammo.xml"/>
+	</definitions>
+	<canvas>
+		<!--
+		  Root stays visible so kill-feed / game-feed / chat survive intermission.
+		  Play chrome is gated by ui_om_hud_show (retail HUD hide).
+		-->
+		<container id="hud_root" type="vertical" width="100%" height="100%" padding="15px" fill="{var.fill-transparent}">
+
+			<!-- Top row: compass | game messages | kill feed | score -->
+			<container id="hud_top_row" type="horizontal" width="100%" height="auto"
+			           valign="start" halign="start" gap="0" padding="0">
+				<container visible="{cvar.ui_om_hud_show}" width="auto" height="auto" fill="{var.fill-transparent}">
+					<use template="classic-compass-panel"/>
+				</container>
+				<container id="hud_game_messages_slot" width="378px" height="120px"
+				           valign="start" halign="start" padding="0" fill="{var.fill-transparent}">
+					<use template="hud-game-messages-panel" width="378px" height="120px"/>
+				</container>
+				<container width="fill" height="auto" fill="{var.fill-transparent}"/>
+				<container id="hud_top_right" type="vertical" width="auto" height="auto"
+				           halign="end" valign="start" gap="5px" padding="0">
+					<container id="hud_score_col" type="vertical" width="auto" height="auto"
+					           halign="end" valign="start" gap="0" padding="0"
+					           visible="{cvar.ui_om_hud_show}">
+						<use template="classic-score-label"/>
+					</container>
+					<use template="hud-kill-feed-panel" width="420px" height="140px"/>
+				</container>
+			</container>
+
+			<!-- Body -->
+			<container id="hud_body" type="horizontal" width="100%" height="fill"
+			           gap="0" padding="0" valign="start">
+				<container id="hud_left_rail" type="vertical" width="auto" height="100%"
+				           valign="start" halign="start" gap="0" padding="0">
+					<container width="auto" height="auto" margin="0 0 0 31.25px" padding="0"
+					           visible="{cvar.ui_om_hud_show}">
+						<use template="classic-objectives-stack"/>
+					</container>
+					<container height="fill" width="100%" fill="{var.fill-transparent}"/>
+					<container type="vertical" width="auto" height="auto" gap="10px" valign="center"
+					           visible="{cvar.ui_om_hud_show}">
+						<use template="classic-stopwatch-row"/>
+						<use template="classic-im-panel"/>
+					</container>
+					<container height="fill" width="100%" fill="{var.fill-transparent}"/>
+					<container visible="{cvar.ui_om_hud_show}" width="auto" height="auto" fill="{var.fill-transparent}">
+						<use template="classic-target-info-panel"/>
+					</container>
+					<container height="fill" width="100%" fill="{var.fill-transparent}"/>
+					<container visible="{cvar.ui_om_hud_show}" width="auto" height="auto" fill="{var.fill-transparent}">
+						<use template="classic-vote-panel"/>
+					</container>
+					<container height="fill" width="100%" fill="{var.fill-transparent}"/>
+				</container>
+
+				<container id="hud_center_col" type="vertical" width="fill" height="100%"
+				           gap="10px" padding="0" valign="center" halign="center">
+					<use template="classic-centerprint"/>
+					<container visible="{cvar.ui_om_hud_show}" width="auto" height="auto" fill="{var.fill-transparent}">
+						<use template="classic-pause-panel"/>
+					</container>
+					<container visible="{cvar.ui_om_hud_show}" width="auto" height="auto" fill="{var.fill-transparent}">
+						<use template="classic-boss-panel"/>
+					</container>
+				</container>
+			</container>
+
+			<!-- Bottom row: chat above HP | center | ammo -->
+			<container id="hud_bottom_row" type="horizontal" width="100%" height="auto"
+			           gap="0" valign="end" halign="start" padding="0" fill="{var.fill-transparent}">
+				<container id="hud_bottom_left" type="vertical" width="auto" height="auto"
+				           valign="end" halign="start" gap="7.5px" padding="0" fill="{var.fill-transparent}">
+					<container width="360px" height="160px" margin="0 0 0 20px" padding="0"
+					           fill="{var.fill-transparent}" valign="end">
+						<use id="classic_chat" template="hud-chat-panel" width="360px" height="160px"/>
+					</container>
+					<container type="overlap" width="250px" height="250px"
+					           padding="0" fill="{var.fill-transparent}"
+					           visible="{cvar.ui_om_hud_show}">
+						<container margin="0 0 0 20px" valign="end" halign="start">
+							<use template="classic-health-panel"/>
+						</container>
+						<container margin="0 0 57.5px 120px" valign="end" halign="start">
+							<use template="classic-team-time-row"/>
+						</container>
+						<container margin="0 0 112.5px 70px" valign="end" halign="start">
+							<use template="classic-attacker-panel"/>
+						</container>
+					</container>
+				</container>
+				<container id="hud_bottom_center" type="vertical" width="fill" height="auto"
+				           gap="5px" halign="center" valign="end" padding="0" fill="{var.fill-transparent}"
+				           visible="{cvar.ui_om_hud_show}">
+					<use template="classic-spectator-banner"/>
+					<use template="classic-weapons-stack"/>
+				</container>
+				<container id="hud_bottom_end" type="vertical" width="auto" height="auto"
+				           halign="end" valign="end" padding="0 20px 0 0" fill="{var.fill-transparent}"
+				           visible="{cvar.ui_om_hud_show}">
+					<use template="classic-ammo-panel"/>
+				</container>
+			</container>
+		</container>
+	</canvas>
+</ui>

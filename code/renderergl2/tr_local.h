@@ -2657,6 +2657,11 @@ void		R_InitShaders( void );
 void		R_ShaderList_f( void );
 void    R_RemapShader(const char *oldShader, const char *newShader, const char *timeOffset);
 
+/* Added in OPM: dynamic UI atlas (fonts / gradient fills). */
+qhandle_t RE_CreateUIAtlas(const char *name, const byte *rgba, int width, int height);
+qboolean  RE_UpdateUIAtlas(qhandle_t hShader, const byte *rgba, int width, int height);
+
+
 //
 // OPENMOHAA-specific stuff
 //=========================

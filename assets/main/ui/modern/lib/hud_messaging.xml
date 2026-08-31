@@ -1,0 +1,137 @@
+<ui-library version="1">
+	<!--
+	  Shared HUD messaging: structured kill-feed, game notices, and chat.
+	  Used by modern and classic packs so both paint the same feeds.
+	-->
+	<import src="ui/modern/lib/hud_modern_images.xml"/>
+
+	<sources>
+		<!-- Added in OPM: kill-feed weapon_class stem → team-specific kf silhouettes. -->
+		<source id="killfeed-weapon-icons-allies">
+			<item value="pistol" label="Pistol" image="modernhud-colt45-kf"/>
+			<item value="rifle" label="Rifle" image="modernhud-m1-garand-kf"/>
+			<item value="sniper" label="Sniper" image="modernhud-springfield-kf"/>
+			<item value="smg" label="SMG" image="modernhud-thompsonsmg-kf"/>
+			<item value="mg" label="MG" image="modernhud-bar-kf"/>
+			<item value="shotgun" label="Shotgun" image="modernhud-shotgun-kf"/>
+			<item value="grenade" label="Grenade" image="modernhud-m2frag-grenade-kf"/>
+			<item value="rocket" label="Rocket" image="modernhud-bazooka-kf"/>
+			<item value="bash" label="Bash" image="modernhud-glove-50"/>
+		</source>
+		<source id="killfeed-weapon-icons-axis">
+			<item value="pistol" label="Pistol" image="modernhud-p38-kf"/>
+			<item value="rifle" label="Rifle" image="modernhud-kar98-kf"/>
+			<item value="sniper" label="Sniper" image="modernhud-kar98sniper-kf"/>
+			<item value="smg" label="SMG" image="modernhud-mp40-kf"/>
+			<item value="mg" label="MG" image="modernhud-mp44-kf"/>
+			<item value="shotgun" label="Shotgun" image="modernhud-shotgun-kf"/>
+			<item value="grenade" label="Grenade" image="modernhud-steilhandgranate-kf"/>
+			<item value="rocket" label="Rocket" image="modernhud-panzerschreck-kf"/>
+			<item value="bash" label="Bash" image="modernhud-glove-50"/>
+		</source>
+	</sources>
+
+	<templates>
+		<template id="hud-kill-feed-panel">
+			<props>
+				<prop name="width" type="length" default="420px"/>
+				<prop name="height" type="length" default="140px"/>
+				<prop name="font-size" type="length" default="16px"/>
+			</props>
+			<container type="vertical" width="{template.width}" height="{template.height}" gap="3px" padding="0"
+			           fill="{var.fill-transparent}" halign="end" source="hud-kill-feed">
+				<foreach mode="all" lifetime="6s" fade-duration="1.5s" halign="end">
+					<container type="horizontal" width="auto" height="auto" gap="6px" valign="center" halign="end"
+					           fill="{var.fill-transparent}">
+						<label font="body" font-size="{template.font-size}" width="auto" halign="end" drop-shadow="true"
+						       color="{item.field.killer_team == &quot;axis&quot; ? var.color-axis : var.color-allied}"
+						       visible="{item.field.killer != ''}">
+							{item.field.killer}
+						</label>
+						<!-- weapon_class stem + icon_team → allies/axis kf sources.
+						     Leaf <image> sizes width from texel aspect at height 20px. -->
+						<container type="overlap" width="auto" height="20px" fill="{var.fill-transparent}">
+							<container width="auto" height="20px" fill="{var.fill-transparent}"
+							           source="killfeed-weapon-icons-allies" bind="item.field:weapon_class"
+							           visible="{item.field.icon_team != &quot;axis&quot;}">
+								<foreach mode="selected" width="auto" height="20px">
+									<image src="{item.field.image}" height="20px" width="auto" fit="contain"/>
+								</foreach>
+							</container>
+							<container width="auto" height="20px" fill="{var.fill-transparent}"
+							           source="killfeed-weapon-icons-axis" bind="item.field:weapon_class"
+							           visible="{item.field.icon_team == &quot;axis&quot;}">
+								<foreach mode="selected" width="auto" height="20px">
+									<image src="{item.field.image}" height="20px" width="auto" fit="contain"/>
+								</foreach>
+							</container>
+						</container>
+						<!-- Suicide marker beside weapon (e.g. grenade + skull). -->
+						<image src="modernhud-skull-50" height="18px" width="auto" fit="contain"
+						       visible="{item.field.kill_kind == &quot;suicide&quot;}"/>
+						<image src="modernhud-headshot-50" height="18px" width="auto" fit="contain"
+						       visible="{item.field.headshot == 1}"/>
+						<label font="body" font-size="{template.font-size}" width="auto" halign="start" drop-shadow="true"
+						       color="{item.field.victim_team == &quot;axis&quot; ? var.color-axis : var.color-allied}">
+							{item.field.victim}
+						</label>
+					</container>
+				</foreach>
+			</container>
+		</template>
+
+		<template id="hud-game-messages-panel">
+			<props>
+				<prop name="width" type="length" default="360px"/>
+				<prop name="height" type="length" default="120px"/>
+				<prop name="font-size" type="length" default="16px"/>
+			</props>
+			<container type="vertical" width="{template.width}" height="{template.height}" gap="2px" padding="0"
+			           fill="{var.fill-transparent}" source="hud-game-messages">
+				<foreach mode="all" lifetime="8s" fade-duration="2s">
+					<label font="body" font-size="{template.font-size}"
+					       width="100%" halign="start" text-wrap="word" drop-shadow="true"
+					       color="{item.field.color}"
+					       font-weight="{item.field.bold ? 600 : 400}">
+						{item.field.text}
+					</label>
+				</foreach>
+			</container>
+		</template>
+
+		<template id="hud-chat-panel">
+			<props>
+				<prop name="width" type="length" default="360px"/>
+				<prop name="height" type="length" default="160px"/>
+				<prop name="font-size" type="length" default="16px"/>
+			</props>
+			<container type="vertical" width="{template.width}" height="{template.height}" gap="2px" padding="0"
+			           fill="{var.fill-transparent}" valign="end" source="hud-chat">
+				<foreach mode="all" lifetime="8s" fade-duration="2s">
+					<label font="body" font-size="{template.font-size}"
+					       width="100%" halign="start" text-wrap="word" drop-shadow="true"
+					       color="{item.field.color}"
+					       font-weight="{item.field.bold ? 600 : 400}">
+						{item.field.text}
+					</label>
+				</foreach>
+				<!-- In-HUD chat compose: messagemode / messagemode2 (suppresses legacy dm_console). -->
+				<container type="horizontal" width="100%" height="auto" gap="4px" valign="center"
+				           fill="{var.fill-transparent}"
+				           visible="{cvar.ui_om_hud_chat_open}">
+					<label font="body" font-size="{template.font-size}" width="auto" height="auto"
+					       color="{var.color-white}" drop-shadow="true" valign="center"
+					       bind="cvar:ui_om_hud_chat_label"/>
+					<input id="hud_chat_input" type="text" width="fill" height="auto"
+					       fill="{var.fill-transparent}" color="{var.color-white}"
+					       font="body" font-size="{template.font-size}"
+					       drop-shadow="true" halign="start" valign="center"
+					       bind="cvar:ui_om_hud_chat_text" commit="submit" max-length="150">
+						<on event="submit"><invoke name="hud-chat-submit"/></on>
+						<on event="cancel"><invoke name="hud-chat-cancel"/></on>
+					</input>
+				</container>
+			</container>
+		</template>
+	</templates>
+</ui-library>

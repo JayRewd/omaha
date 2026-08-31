@@ -25,6 +25,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 // text commands typed in at the local console, or executed by a key binding
 
 #include "cg_local.h"
+
+static qboolean cg_scoresKeyHeld = qfalse;
 #include "../fgame/bg_voteoptions.h"
 
 void CG_TargetCommand_f(void);
@@ -89,11 +91,20 @@ void CG_ScoresDown_f(void)
         return;
     }
 
+    if (CG_UseModernHudPack() && cgi.CL_UIMenu_OpenHold) {
+        if (!cg_scoresKeyHeld) {
+            cg_scoresKeyHeld = qtrue;
+            cgi.CL_UIMenu_OpenHold("scoreboard");
+        }
+    }
+
     if (cg.scoresRequestTime + 2000 >= cg.time) {
         // send another request
         cg.showScores = qtrue;
         CG_PrepScoreBoardInfo();
-        cgi.UI_ShowScoreBoard(cg.scoresMenuName);
+        if (!CG_UseModernHudPack()) {
+            cgi.UI_ShowScoreBoard(cg.scoresMenuName);
+        }
         return;
     }
 
@@ -104,7 +115,9 @@ void CG_ScoresDown_f(void)
         // don't display anything until first score returns
         cg.showScores = qtrue;
         CG_PrepScoreBoardInfo();
-        cgi.UI_ShowScoreBoard(cg.scoresMenuName);
+        if (!CG_UseModernHudPack()) {
+            cgi.UI_ShowScoreBoard(cg.scoresMenuName);
+        }
     }
 }
 
@@ -119,12 +132,19 @@ void CG_ScoresUp_f(void)
         return;
     }
 
+    if (CG_UseModernHudPack() && cgi.CL_UIMenu_CloseHold) {
+        cg_scoresKeyHeld = qfalse;
+        cgi.CL_UIMenu_CloseHold("scoreboard");
+    }
+
     if (!cg.showScores) {
         return;
     }
 
     cg.showScores = qfalse;
-    cgi.UI_HideScoreBoard();
+    if (!CG_UseModernHudPack()) {
+        cgi.UI_HideScoreBoard();
+    }
 }
 
 baseshader_t *CG_GetShaderUnderCrosshair(qboolean bVerbose, trace_t *pRetTrace)

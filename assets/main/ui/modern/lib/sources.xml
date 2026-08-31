@@ -1,0 +1,230 @@
+<ui-library version="1">
+	<sources>
+		<source id="screen-catalog" default="main">
+			<item value="main" label="Main Menu" file="ui/modern/main.xml"/>
+			<item value="layout-lab" label="Layout Lab" file="ui/modern/examples/layout_lab.xml"/>
+			<item value="layout-lab-nested" label="Nested Lab" file="ui/modern/examples/layout_lab_nested.xml"/>
+		</source>
+
+		<source id="menu-panels" default="play">
+			<item value="play" label="PLAY" panel="panel_play"/>
+			<item value="settings" label="SETTINGS" panel="panel_settings"/>
+		</source>
+
+		<source id="settings-pages" default="input">
+			<item value="input" label="INPUT" template="settings-page-input"/>
+			<item value="video" label="VIDEO" template="settings-page-video"/>
+			<item value="audio" label="AUDIO" template="settings-page-audio"/>
+			<item value="gameplay" label="GAMEPLAY" template="settings-page-gameplay"/>
+		</source>
+
+		<source id="browser-gametypes" default="">
+			<item value="" label="ALL"/>
+			<item value="FFA" label="FFA"/>
+			<item value="TDM" label="TDM"/>
+			<item value="Objective" label="OBJECTIVE"/>
+			<item value="Round" label="ROUNDS"/>
+			<item value="Other" label="OTHER"/>
+		</source>
+
+		<source id="display-mode" default="1">
+			<item value="1" label="Fullscreen"/>
+			<item value="2" label="Borderless"/>
+			<item value="0" label="Windowed"/>
+		</source>
+
+		<source id="max-fps" default="125">
+			<item value="125" label="125"/>
+			<item value="250" label="250"/>
+			<item value="500" label="500"/>
+		</source>
+
+		<source id="color-depth" default="32">
+			<item value="16" label="16-bit"/>
+			<item value="32" label="32-bit"/>
+		</source>
+
+		<source id="texture-depth" default="32">
+			<item value="16" label="16-bit"/>
+			<item value="32" label="32-bit"/>
+		</source>
+
+		<source id="speaker-setup" default="0">
+			<item value="0" label="Two Speakers"/>
+			<item value="1" label="Headphones"/>
+			<item value="2" label="Surround (5.1)"/>
+			<item value="3" label="Quad Speakers"/>
+		</source>
+
+		<source id="sample-rate" default="44">
+			<item value="11" label="11 kHz"/>
+			<item value="22" label="22 kHz"/>
+			<item value="44" label="44 kHz"/>
+		</source>
+
+		<source id="miles-driver" default="auto">
+			<item value="auto" label="Auto"/>
+			<item value="DirectSound3D Hardware Support" label="DirectSound3D"/>
+			<item value="Creative Labs EAX 2 (TM)" label="Creative EAX 2"/>
+			<item value="Creative Labs EAX (TM)" label="Creative EAX"/>
+			<item value="Aureal A3D 2.0 (TM)" label="Aureal A3D 2.0"/>
+			<item value="Dolby Surround" label="Dolby Surround"/>
+			<item value="Miles Fast 2D Positional Audio" label="2D Positional"/>
+		</source>
+
+		<source id="picmip" default="1">
+			<item value="0" label="Highest (0)"/>
+			<item value="1" label="High (1)"/>
+			<item value="2" label="Medium (2)"/>
+			<item value="3" label="Low (3)"/>
+		</source>
+
+		<source id="texture-filter" default="GL_LINEAR_MIPMAP_LINEAR">
+			<item value="GL_NEAREST" label="Nearest"/>
+			<item value="GL_LINEAR" label="Linear"/>
+			<item value="GL_NEAREST_MIPMAP_NEAREST" label="Nearest mipmap"/>
+			<item value="GL_LINEAR_MIPMAP_NEAREST" label="Bilinear"/>
+			<item value="GL_LINEAR_MIPMAP_LINEAR" label="Trilinear"/>
+		</source>
+
+		<source id="shadows" default="1">
+			<item value="0" label="Off"/>
+			<item value="1" label="Mode 1"/>
+			<item value="2" label="Mode 2"/>
+			<item value="3" label="Mode 3"/>
+		</source>
+
+		<source id="effect-detail" default="1.0">
+			<item value="0.2" label="Low"/>
+			<item value="0.6" label="Medium"/>
+			<item value="1.0" label="High"/>
+		</source>
+
+		<source id="lod-scale" default="1.1">
+			<item value="0.5" label="Performance"/>
+			<item value="1.1" label="Balanced"/>
+			<item value="1.5" label="High Detail"/>
+		</source>
+
+		<source id="crosshair-shape" default="open">
+			<item value="none" label="None"/>
+			<item value="open" label="Cross"/>
+			<item value="solid" label="Solid"/>
+			<item value="dot" label="Dot"/>
+		</source>
+
+		<!-- Added in OPM: zoom mouse scale mode (modern UI). -->
+		<source id="zoom-sensitivity-mode" default="screen">
+			<item value="off" label="Off"/>
+			<item value="legacy" label="Legacy"/>
+			<item value="screen" label="Screen distance"/>
+		</source>
+
+		<source id="crosshair-mode" default="open">
+			<item value="none" label="None"/>
+			<item value="solid" label="Solid"/>
+			<item value="open" label="Open"/>
+			<item value="dot" label="Dot"/>
+		</source>
+
+		<source id="crosshair-color" default="5">
+			<item value="0" label="Green"/>
+			<item value="1" label="Yellow"/>
+			<item value="2" label="Blue"/>
+			<item value="3" label="Cyan"/>
+			<item value="4" label="Red"/>
+			<item value="5" label="Custom"/>
+		</source>
+
+		<source id="crosshair-style" default="open">
+			<item value="none" label="None"/>
+			<item value="solid" label="Solid"/>
+			<item value="open" label="Open"/>
+			<item value="dot" label="Dot"/>
+		</source>
+
+		<source id="draw-viewmodel" default="2">
+			<item value="0" label="Off"/>
+			<item value="1" label="Weapon only"/>
+			<item value="2" label="Weapon and hands"/>
+		</source>
+
+		<source id="weapons-bar" default="1">
+			<item value="0" label="Off"/>
+			<item value="1" label="On"/>
+			<item value="2" label="Fade"/>
+		</source>
+
+		<source id="player-models-allies" default="allied_manon">
+			<item value="allied_manon" label="Manon"/>
+			<item value="allied_airborne" label="Airborne"/>
+			<item value="allied_pilot" label="Pilot"/>
+			<item value="allied_sas" label="SAS"/>
+			<item value="american_army" label="American Army"/>
+			<item value="american_ranger" label="American Ranger"/>
+		</source>
+
+		<source id="menu-map-views" default="remagen">
+			<!-- Eye Z = spec origin Z + 82 (DEFAULT_VIEWHEIGHT); fog from BSP worldspawn; see docs/LLM-helpers/ui-rendering-pipeline.md §E -->
+			<item value="southern-france" label="Southern France"
+			      bsp="maps/dm/mohdm1.bsp"
+			      vieworg="229.47,1309.47,793.19"
+			      pitch="20.56" yaw="-90.86" roll="0"
+			      fov="80"/>
+			<item value="destroyed-village" label="Destroyed Village"
+			      bsp="maps/dm/mohdm2.bsp"
+			      vieworg="-232.10,-2588.58,250.30"
+			      pitch="-13.50" yaw="139.39" roll="0"
+			      fov="80"/>
+			<item value="remagen" label="Remagen"
+			      bsp="maps/dm/mohdm3.bsp"
+			      vieworg="947.23,-649.70,-68.50"
+			      pitch="-31.15" yaw="-67.03" roll="0"
+			      fov="80"/>
+			<item value="the-bridge" label="The Bridge"
+			      bsp="maps/dm/mohdm4.bsp"
+			      vieworg="-1060.80,-911.84,358.08"
+			      pitch="-11.00" yaw="49.94" roll="0"
+			      fov="80"/>
+			<item value="snowy-park" label="Snowy Park"
+			      bsp="maps/dm/mohdm5.bsp"
+			      vieworg="1053.49,-2820.07,201.90"
+			      pitch="-15.65" yaw="-12.80" roll="0"
+			      fov="80"/>
+			<item value="stalingrad" label="Stalingrad"
+			      bsp="maps/dm/mohdm6.bsp"
+			      vieworg="1221.80,-328.25,541.89"
+			      pitch="-2.53" yaw="148.87" roll="0"
+			      fov="80"/>
+			<item value="algiers" label="Algiers"
+			      bsp="maps/dm/mohdm7.bsp"
+			      vieworg="-1602.08,1145.62,235.83"
+			      pitch="-0.83" yaw="130.96" roll="0"
+			      fov="80"/>
+		</source>
+
+		<source id="player-models-axis" default="german_wehrmacht_soldier">
+			<item value="german_afrika_officer" label="Afrika Officer"/>
+			<item value="german_afrika_private" label="Afrika Private"/>
+			<item value="german_elite_officer" label="Elite Officer"/>
+			<item value="german_wehrmacht_officer" label="Wehrmacht Officer"/>
+			<item value="german_wehrmacht_soldier" label="Wehrmacht Soldier"/>
+			<item value="german_waffen_officer" label="Waffen Officer"/>
+		</source>
+
+		<!-- Added in OPM: classic dm_pause hit catalogs (cmd → cbuf; labels required). -->
+		<source id="pause-weapons">
+			<item value="rifle" label="Rifle" cmd="primarydmweapon rifle;ui_close menu dm_pause" sign="rifle_sign"/>
+			<item value="sniper" label="Sniper Rifle" cmd="primarydmweapon sniper;ui_close menu dm_pause" sign="sniperrifle_sign"/>
+			<item value="smg" label="Sub-Machinegun" cmd="primarydmweapon smg;ui_close menu dm_pause" sign="submachinegun_sign"/>
+			<item value="mg" label="Machinegun" cmd="primarydmweapon mg;ui_close menu dm_pause" sign="machinegun_sign"/>
+			<item value="heavy" label="Rocket Launcher" cmd="primarydmweapon heavy;ui_close menu dm_pause" sign="rocketlauncher_sign"/>
+			<item value="shotgun" label="Shotgun" cmd="primarydmweapon shotgun;ui_close menu dm_pause" sign="shotgun_sign"/>
+		</source>
+
+		<source id="pause-vote-cast">
+			<item value="yes" label="Yes" cmd="vote 1;ui_close menu dm_pause"/>
+			<item value="no" label="No" cmd="vote 0;ui_close menu dm_pause"/>
+		</source>
+	</sources>
+</ui-library>

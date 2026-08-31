@@ -8,6 +8,7 @@ include(shared_sources)
 include(shared_script)
 
 include(renderer_common)
+include(libraries/libtess2)
 
 set(CLIENT_SOURCES
     ${SOURCE_DIR}/client/cl_avi.cpp
@@ -38,6 +39,16 @@ set(CLIENT_SOURCES
     ${SOURCE_DIR}/client/cl_uimpmappicker.cpp
     ${SOURCE_DIR}/client/cl_uiplayermodelpicker.cpp
     ${SOURCE_DIR}/client/cl_uiradar.cpp
+    ${SOURCE_DIR}/client/cl_uirender.cpp
+    ${SOURCE_DIR}/client/cl_uimenu_dispatcher.cpp
+    ${SOURCE_DIR}/client/cl_hud_registry.cpp
+    ${SOURCE_DIR}/client/cl_hud_host.cpp
+    ${SOURCE_DIR}/client/cl_objectives_host.cpp
+    ${SOURCE_DIR}/client/cl_messages_host.cpp
+    ${SOURCE_DIR}/client/cl_killfeed_classify.cpp
+    ${SOURCE_DIR}/client/cl_killfeed.cpp
+    ${SOURCE_DIR}/client/cl_modern_browser.cpp
+    ${SOURCE_DIR}/client/cl_scoreboard_host.cpp
     ${SOURCE_DIR}/client/cl_uiserverlist.cpp
     ${SOURCE_DIR}/client/cl_uisoundpicker.cpp
     ${SOURCE_DIR}/client/cl_uistd.cpp
@@ -58,6 +69,62 @@ set(CLIENT_SOURCES
     ${SOURCE_DIR}/sdl/sdl_input.c
     ${SOURCE_DIR}/sdl/sdl_mouse.c
     ${CLIENT_PLATFORM_SOURCES}
+)
+
+set(UIRENDER_SOURCES
+    ${SOURCE_DIR}/uirender/uir_viewport.c
+    ${SOURCE_DIR}/uirender/uir_fov.c
+    ${SOURCE_DIR}/uirender/uir_path.c
+    ${SOURCE_DIR}/uirender/uir_svg.c
+    ${SOURCE_DIR}/uirender/uir_draw2d.c
+    ${SOURCE_DIR}/uirender/uir_meshcache.c
+    ${SOURCE_DIR}/uirender/uir_batch.c
+    ${SOURCE_DIR}/uirender/uir_tess.c
+    ${LIBTESS2_SOURCES}
+    ${SOURCE_DIR}/uirender/uir_compositor.c
+    ${SOURCE_DIR}/uirender/uir_debug.c
+    ${SOURCE_DIR}/uirender/uir_menuworld.c
+    ${SOURCE_DIR}/uirender/uir_menu_map_view.c
+    ${SOURCE_DIR}/uirender/uir_map_env.c
+    ${SOURCE_DIR}/uirender/uir_menu_weather.c
+    ${SOURCE_DIR}/uirender/uir_backend.c
+    ${SOURCE_DIR}/uirender/uir_pathcache.c
+    ${SOURCE_DIR}/uirender/uir_font.cpp
+    ${SOURCE_DIR}/uirender/uir_gradient.c
+    ${SOURCE_DIR}/uirender/uir_image.c
+    ${SOURCE_DIR}/uirender/uir_stencil.c
+    ${SOURCE_DIR}/uirender/uir_layer.c
+    ${SOURCE_DIR}/uirender/uir_modelpreview_math.c
+    ${SOURCE_DIR}/uirender/uir_modelpreview.cpp
+    ${SOURCE_DIR}/uirender/uir_weapon_bake_list.c
+)
+
+set(UIDESIGN_SOURCES
+    ${SOURCE_DIR}/uidesign/uid_diag.cpp
+    ${SOURCE_DIR}/uidesign/uid_value.cpp
+    ${SOURCE_DIR}/uidesign/uid_expr.cpp
+    ${SOURCE_DIR}/uidesign/uid_expr_bool.cpp
+    ${SOURCE_DIR}/uidesign/uid_invoke.cpp
+    ${SOURCE_DIR}/uidesign/uid_document.cpp
+    ${SOURCE_DIR}/uidesign/uid_xml.cpp
+    ${SOURCE_DIR}/uidesign/uid_template.cpp
+    ${SOURCE_DIR}/uidesign/uid_vars.cpp
+    ${SOURCE_DIR}/uidesign/uid_compile.cpp
+    ${SOURCE_DIR}/uidesign/uid_shape.cpp
+    ${SOURCE_DIR}/uidesign/uid_layout.cpp
+    ${SOURCE_DIR}/uidesign/uid_widget.cpp
+    ${SOURCE_DIR}/uidesign/uid_input.cpp
+    ${SOURCE_DIR}/uidesign/uid_action.cpp
+    ${SOURCE_DIR}/uidesign/uid_invoke.cpp
+    ${SOURCE_DIR}/uidesign/uid_binding.cpp
+    ${SOURCE_DIR}/uidesign/uid_modal.cpp
+    ${SOURCE_DIR}/uidesign/uid_collection.cpp
+    ${SOURCE_DIR}/uidesign/uid_menu_map_view.cpp
+    ${SOURCE_DIR}/uidesign/uid_scrollbar.cpp
+    ${SOURCE_DIR}/uidesign/uid_runtime.cpp
+    ${SOURCE_DIR}/uidesign/uid_profile.cpp
+    ${SOURCE_DIR}/uidesign/uid_opt.cpp
+    ${SOURCE_DIR}/thirdparty/tinyxml2/tinyxml2.cpp
 )
 
 # Gamespy
@@ -98,6 +165,8 @@ endif()
 list(APPEND CLIENT_BINARY_SOURCES
     ${SERVER_SOURCES}
     ${CLIENT_SOURCES}
+    ${UIRENDER_SOURCES}
+    ${UIDESIGN_SOURCES}
     ${UI_SOURCES}
     ${COMMON_SOURCES}
     ${SCRIPT_SYSTEM_SOURCES}
@@ -110,12 +179,38 @@ add_executable(${CLIENT_BINARY} ${CLIENT_EXECUTABLE_OPTIONS} ${CLIENT_BINARY_SOU
 
 target_include_directories(     ${CLIENT_BINARY} PRIVATE ${CLIENT_INCLUDE_DIRS})
 target_include_directories(     ${CLIENT_BINARY} PRIVATE ${SOURCE_DIR}/client)
+target_include_directories(     ${CLIENT_BINARY} PRIVATE ${SOURCE_DIR}/uidesign)
+target_include_directories(     ${CLIENT_BINARY} PRIVATE ${SOURCE_DIR}/thirdparty/tinyxml2)
+target_include_directories(     ${CLIENT_BINARY} PRIVATE ${LIBTESS2_INCLUDES})
 target_compile_definitions(     ${CLIENT_BINARY} PRIVATE ${CLIENT_DEFINITIONS})
 target_compile_options(         ${CLIENT_BINARY} PRIVATE ${CLIENT_COMPILE_OPTIONS})
 target_link_libraries(          ${CLIENT_BINARY} PRIVATE ${COMMON_LIBRARIES} ${CLIENT_LIBRARIES})
 target_link_options(            ${CLIENT_BINARY} PRIVATE ${CLIENT_LINK_OPTIONS})
 
 set_output_dirs(${CLIENT_BINARY})
+
+# Ship modern UI assets next to the client binary (fs_basepath / main).
+add_custom_command(TARGET ${CLIENT_BINARY} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        $<TARGET_FILE_DIR:${CLIENT_BINARY}>/main/fonts
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        $<TARGET_FILE_DIR:${CLIENT_BINARY}>/main/ui/modern/examples
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/assets/main/fonts
+        $<TARGET_FILE_DIR:${CLIENT_BINARY}>/main/fonts
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/assets/main/ui/modern
+        $<TARGET_FILE_DIR:${CLIENT_BINARY}>/main/ui/modern
+    COMMENT "Copy modern UI fonts and ui/modern assets"
+)
+
+# Same relative main/ layout as POST_BUILD: next to the installed client binary.
+# INSTALL_BINDIR_FULL is lib*/openmohaa (Unix) or bin (Windows); game data is not
+# under INSTALL_DATADIR_FULL (desktop/metainfo icons only).
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/assets/main/fonts
+    DESTINATION ${INSTALL_BINDIR_FULL}/main)
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/assets/main/ui/modern
+    DESTINATION ${INSTALL_BINDIR_FULL}/main/ui)
 
 if(NOT USE_RENDERER_DLOPEN)
     target_sources(${CLIENT_BINARY} PRIVATE

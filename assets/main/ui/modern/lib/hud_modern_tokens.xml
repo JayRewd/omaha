@@ -1,0 +1,12 @@
+<ui-library version="1">
+	<vars>
+		<!-- Modern HUD text colors (font sizes come from menu_tokens via theme.xml) -->
+		<var id="color-hud-muted" value="#BFBFBFFF"/>
+		<var id="color-hud-health-pip" value="#ffffff9c"/>
+		<var id="color-hud-low-health-pip" value="#c03021ff"/>
+		<var id="color-hud-compass-objective" value="#4A9EFFFF"/>
+		<!-- Score strip fills (match modern scoreboard Allies/Axis header banners). -->
+		<var id="fill-hud-allied-score" value="#1A6FD4CC"/>
+		<var id="fill-hud-axis-score" value="#CC3333CC"/>
+	</vars>
+</ui-library>

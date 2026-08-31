@@ -592,7 +592,11 @@ extern	qboolean	in_guimouse;
 
 void IN_ToggleMouse( void );
 void IN_MouseOn( void );
+void IN_MouseOnKeepKeys( void );
 void IN_MouseOff( void );
+void IN_GetWindowLogicalSize( int *w, int *h ); /* SDL window size; falls back to glconfig */
+void IN_GetWindowFramebufferSize( int *w, int *h ); /* SDL drawable size; falls back to glconfig */
+/* Absolute mouse in SDL window client space while UI catcher / GUI mouse active. */
 void CL_UpdateMouse();
 
 void CL_InitInput (void);

@@ -24,6 +24,10 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "client.h"
 #include "cl_ui.h"
 #include "cl_uiradar.h"
+#include "cl_scoreboard_host.h"
+#include "cl_objectives_host.h"
+#include "cl_uimenu_dispatcher.h"
+#include "cl_killfeed.h"
 #include "../corepp/tiki.h"
 #include "../qcommon/localization.h"
 #include "../qcommon/bg_compat.h"
@@ -385,6 +389,12 @@ qboolean CL_ProcessServerCommand(const char* origString, const char* cmd, qboole
 
 		S_FadeSound(atof(Cmd_Argv(1)));
 		return qfalse;
+	}
+
+	/* Added in OPM: structured kill-feed from TA printdeathmsg (cgame still handles Printf). */
+	if (!strcmp(cmd, "printdeathmsg")) {
+		CL_KillFeed_HandlePrintDeathMsg();
+		return qtrue;
 	}
 
     // we may want to put a "connect to other server" command here
@@ -816,6 +826,17 @@ void CL_InitCGameDLL( clientGameImport_t *cgi, clientGameExport_t **cge ) {
 	cgi->UI_HideScoreBoard			= UI_HideScoreboard_f;
 	cgi->UI_SetScoreBoardItem		= UI_SetScoreBoardItem;
 	cgi->UI_DeleteScoreBoardItems	= UI_DeleteScoreBoardItems;
+	cgi->UIR_Scoreboard_Clear		= UIR_Scoreboard_Clear;
+	cgi->UIR_Scoreboard_SetMeta		= UIR_Scoreboard_SetMeta;
+	cgi->UIR_Scoreboard_AddRow		= UIR_Scoreboard_AddRow;
+	cgi->UIR_Scoreboard_SetRowCount	= UIR_Scoreboard_SetRowCount;
+	cgi->UIR_Scoreboard_NotifyChanged = UIR_Scoreboard_NotifyChanged;
+	cgi->UIR_Objectives_Clear		= UIR_Objectives_Clear;
+	cgi->UIR_Objectives_SetAlpha		= UIR_Objectives_SetAlpha;
+	cgi->UIR_Objectives_AddRow		= UIR_Objectives_AddRow;
+	cgi->UIR_Objectives_NotifyChanged	= UIR_Objectives_NotifyChanged;
+	cgi->CL_UIMenu_OpenHold			= CL_UIMenu_OpenHold;
+	cgi->CL_UIMenu_CloseHold		= CL_UIMenu_CloseHold;
 	cgi->UI_ToggleDMMessageConsole	= UI_ToggleDMConsole;
 	cgi->CL_InitRadar				= CL_InitRadar;
 

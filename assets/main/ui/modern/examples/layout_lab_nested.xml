@@ -1,0 +1,161 @@
+<ui version="1">
+	<!--
+	  Nested layout lab — deep stacks like main.xml header / actions.
+	  Proves leaf text center survives nesting and is NOT poisoned by
+	  <defaults halign/valign="start"> (engine skips those from defaults).
+
+	  set ui_design_file ui/modern/examples/layout_lab_nested.xml ; ui_design_reload
+	-->
+	<definitions>
+		<import src="ui/modern/lib/theme.xml"/>
+		<import src="ui/modern/lib/lab_tokens.xml"/>
+		<!-- Intentionally hostile: start/start must NOT force button text top-left -->
+		<defaults type="vertical" width="auto" height="auto"
+		          halign="start" valign="start"
+		          padding="0" margin="0" gap="0"
+		          overflow="none" fill="{var.fill-transparent}"
+		          shape="rectangle" font="body" font-size="{var.text-body}" font-weight="400"
+		          color="{var.color-primary}" visible="true" enabled="true"/>
+		<shapes>
+			<shape id="rectangle">
+				<path fill="{parent.fill}"
+				      d="M 0 0 L {parent.width} 0 L {parent.width} {parent.height} L 0 {parent.height} Z"/>
+			</shape>
+			<shape id="skew-rect">
+				<props>
+					<prop name="skewl" type="length" default="12px"/>
+					<prop name="skewr" type="length" default="12px"/>
+				</props>
+				<path fill="{parent.fill}"
+				      d="M 0 {parent.height}
+				         L {shape.skewl} 0
+				         L {parent.width} 0
+				         L {parent.width - shape.skewr} {parent.height}
+				         Z"/>
+			</shape>
+		</shapes>
+	</definitions>
+
+	<canvas>
+		<container id="lab_root" type="vertical" width="100%" height="100%"
+		           padding="16px" gap="18px" fill="{var.fill-panel}" overflow="scroll">
+			<label font="control" font-size="{var.text-message-bold}" color="{var.color-white}">NESTED LAYOUT LAB</label>
+			<label font="body" font-size="{var.text-body}" color="{var.color-muted}">
+				Cyan 1px lines mark content mid. Button text (kind default center) should sit on them.
+			</label>
+
+			<!-- A. Menu-like header: root > header > nav > tall skew button (height 100%) -->
+			<container type="vertical" width="100%" height="auto" gap="6px">
+				<label font="control" font-size="{var.text-body}" color="{var.color-accent}">
+					A) Deep nest · header 52px · nav · PLAY height=100% · no explicit text align
+				</label>
+				<container id="nest_header" type="horizontal" width="100%" height="52px"
+				           fill="{var.fill-panel}" gap="0" halign="space-between">
+					<container id="nest_nav" type="horizontal" width="auto" height="100%" gap="0"
+					           valign="center" padding="0 0 0 12px" fill="{var.fill-hover-ghost}">
+						<!-- Mid guide -->
+						<container width="2px" height="100%" fill="{var.fill-cyan-glow}"/>
+						<button id="nest_play" width="auto" height="100%" padding="0 20px" shape="skew-rect"
+						        skewl="12px" skewr="12px"
+						        fill="{var.color-accent}" color="{var.color-white}"
+						        font="control" font-size="{var.text-tab}" letter-spacing="2px">PLAY</button>
+						<button id="nest_settings" width="auto" height="100%" padding="0 20px" shape="skew-rect"
+						        skewl="12px" skewr="12px"
+						        fill="{var.fill-transparent}" color="{var.color-muted}"
+						        font="control" font-size="{var.text-tab}" letter-spacing="2px">SETTINGS</button>
+					</container>
+					<container type="horizontal" width="auto" height="100%" gap="16px" valign="center"
+					           padding="0 16px 0 0">
+						<label font="control" font-size="{var.text-display}" color="{var.color-white}" letter-spacing="4px">PROJECT: OMAHA</label>
+					</container>
+				</container>
+			</container>
+
+			<!-- B. Same depth but explicit valign=start on button (must sit high) -->
+			<container type="vertical" width="100%" height="auto" gap="6px">
+				<label font="control" font-size="{var.text-body}" color="{var.color-accent}">
+					B) Same nest · PLAY valign=start (control) · text must hug top
+				</label>
+				<container type="horizontal" width="100%" height="52px" fill="{var.fill-panel}" padding="0 12px">
+					<button id="nest_play_start" width="160px" height="100%" padding="0 20px" shape="skew-rect"
+					        skewl="12px" skewr="12px"
+					        valign="start" halign="center"
+					        fill="{var.color-lab-red}" color="{var.color-white}"
+					        font="control" font-size="{var.text-tab}">PLAY TOP</button>
+				</container>
+			</container>
+
+			<!-- C. Explicit center on tall nest (user workaround path) -->
+			<container type="vertical" width="100%" height="auto" gap="6px">
+				<label font="control" font-size="{var.text-body}" color="{var.color-accent}">
+					C) Same nest · PLAY ·halign+valign=center explicit
+				</label>
+				<container type="horizontal" width="100%" height="52px" fill="{var.fill-panel}" padding="0 12px">
+					<button id="nest_play_center" width="200px" height="100%" padding="0 20px" shape="skew-rect"
+					        skewl="12px" skewr="12px"
+					        halign="center" valign="center"
+					        fill="{var.color-lab-green}" color="{var.color-white}"
+					        font="control" font-size="{var.text-tab}">PLAY CTR</button>
+				</container>
+			</container>
+
+			<!-- D. Actions row: one-sided / both-sided skew-rect -->
+			<container type="vertical" width="100%" height="auto" gap="6px">
+				<label font="control" font-size="{var.text-body}" color="{var.color-accent}">
+					D) Actions nest · pad 12·16 · space-between · Refresh / search / Join
+				</label>
+				<container id="nest_actions" type="horizontal" width="100%" height="auto"
+				           padding="12px 16px" gap="4px" valign="center" halign="space-between"
+				           fill="{var.fill-input}">
+					<button id="nest_refresh" width="auto" height="40px" padding="0 26px 0 20px"
+					        shape="skew-rect" skewl="0" skewr="12px"
+					        fill="{var.fill-chip}" color="{var.color-white}"
+					        font="control" font-size="{var.text-control}" letter-spacing="2px">REFRESH</button>
+					<input id="nest_search" type="text" width="fill" height="40px"
+					       shape="skew-rect" skewl="0" skewr="12px"
+					       placeholder="Search server name..."
+					       fill="{var.fill-chip}" color="{var.color-white}" font="body" font-size="{var.text-control}"/>
+					<button id="nest_join" width="auto" height="40px" padding="0 20px 0 26px"
+					        shape="skew-rect" skewl="12px" skewr="0"
+					        fill="{var.color-accent}" color="{var.color-white}"
+					        font="control" font-size="{var.text-control}" letter-spacing="2px">JOIN</button>
+				</container>
+				<container type="horizontal" width="100%" height="auto" padding="12px 16px" gap="8px"
+				           valign="center" fill="{var.fill-input}">
+					<button id="nest_refresh_skew" width="auto" height="40px" padding="0 20px" shape="skew-rect"
+					        skewl="12px" skewr="12px"
+					        fill="{var.fill-chip}" color="{var.color-white}"
+					        font="control" font-size="{var.text-control}" letter-spacing="2px">REFRESH SKEW</button>
+					<button width="auto" height="40px" padding="0 20px" shape="skew-rect"
+					        skewl="12px" skewr="12px"
+					        fill="{var.color-accent}" color="{var.color-white}"
+					        font="control" font-size="{var.text-control}" letter-spacing="2px">JOIN SKEW</button>
+				</container>
+			</container>
+
+			<!-- E. 4-deep nest: V > H > V > H > button fill -->
+			<container type="vertical" width="100%" height="120px" gap="6px">
+				<label font="control" font-size="{var.text-body}" color="{var.color-accent}">
+					E) 4-deep · V→H→V→H · button height=fill width=fill
+				</label>
+				<container type="vertical" width="100%" height="fill" padding="8px" fill="{var.fill-chip}">
+					<container type="horizontal" width="100%" height="fill" padding="8px" fill="{var.fill-chip}">
+						<container type="vertical" width="50%" height="100%" padding="8px" fill="{var.fill-chip}">
+							<container type="horizontal" width="100%" height="fill" padding="8px" fill="{var.fill-chip}">
+								<button id="nest_deep" width="fill" height="100%" shape="skew-rect"
+								        skewl="12px" skewr="12px" padding="0 20px"
+								        fill="{var.color-accent}" color="{var.color-white}"
+								        font="control" font-size="{var.text-heading}">DEEP</button>
+							</container>
+						</container>
+						<container type="vertical" width="50%" height="100%" padding="8px" valign="center"
+						           fill="{var.fill-chip}">
+							<label width="100%" font="body" font-size="{var.text-body}" color="{var.color-white}"
+							       halign="center">label center in nest</label>
+						</container>
+					</container>
+				</container>
+			</container>
+		</container>
+	</canvas>
+</ui>

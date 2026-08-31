@@ -1107,11 +1107,7 @@ void SV_Frame( int msec ) {
 		cvar_modifiedFlags &= ~CVAR_SYSTEMINFO;
 	}
 
-	if ( com_speeds->integer ) {
-		startTime = Sys_Milliseconds ();
-	} else {
-		startTime = 0;	// quite a compiler warning
-	}
+	startTime = Sys_Milliseconds ();
 
 	if( ( sv_fps->integer * msec > 1100 ) && ( svs.time > svs.serverLagTime + 2500 ) )
 	{
@@ -1143,9 +1139,7 @@ void SV_Frame( int msec ) {
 		}
 	}
 
-	if ( com_speeds->integer ) {
-		time_game = Sys_Milliseconds () - startTime;
-	}
+	time_game = Sys_Milliseconds () - startTime;
 
 	// check timeouts
 	SV_CheckTimeouts();

@@ -1,0 +1,29 @@
+<ui-library version="1">
+	<vars>
+		<!-- Font sizes (classic chrome @ 125%; caption floored to kill-feed 16px) -->
+		<var id="text-caption" value="16px"/>
+		<var id="text-body" value="17.5px"/>
+		<var id="text-message-bold" value="17.5px"/>
+		<var id="text-control" value="20px"/>
+		<var id="text-heading" value="22.5px"/>
+
+		<!-- Text colors -->
+		<var id="color-white" value="#FFFFFFFF"/>
+		<var id="color-score-gold" value="#B0B000FF"/>
+		<var id="color-health-label" value="#B39A0DFF"/>
+		<var id="color-friendly" value="#80FF80FF"/>
+		<var id="color-enemy" value="#FF8080FF"/>
+		<var id="color-allied" value="#8891CCFF"/>
+		<var id="color-axis" value="#CC8888FF"/>
+		<var id="color-objective-highlight" value="#FFFF00FF"/>
+		<var id="color-objective-complete" value="#BFBFBFFF"/>
+		<var id="color-hud-muted" value="#BFBFBFFF"/>
+		<var id="color-vote-prompt" value="#80FF80FF"/>
+
+		<!-- Surfaces -->
+		<var id="fill-transparent" value="#00000000"/>
+		<var id="fill-input" value="#00000059"/>
+		<var id="fill-objective-divider" value="#FFFFFF66"/>
+		<var id="fill-vote-panel" value="#00000066"/>
+	</vars>
+</ui-library>

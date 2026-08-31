@@ -1,0 +1,288 @@
+<ui-library version="1">
+	<templates>
+		<template id="scoreboard-server-header">
+			<container type="vertical" width="100%" height="auto" fill="{var.fill-transparent}" gap="0">
+				<container type="horizontal" width="100%" height="48px" fill="{var.fill-input}" gap="0"
+				           valign="center" halign="start">
+					<container width="auto" height="100%" padding="0 26px 0px 20px"
+					           shape="skew-rect" skewl="0px" skewr="12px"
+					           fill="{var.color-accent}" valign="center" halign="center">
+						<label width="auto" font="control" font-size="{var.text-control}" letter-spacing="2px"
+						       color="{var.color-white}" halign="start"
+						       bind="cvar:ui_om_scoreboard_gamemode"/>
+					</container>
+					<container width="2px" height="100%" margin="0 -6px 0 -6px" fill="{var.fill-divider-skew}"
+					           shape="angled-line" offset="12px" heightfactor="0.64"/>
+					<label width="fill" height="100%" padding="0 12px 0 16px"
+					       font="control" font-size="{var.text-control}" color="{var.color-primary}"
+					       halign="start" valign="center"
+					       bind="cvar:ui_om_scoreboard_server_name"/>
+				</container>
+				<container width="100%" height="1px" fill="{var.fill-divider}"/>
+			</container>
+		</template>
+
+		<template id="scoreboard-sort-header">
+			<props>
+				<prop name="label" type="string" required="true"/>
+				<prop name="column" type="string" required="true"/>
+				<prop name="width" type="string" required="true"/>
+				<prop name="halign" type="string" default="start"/>
+			</props>
+			<button type="horizontal" width="{template.width}" height="100%" padding="0" gap="4px"
+			        halign="{template.halign}" valign="center"
+			        fill="{var.fill-transparent}" hoverfill="{var.fill-chip}">
+				<label font="control" font-size="{var.text-caption}" color="{var.color-muted}"
+				       halign="{template.halign}">{template.label}</label>
+				<container width="10px" height="12px" visible="{cvar.ui_om_scoreboard_sort == {template.column}}">
+					<container width="8px" height="12px" shape="arrow-left" thickness="3px" fill="{var.color-accent}"
+					           shape-rotation="-90" visible="{cvar.ui_om_scoreboard_sort_asc == 1}"/>
+					<container width="8px" height="12px" shape="arrow-left" thickness="3px" fill="{var.color-accent}"
+					           shape-rotation="90" visible="{cvar.ui_om_scoreboard_sort_asc == 0}"/>
+				</container>
+				<on event="click">
+					<set-cvar name="ui_om_scoreboard_sort" value="{template.column}"/>
+					<invoke name="sort-scoreboard"/>
+				</on>
+			</button>
+		</template>
+
+		<!-- Allies / FFA column order: # NAME … PING -->
+		<template id="scoreboard-column-header-row">
+			<container type="vertical" width="100%" height="auto" fill="{var.fill-control}">
+				<container type="horizontal" width="100%" height="36px" padding="8px 12px" gap="8px"
+				           valign="center" halign="start">
+					<label width="6%" font="control" font-size="{var.text-caption}" color="{var.color-muted}"
+					       halign="start" visible="{cvar.ui_om_scoreboard_team_mode == 1}">#</label>
+					<use template="scoreboard-sort-header" label="NAME" column="name" width="fill" halign="start"/>
+					<use template="scoreboard-sort-header" label="KILLS" column="kills" width="10%" halign="start"/>
+					<use template="scoreboard-sort-header" label="DEATHS" column="deaths" width="10%" halign="start"/>
+					<use template="scoreboard-sort-header" label="K/D" column="kd" width="10%" halign="start"/>
+					<use template="scoreboard-sort-header" label="TIME" column="time" width="14%" halign="start"/>
+					<use template="scoreboard-sort-header" label="PING" column="ping" width="10%" halign="start"/>
+				</container>
+				<container width="100%" height="1px" fill="{var.color-accent}"/>
+			</container>
+		</template>
+
+		<!-- Axis mirrored: PING … NAME # (name/# toward outer right) -->
+		<template id="scoreboard-column-header-row-axis">
+			<container type="vertical" width="100%" height="auto" fill="{var.fill-control}">
+				<container type="horizontal" width="100%" height="36px" padding="8px 12px" gap="8px"
+				           valign="center" halign="end">
+					<use template="scoreboard-sort-header" label="PING" column="ping" width="10%" halign="end"/>
+					<use template="scoreboard-sort-header" label="TIME" column="time" width="14%" halign="end"/>
+					<use template="scoreboard-sort-header" label="K/D" column="kd" width="10%" halign="end"/>
+					<use template="scoreboard-sort-header" label="DEATHS" column="deaths" width="10%" halign="end"/>
+					<use template="scoreboard-sort-header" label="KILLS" column="kills" width="10%" halign="end"/>
+					<use template="scoreboard-sort-header" label="NAME" column="name" width="fill" halign="end"/>
+					<label width="6%" font="control" font-size="{var.text-caption}" color="{var.color-muted}"
+					       halign="end">#</label>
+				</container>
+				<container width="100%" height="1px" fill="{var.color-accent}"/>
+			</container>
+		</template>
+
+		<!-- Allies banner: name outer-left, score toward spine -->
+		<template id="scoreboard-team-banner-allied">
+			<container type="horizontal" width="100%" height="40px" padding="0 12px" gap="8px"
+			           fill="{var.fill-hud-allied-score}" valign="center" halign="start">
+				<label width="fill" font="control" font-size="{var.text-control}" letter-spacing="2px"
+				       color="{var.color-white}" halign="start" valign="center">ALLIES</label>
+				<label width="auto" font="control" font-size="{var.text-heading}"
+				       color="{var.color-white}" halign="end" valign="center"
+				       bind="cvar:ui_om_hud_allied_score"/>
+			</container>
+		</template>
+
+		<!-- Axis banner: score toward spine, name outer-right -->
+		<template id="scoreboard-team-banner-axis">
+			<container type="horizontal" width="100%" height="40px" padding="0 12px" gap="8px"
+			           fill="{var.fill-hud-axis-score}" valign="center" halign="end">
+				<label width="auto" font="control" font-size="{var.text-heading}"
+				       color="{var.color-white}" halign="start" valign="center"
+				       bind="cvar:ui_om_hud_axis_score"/>
+				<label width="fill" font="control" font-size="{var.text-control}" letter-spacing="2px"
+				       color="{var.color-white}" halign="end" valign="center">AXIS</label>
+			</container>
+		</template>
+
+		<template id="scoreboard-row">
+			<!-- height 29px + overflow=hidden matches foreach row-height; clips overscan paints. -->
+			<container type="vertical" width="100%" height="29px" overflow="hidden"
+			           fill="{var.fill-transparent}"
+			           visible="{item.field.is_spectator != 1}">
+				<container type="horizontal" width="100%"
+				           height="28px"
+				           padding="0 12px" gap="8px" valign="center" halign="start"
+				           fill="{item.field.row_fill}">
+					<label width="100%" height="100%" font="control"
+					       font-size="{var.text-body}"
+					       letter-spacing="1px" color="{var.color-primary}"
+					       halign="start" valign="center"
+					       visible="{item.field.is_header == 1}">{item.field.name}</label>
+					<container type="horizontal" width="100%" height="100%" gap="8px"
+					           valign="center" halign="start"
+					           visible="{item.field.is_header == 0}">
+					<label width="6%" height="100%" font="body"
+					       font-size="{var.text-body}"
+					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+					       color="{var.color-primary}" halign="start" valign="center"
+					       visible="{cvar.ui_om_scoreboard_team_mode == 1}">{item.field.slot}</label>
+					<label width="fill" height="100%" font="body"
+					       font-size="{var.text-body}"
+					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+					       color="{var.color-primary}" halign="start" valign="center">{item.field.name}</label>
+					<label width="10%" height="100%" font="body"
+					       font-size="{var.text-body}"
+					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+					       color="{var.color-primary}" halign="start" valign="center">{item.field.kills}</label>
+					<label width="10%" height="100%" font="body"
+					       font-size="{var.text-body}"
+					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+					       color="{var.color-primary}" halign="start" valign="center">{item.field.deaths}</label>
+					<label width="10%" height="100%" font="body"
+					       font-size="{var.text-body}"
+					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+					       color="{var.color-primary}" halign="start" valign="center">{item.field.kd}</label>
+					<label width="14%" height="100%" font="body"
+					       font-size="{var.text-body}"
+					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+					       color="{var.color-primary}" halign="start" valign="center">{item.field.time}</label>
+					<label width="10%" height="100%" font="body"
+					       font-size="{var.text-body}"
+					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+					       color="{var.color-primary}" halign="start" valign="center">{item.field.ping}</label>
+					</container>
+				</container>
+				<container width="100%" height="1px" fill="{var.fill-divider}"/>
+			</container>
+		</template>
+		<!-- Allies page player row (FFA-style fill; filter by team). -->
+		<template id="scoreboard-team-player-row">
+			<props>
+				<prop name="team" type="string" required="true"/>
+			</props>
+			<container type="vertical" width="100%" height="29px" overflow="hidden"
+			           fill="{var.fill-transparent}"
+			           visible="{item.field.is_spectator != 1 and item.field.is_header != 1 and item.field.team == {template.team}}">
+				<container type="horizontal" width="100%"
+				           height="28px"
+				           padding="0 12px" gap="8px" valign="center" halign="start"
+				           fill="#1A1A1A66">
+					<label width="6%" height="100%" font="body"
+					       font-size="{var.text-body}"
+					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+					       color="{var.color-primary}" halign="start" valign="center">{item.field.slot}</label>
+					<label width="fill" height="100%" font="body"
+					       font-size="{var.text-body}"
+					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+					       color="{var.color-primary}" halign="start" valign="center">{item.field.name}</label>
+					<label width="10%" height="100%" font="body"
+					       font-size="{var.text-body}"
+					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+					       color="{var.color-primary}" halign="start" valign="center">{item.field.kills}</label>
+					<label width="10%" height="100%" font="body"
+					       font-size="{var.text-body}"
+					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+					       color="{var.color-primary}" halign="start" valign="center">{item.field.deaths}</label>
+					<label width="10%" height="100%" font="body"
+					       font-size="{var.text-body}"
+					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+					       color="{var.color-primary}" halign="start" valign="center">{item.field.kd}</label>
+					<label width="14%" height="100%" font="body"
+					       font-size="{var.text-body}"
+					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+					       color="{var.color-primary}" halign="start" valign="center">{item.field.time}</label>
+					<label width="10%" height="100%" font="body"
+					       font-size="{var.text-body}"
+					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+					       color="{var.color-primary}" halign="start" valign="center">{item.field.ping}</label>
+				</container>
+				<container width="100%" height="1px" fill="{var.fill-divider}"/>
+			</container>
+		</template>
+		<!-- Axis page player row: mirrored columns, name/# on outer right. -->
+		<template id="scoreboard-team-player-row-axis">
+			<container type="vertical" width="100%" height="29px" overflow="hidden"
+			           fill="{var.fill-transparent}"
+			           visible="{item.field.is_spectator != 1 and item.field.is_header != 1 and item.field.team == axis}">
+				<container type="horizontal" width="100%"
+				           height="28px"
+				           padding="0 12px" gap="8px" valign="center" halign="end"
+				           fill="#1A1A1A66">
+					<label width="10%" height="100%" font="body"
+					       font-size="{var.text-body}"
+					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+					       color="{var.color-primary}" halign="end" valign="center">{item.field.ping}</label>
+					<label width="14%" height="100%" font="body"
+					       font-size="{var.text-body}"
+					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+					       color="{var.color-primary}" halign="end" valign="center">{item.field.time}</label>
+					<label width="10%" height="100%" font="body"
+					       font-size="{var.text-body}"
+					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+					       color="{var.color-primary}" halign="end" valign="center">{item.field.kd}</label>
+					<label width="10%" height="100%" font="body"
+					       font-size="{var.text-body}"
+					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+					       color="{var.color-primary}" halign="end" valign="center">{item.field.deaths}</label>
+					<label width="10%" height="100%" font="body"
+					       font-size="{var.text-body}"
+					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+					       color="{var.color-primary}" halign="end" valign="center">{item.field.kills}</label>
+					<label width="fill" height="100%" font="body"
+					       font-size="{var.text-body}"
+					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+					       color="{var.color-primary}" halign="end" valign="center">{item.field.name}</label>
+					<label width="6%" height="100%" font="body"
+					       font-size="{var.text-body}"
+					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+					       color="{var.color-primary}" halign="end" valign="center">{item.field.slot}</label>
+				</container>
+				<container width="100%" height="1px" fill="{var.fill-divider}"/>
+			</container>
+		</template>
+		<template id="scoreboard-spectator-row">
+			<container type="vertical" width="100%" height="29px" overflow="hidden"
+			           fill="{var.fill-transparent}"
+			           visible="{item.field.is_spectator == 1}">
+				<container type="horizontal" width="100%"
+				           height="28px"
+				           padding="0 12px" gap="8px" valign="center" halign="start"
+				           fill="{item.field.row_fill}">
+					<label width="6%" height="100%" font="body"
+					       font-size="{var.text-body}"
+					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+					       color="{var.color-primary}" halign="start" valign="center"
+					       visible="{cvar.ui_om_scoreboard_team_mode == 1}">{item.field.slot}</label>
+					<label width="fill" height="100%" font="body"
+					       font-size="{var.text-body}"
+					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+					       color="{var.color-primary}" halign="start" valign="center">{item.field.name}</label>
+					<label width="10%" height="100%" font="body"
+					       font-size="{var.text-body}"
+					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+					       color="{var.color-primary}" halign="start" valign="center">{item.field.kills}</label>
+					<label width="10%" height="100%" font="body"
+					       font-size="{var.text-body}"
+					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+					       color="{var.color-primary}" halign="start" valign="center">{item.field.deaths}</label>
+					<label width="10%" height="100%" font="body"
+					       font-size="{var.text-body}"
+					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+					       color="{var.color-primary}" halign="start" valign="center">{item.field.kd}</label>
+					<label width="14%" height="100%" font="body"
+					       font-size="{var.text-body}"
+					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+					       color="{var.color-primary}" halign="start" valign="center">{item.field.time}</label>
+					<label width="10%" height="100%" font="body"
+					       font-size="{var.text-body}"
+					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+					       color="{var.color-primary}" halign="start" valign="center">{item.field.ping}</label>
+				</container>
+				<container width="100%" height="1px" fill="{var.fill-divider}"/>
+			</container>
+		</template>
+	</templates>
+</ui-library>

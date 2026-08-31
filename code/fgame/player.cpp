@@ -7175,6 +7175,54 @@ void Player::FinishMove(void)
     }
 }
 
+void Player::CopyHudCombatStats(Player *player)
+{
+    int savedTeam;
+    int savedInfoClient;
+    int savedInfoHealth;
+    int savedKills;
+    int savedDeaths;
+    int savedHighestScore;
+    int savedAttacker;
+
+    if (!player || !player->client || !client) {
+        return;
+    }
+
+    savedTeam         = client->ps.stats[STAT_TEAM];
+    savedInfoClient   = client->ps.stats[STAT_INFOCLIENT];
+    savedInfoHealth   = client->ps.stats[STAT_INFOCLIENT_HEALTH];
+    savedKills        = client->ps.stats[STAT_KILLS];
+    savedDeaths       = client->ps.stats[STAT_DEATHS];
+    savedHighestScore = client->ps.stats[STAT_HIGHEST_SCORE];
+    savedAttacker     = client->ps.stats[STAT_ATTACKERCLIENT];
+
+    client->ps.stats[STAT_HEALTH]         = player->client->ps.stats[STAT_HEALTH];
+    client->ps.stats[STAT_MAXHEALTH]      = player->client->ps.stats[STAT_MAXHEALTH];
+    client->ps.stats[STAT_NEXTHEALTH]     = player->client->ps.stats[STAT_NEXTHEALTH];
+    client->ps.stats[STAT_WEAPONS]        = player->client->ps.stats[STAT_WEAPONS];
+    client->ps.stats[STAT_EQUIPPED_WEAPON] = player->client->ps.stats[STAT_EQUIPPED_WEAPON];
+    client->ps.stats[STAT_AMMO]           = player->client->ps.stats[STAT_AMMO];
+    client->ps.stats[STAT_MAXAMMO]        = player->client->ps.stats[STAT_MAXAMMO];
+    client->ps.stats[STAT_CLIPAMMO]       = player->client->ps.stats[STAT_CLIPAMMO];
+    client->ps.stats[STAT_MAXCLIPAMMO]    = player->client->ps.stats[STAT_MAXCLIPAMMO];
+    client->ps.stats[STAT_SECONDARY_AMMO] = player->client->ps.stats[STAT_SECONDARY_AMMO];
+    client->ps.stats[STAT_INZOOM]         = player->client->ps.stats[STAT_INZOOM];
+
+    memcpy(client->ps.activeItems, player->client->ps.activeItems, sizeof(client->ps.activeItems));
+    memcpy(client->ps.ammo_name_index, player->client->ps.ammo_name_index, sizeof(client->ps.ammo_name_index));
+    memcpy(client->ps.ammo_amount, player->client->ps.ammo_amount, sizeof(client->ps.ammo_amount));
+    memcpy(client->ps.max_ammo_amount, player->client->ps.max_ammo_amount, sizeof(client->ps.max_ammo_amount));
+
+    client->ps.stats[STAT_TEAM]              = savedTeam;
+    client->ps.stats[STAT_INFOCLIENT]        = savedInfoClient;
+    client->ps.stats[STAT_INFOCLIENT_HEALTH] = savedInfoHealth;
+    client->ps.stats[STAT_KILLS]             = savedKills;
+    client->ps.stats[STAT_DEATHS]            = savedDeaths;
+    client->ps.stats[STAT_HIGHEST_SCORE]     = savedHighestScore;
+    client->ps.stats[STAT_ATTACKERCLIENT]    = savedAttacker;
+}
+
 void Player::CopyStats(Player *player)
 {
     gentity_t *ent;
@@ -7697,6 +7745,22 @@ void Player::UpdateStats(void)
         client->ps.stats[STAT_DAMAGEDIR] = 0;
     } else if (client->ps.stats[STAT_DAMAGEDIR] > 3600) {
         client->ps.stats[STAT_DAMAGEDIR] = 3600;
+    }
+
+    /*
+     * Added in OPM: modern HUD clients opt in via userinfo "om_hud".
+     * Copy followed player's combat HUD into this spectator's ps without
+     * full first-person CopyStats (camera / visibility unchanged).
+     */
+    if (IsSpectator() && m_iPlayerSpectating != 0
+        && !g_spectatefollow_firstperson->integer
+        && atoi(Info_ValueForKey(client->pers.userinfo, "om_hud")) != 0) {
+        gentity_t *followedEnt = g_entities + (m_iPlayerSpectating - 1);
+
+        if (followedEnt->inuse && followedEnt->entity && followedEnt->entity->IsSubclassOfPlayer()
+            && followedEnt->entity->deadflag <= DEAD_DYING) {
+            CopyHudCombatStats(static_cast<Player *>(followedEnt->entity));
+        }
     }
 
     // Do letterbox

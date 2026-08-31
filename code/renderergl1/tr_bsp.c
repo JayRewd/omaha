@@ -35,13 +35,24 @@ void RE_LoadWorldMap( const char *name );
 
 */
 
-static	world_t		s_worldData;
-static	byte		*fileBase;
+static	world_t		s_worldDataMem[2];
+static	int			s_worldLoadIndex = 0;
+static	int			s_menuWorldStagingReady = 0;
+static	int			s_menuWorldStagedIndex = 0;
+
+#define s_worldData (s_worldDataMem[s_worldLoadIndex])
+
+static byte		*fileBase;
 
 int			c_subdivisions;
 int			c_gridVerts;
 
-static int map_length;
+typedef enum {
+	WORLD_LOAD_NORMAL = 0,
+	WORLD_LOAD_MENU_STAGED
+} worldLoadMode_t;
+
+static worldLoadMode_t s_worldLoadMode = WORLD_LOAD_NORMAL;
 static int nummodels;
 static int numShaders;
 static int numbrushes;
@@ -65,6 +76,7 @@ static int g_iGridDataSize;
 static int g_iGridPaletteBytes;
 static int g_iGridOffsets;
 static int g_nStaticModelData;
+static int map_length;
 static int map_version;
 static int g_nStaticModelIndices;
 static int g_nStaticModels;
@@ -255,9 +267,13 @@ static	void R_LoadLightmaps(gamelump_t* l) {
                 image[j*4+3] = 255;
             }
         }
-        tr.lightmaps[i] = R_CreateImageOld(va("*lightmap%d", i), image,
+		tr.lightmaps[i] = R_CreateImageOld(va("*lightmap%d", i), image,
             LIGHTMAP_SIZE, LIGHTMAP_SIZE, 0, 1, qfalse, qfalse, qfalse, qfalse, GL_CLAMP, GL_CLAMP);
     }
+
+    /* Fixed in OPM: cached world shaders keep image* into prior *lightmap slots;
+     * after menu backdrop free/recreate those pointers are wrong/NULL. */
+    R_RemountLightmapShaderImages();
 
     if ( r_lightmap->integer == 2 )	{
         ri.Printf( PRINT_ALL, "Brightest lightmap value: %d\n", ( int ) ( maxIntensity * 255 ) );
@@ -1687,7 +1703,9 @@ static	void R_LoadSubmodels(gamelump_t* l) {
 
         model = R_AllocModel();
 
-        assert( model != NULL );			// this should never happen
+        if (!model) {
+            ri.Error(ERR_DROP, "R_LoadSubmodels: MAX_MOD_KNOWN hit while loading %s", s_worldData.name);
+        }
 
         model->type = MOD_BRUSH;
         model->d.bmodel = out;
@@ -2249,6 +2267,10 @@ void RE_LoadWorldMap( const char *name ) {
     vec3_t			vDefSundir;
     gamelump_t		lump, lump2, lump3;
 
+    if (s_worldLoadMode != WORLD_LOAD_MENU_STAGED) {
+		s_worldLoadIndex = 0;
+	}
+
     vDefSundir[0] = 0.45f;
     vDefSundir[1] = 0.3f;
     vDefSundir[2] = 0.9f;
@@ -2277,9 +2299,11 @@ void RE_LoadWorldMap( const char *name ) {
     map_length = length;
     map_version = header.version;
 
-    // clear tr.world so if the level fails to load, the next
-    // try will not look at the partially loaded version
-    tr.world = NULL;
+    if (s_worldLoadMode != WORLD_LOAD_MENU_STAGED) {
+		// clear tr.world so if the level fails to load, the next
+		// try will not look at the partially loaded version
+		tr.world = NULL;
+	}
 
     Com_Memset( &s_worldData, 0, sizeof( s_worldData ) );
     Q_strncpyz( s_worldData.name, name, sizeof( s_worldData.name ) );
@@ -2429,22 +2453,37 @@ void RE_LoadWorldMap( const char *name ) {
         g_nStaticModelIndices = 0;
     }
 
+    world_t *prevActiveWorld = tr.world;
+
     // only set tr.world now that we know the entire level has loaded properly
-    tr.world = &s_worldData;
+    if (s_worldLoadMode == WORLD_LOAD_MENU_STAGED) {
+		s_menuWorldStagedIndex = s_worldLoadIndex;
+		s_menuWorldStagingReady = 1;
+		tr.world = &s_worldDataMem[s_worldLoadIndex];
+	} else {
+		tr.world = &s_worldDataMem[s_worldLoadIndex];
+	}
 
     ri.FS_CloseFile(h);
 
-    ri.UI_LoadResource("*111");
-    R_Sphere_InitLights();
-    ri.UI_LoadResource("*112");
-    R_InitTerrain();
     ri.UI_LoadResource("*113");
     R_InitStaticModels();
     ri.UI_LoadResource("*114");
-    R_LevelMarksLoad(name);
-    ri.UI_LoadResource("*115");
-    R_VisDebugLoad(name);
-    ri.UI_LoadResource("*116");
+
+    if (s_worldLoadMode != WORLD_LOAD_MENU_STAGED) {
+        ri.UI_LoadResource("*111");
+        R_Sphere_InitLights();
+        ri.UI_LoadResource("*112");
+        R_InitTerrain();
+        R_LevelMarksLoad(name);
+        ri.UI_LoadResource("*115");
+        R_VisDebugLoad(name);
+        ri.UI_LoadResource("*116");
+    }
+
+    if (s_worldLoadMode == WORLD_LOAD_MENU_STAGED) {
+		tr.world = prevActiveWorld;
+	}
 }
 
 /*
@@ -2505,4 +2544,120 @@ freed world data
 void R_ClearWorld(void) {
     tr.world = NULL;
     tr.worldMapLoaded = qfalse;
+}
+
+/*
+=================
+RE_ClearWorld
+=================
+*/
+void RE_ClearWorld(void) {
+	R_ClearWorld();
+}
+
+/*
+=================
+RE_LoadMenuWorld
+
+Replace the single world slot used by modern menu backdrops.
+Does not change the normal LoadWorld / RE_LoadWorldMap path.
+=================
+*/
+void RE_LoadMenuWorld(const char *name) {
+	int i;
+
+	R_IssuePendingRenderCommands();
+
+	/* Fixed in OPM: each LoadWorldMap allocates *N brush models without freeing
+	 * prior ones; rapid Menu Backdrop cycling hits MAX_MOD_KNOWN and SIGSEGVs
+	 * on a NULL R_AllocModel result. */
+	for (i = 0; i < tr.numModels; i++) {
+		if (tr.models[i].type == MOD_BRUSH && tr.models[i].name[0] == '*') {
+			R_FreeModel(&tr.models[i]);
+		}
+	}
+
+	/* Fixed in OPM: backdrop cycling reloads BSP lightmaps via R_CreateImageOld
+	 * without freeing prior *lightmap slots, eventually hitting MAX_DRAWIMAGES. */
+	for (i = 0; i < tr.numLightmaps; i++) {
+		if (tr.lightmaps[i]) {
+			R_FreeImage(tr.lightmaps[i]);
+			tr.lightmaps[i] = NULL;
+		}
+	}
+	tr.numLightmaps = 0;
+
+	R_ClearWorld();
+	s_worldLoadIndex = 0;
+	s_worldLoadMode = WORLD_LOAD_NORMAL;
+	RE_LoadWorldMap(name);
+
+	/* Fixed in OPM: normal map registration forces MarkLeaves to rebuild; menu
+	 * backdrop reloads must too. Otherwise a matching cluster id early-outs and
+	 * world brushes stay unmarked (static models still draw — their PVS check
+	 * is disabled). */
+	tr.viewCluster = -1;
+}
+
+/*
+=================
+RE_LoadMenuWorldStaged
+
+Load a menu backdrop into the inactive world buffer without clearing the
+currently displayed world. Call RE_CommitMenuWorld to swap.
+=================
+*/
+qboolean RE_LoadMenuWorldStaged(const char *name) {
+	int inactive;
+
+	R_IssuePendingRenderCommands();
+	s_menuWorldStagingReady = 0;
+
+	if (tr.world == &s_worldDataMem[0]) {
+		inactive = 1;
+	} else if (tr.world == &s_worldDataMem[1]) {
+		inactive = 0;
+	} else {
+		inactive = 0;
+	}
+
+	s_worldLoadIndex = inactive;
+	s_worldLoadMode = WORLD_LOAD_MENU_STAGED;
+	RE_LoadWorldMap(name);
+	s_worldLoadMode = WORLD_LOAD_NORMAL;
+	return s_menuWorldStagingReady ? qtrue : qfalse;
+}
+
+void RE_CommitMenuWorld(void) {
+	if (!s_menuWorldStagingReady) {
+		return;
+	}
+	tr.world = &s_worldDataMem[s_menuWorldStagedIndex];
+	s_menuWorldStagingReady = 0;
+
+	if (tr.externalVisData) {
+		tr.world->vis = tr.externalVisData;
+	}
+
+	/* Fixed in OPM: terrain tessellation uses a global heap; defer until commit. */
+	R_IssuePendingRenderCommands();
+	ri.UI_LoadResource("*111");
+	R_Sphere_InitLights();
+	ri.UI_LoadResource("*112");
+	R_InitTerrain();
+	R_LevelMarksLoad(tr.world->name);
+	ri.UI_LoadResource("*115");
+	R_VisDebugLoad(tr.world->name);
+	ri.UI_LoadResource("*116");
+
+	/* Fixed in OPM: force PVS remark after menu world swap (see RE_LoadMenuWorld). */
+	tr.viewCluster = -1;
+}
+
+void RE_CancelMenuWorldStaging(void) {
+	s_menuWorldStagingReady = 0;
+}
+
+qboolean RE_HasActiveWorld(void) {
+	return tr.world != NULL;
 }

@@ -523,7 +523,40 @@ static int CG_CalcFov(void)
     cg.fRefFovXSin     = sin(fov_x / 114.0f);
     cg.fRefFovYCos     = cos(fov_y / 114.0f);
     cg.fRefFovYSin     = sin(fov_y / 114.0f);
-    cg.zoomSensitivity = cg.refdef.fov_y / 75.0;
+
+    /*
+     * Changed in OPM: cg_zoomSensitivity mode for modern UI (ui_legacy 0):
+     *   off    -> 1.0 (no FOV scale)
+     *   legacy -> fov_y / 75 (retail Quake)
+     *   screen -> tan(zoom/2)/tan(hip/2) (screen-distance)
+     * Legacy UI always uses fov_y/75.
+     */
+    if (!ui_legacy || !ui_legacy->integer) {
+        const char *mode = (cg_zoomSensitivity && cg_zoomSensitivity->string[0])
+                               ? cg_zoomSensitivity->string
+                               : "screen";
+
+        if (!Q_stricmp(mode, "off")) {
+            cg.zoomSensitivity = 1.0f;
+        } else if (!Q_stricmp(mode, "legacy")) {
+            cg.zoomSensitivity = cg.refdef.fov_y / 75.0f;
+        } else {
+            /* screen (default) */
+            float hipFov = cg_fov ? cg_fov->value : 80.0f;
+            float zoomFov = cg.camera_fov;
+
+            if (hipFov < 1.0f) {
+                hipFov = 1.0f;
+            }
+            if (zoomFov < 1.0f) {
+                zoomFov = 1.0f;
+            }
+            cg.zoomSensitivity =
+                (float)(tan(DEG2RAD(zoomFov * 0.5)) / tan(DEG2RAD(hipFov * 0.5)));
+        }
+    } else {
+        cg.zoomSensitivity = cg.refdef.fov_y / 75.0f;
+    }
     return inwater;
 }
 
@@ -672,22 +705,32 @@ static int CG_CalcViewValues(void)
 
     // if we are in a camera view, we take our audio cues directly from the camera
     if (ps->pm_flags & PMF_CAMERA_VIEW) {
-        // Set the aural position to that of the camera
-        VectorCopy(cg.camera_origin, cg.refdef.vieworg);
+        vec3_t fpOrigin, fpAngles;
 
-        // Set the aural axis to the camera's angles
-        VectorCopy(cg.camera_angles, cg.refdefViewAngles);
+        /* Added in OPM: client-side first-person chase override. */
+        if (CG_SpectateFP_CalcEye(fpOrigin, fpAngles)) {
+            VectorCopy(fpOrigin, cg.refdef.vieworg);
+            VectorCopy(fpAngles, cg.refdefViewAngles);
+            /* Fixed in OPM: keep head/sound anchors in sync with FP eye (was chase height). */
+            VectorCopy(cg.refdef.vieworg, cg.playerHeadPos);
+        } else {
+            // Set the aural position to that of the camera
+            VectorCopy(cg.camera_origin, cg.refdef.vieworg);
 
-        if (cg_protocol >= PROTOCOL_MOHTA_MIN && (ps->pm_flags & PMF_DAMAGE_ANGLES)) {
-            // Handle camera shake
-            VectorSubtract(cg.refdefViewAngles, cg.predicted_player_state.damage_angles, cg.refdefViewAngles);
-        }
+            // Set the aural axis to the camera's angles
+            VectorCopy(cg.camera_angles, cg.refdefViewAngles);
 
-        if (ps->camera_posofs[0] || ps->camera_posofs[1] || ps->camera_posofs[2]) {
-            vec3_t vAxis[3], vOrg;
-            AnglesToAxis(cg.refdefViewAngles, vAxis);
-            MatrixTransformVector(ps->camera_posofs, vAxis, vOrg);
-            VectorAdd(cg.refdef.vieworg, vOrg, cg.refdef.vieworg);
+            if (cg_protocol >= PROTOCOL_MOHTA_MIN && (ps->pm_flags & PMF_DAMAGE_ANGLES)) {
+                // Handle camera shake
+                VectorSubtract(cg.refdefViewAngles, cg.predicted_player_state.damage_angles, cg.refdefViewAngles);
+            }
+
+            if (ps->camera_posofs[0] || ps->camera_posofs[1] || ps->camera_posofs[2]) {
+                vec3_t vAxis[3], vOrg;
+                AnglesToAxis(cg.refdefViewAngles, vAxis);
+                MatrixTransformVector(ps->camera_posofs, vAxis, vOrg);
+                VectorAdd(cg.refdef.vieworg, vOrg, cg.refdef.vieworg);
+            }
         }
 
         // copy view values
@@ -875,6 +918,9 @@ void CG_DrawActiveFrame(int serverTime, int frameTime, stereoFrame_t stereoView,
 
     // update cg.predicted_player_state
     CG_PredictPlayerState();
+
+    /* Added in OPM: rebuild FP spectate synthetic state before view/camera. */
+    CG_SpectateFP_Update();
 
     // build cg.refdef
     CG_CalcViewValues();

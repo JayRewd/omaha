@@ -21,7 +21,9 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
 
 #include "cl_ui.h"
+#include "cl_uirender.h"
 #include "../qcommon/localization.h"
+#include "../uidesign/uid_profile.h"
 
 #include "../server/server.h"
 
@@ -85,6 +87,14 @@ void View3D::FrameInitialized(void)
 
 void View3D::Pressed(Event *ev)
 {
+    /*
+     * Fixed in OPM: while the fakk console (or another legacy overlay) is up,
+     * do not reclaim capture — ServiceEvents can deliver a spurious hit on the
+     * full-screen View3D and steal console focus mid-intermission.
+     */
+    if (UI_ConsoleIsVisible() || UI_LegacyOverlayOwnsInput()) {
+        return;
+    }
     IN_MouseOff();
     OnActivate(ev);
 }
@@ -577,6 +587,23 @@ void View3D::Draw2D(void)
 
     DrawLetterbox();
 
+    /*
+     * Fixed in OPM: modern HUD + scoreboard must paint above ps.blend fades.
+     * Previously CL_UIR_DrawCrosshair ran before DrawFades, so end-of-match
+     * scoreboard (and in-game HUD) sat under the intermission/damage fade.
+     */
+    if (clc.state != CA_DISCONNECTED) {
+        /*
+         * Added in OPM: draw retail/PK3 zoom overlays under the modern HUD
+         * layer (same order as legacy CG_Draw2D). When modern sniper is on,
+         * CG_DrawZoomOverlay skips sniper types and uirender paints instead.
+         */
+        if (cge && cge->CG_DrawZoomOverlay && !CL_UIR_UseLegacyHud()) {
+            cge->CG_DrawZoomOverlay();
+        }
+        CL_UIR_DrawCrosshair();
+    }
+
     if ((cl_debuggraph->integer || cl_timegraph->integer) && !cls.no_menus) {
         SCR_DrawDebugGraph();
     } else if (!cls.no_menus) {
@@ -612,6 +639,9 @@ void View3D::CenterPrint(void)
     float       w, h;
 
     if (!m_printfadetime) {
+        if (CL_UIR_UseModernHudPack()) {
+            Cvar_Set("ui_om_hud_centerprint", "");
+        }
         return;
     }
 
@@ -625,6 +655,16 @@ void View3D::CenterPrint(void)
     }
 
     alpha = Q_clamp_float(alpha, 0, 1);
+
+    /* Added in OPM: modern HUD pack paints centerprint with theme body font. */
+    if (CL_UIR_UseModernHudPack()) {
+        if (!m_print_mat && p && p[0] && alpha > 0.02f) {
+            Cvar_Set("ui_om_hud_centerprint", p);
+        } else {
+            Cvar_Set("ui_om_hud_centerprint", "");
+        }
+        return;
+    }
 
     if (!m_print_mat) {
         UIRect2D frame;
@@ -777,15 +817,20 @@ void View3D::DrawFades(void)
 
 void View3D::Draw(void)
 {
-    if (clc.state != CA_DISCONNECTED) {
-        SCR_DrawScreenField();
-    }
+	/* Added in OPM: isolate world/cgame cost from URC widget timing (ui_profile). */
+	UID_ProfileBegin(UID_PROF_LEGACY_VIEW3D);
+	if (clc.state != CA_DISCONNECTED) {
+		SCR_DrawScreenField();
+	}
 
-    set2D();
+	set2D();
 
-    re.SavePerformanceCounters();
+	re.SavePerformanceCounters();
 
-    Draw2D();
+	if (!CL_UIR_IsConnectedOverlayOpen()) {
+		Draw2D();
+	}
+	UID_ProfileEnd(UID_PROF_LEGACY_VIEW3D);
 }
 
 float avWidth = 0.0;
@@ -966,6 +1011,9 @@ void View3D::DrawSubtitleOverlay(void)
 void View3D::ClearCenterPrint(void)
 {
     m_printfadetime = 0.0;
+    if (CL_UIR_UseModernHudPack()) {
+        Cvar_Set("ui_om_hud_centerprint", "");
+    }
 }
 
 qboolean View3D::LetterboxActive(void)

@@ -1,0 +1,55 @@
+<ui-library version="1">
+	<images>
+		<!-- Fixed in OPM: GL1 RegisterShaderNoMip defaults extensionless names to .tga;
+		     these assets are PNG, so src must include .png (same as ui/modern/lib/images.xml). -->
+		<image id="modernhud-m1-garand" src="ui/modern/textures/modernhud/m1_garand.png"/>
+		<image id="modernhud-m1-garand-filled" src="ui/modern/textures/modernhud/m1_garand_filled.png"/>
+		<image id="modernhud-m1-garand-kf" src="ui/modern/textures/modernhud/m1_garand_kf.png"/>
+		<image id="modernhud-kar98" src="ui/modern/textures/modernhud/kar98.png"/>
+		<image id="modernhud-kar98-filled" src="ui/modern/textures/modernhud/kar98_filled.png"/>
+		<image id="modernhud-kar98-kf" src="ui/modern/textures/modernhud/kar98_kf.png"/>
+		<image id="modernhud-springfield" src="ui/modern/textures/modernhud/springfield.png"/>
+		<image id="modernhud-springfield-filled" src="ui/modern/textures/modernhud/springfield_filled.png"/>
+		<image id="modernhud-springfield-kf" src="ui/modern/textures/modernhud/springfield_kf.png"/>
+		<image id="modernhud-kar98sniper" src="ui/modern/textures/modernhud/kar98sniper.png"/>
+		<image id="modernhud-kar98sniper-filled" src="ui/modern/textures/modernhud/kar98sniper_filled.png"/>
+		<image id="modernhud-kar98sniper-kf" src="ui/modern/textures/modernhud/kar98sniper_kf.png"/>
+		<image id="modernhud-thompsonsmg" src="ui/modern/textures/modernhud/thompsonsmg.png"/>
+		<image id="modernhud-thompsonsmg-filled" src="ui/modern/textures/modernhud/thompsonsmg_filled.png"/>
+		<image id="modernhud-thompsonsmg-kf" src="ui/modern/textures/modernhud/thompsonsmg_kf.png"/>
+		<image id="modernhud-mp40" src="ui/modern/textures/modernhud/mp40.png"/>
+		<image id="modernhud-mp40-filled" src="ui/modern/textures/modernhud/mp40_filled.png"/>
+		<image id="modernhud-mp40-kf" src="ui/modern/textures/modernhud/mp40_kf.png"/>
+		<image id="modernhud-bar" src="ui/modern/textures/modernhud/bar.png"/>
+		<image id="modernhud-bar-filled" src="ui/modern/textures/modernhud/bar_filled.png"/>
+		<image id="modernhud-bar-kf" src="ui/modern/textures/modernhud/bar_kf.png"/>
+		<image id="modernhud-mp44" src="ui/modern/textures/modernhud/mp44.png"/>
+		<image id="modernhud-mp44-filled" src="ui/modern/textures/modernhud/mp44_filled.png"/>
+		<image id="modernhud-mp44-kf" src="ui/modern/textures/modernhud/mp44_kf.png"/>
+		<image id="modernhud-bazooka" src="ui/modern/textures/modernhud/bazooka.png"/>
+		<image id="modernhud-bazooka-filled" src="ui/modern/textures/modernhud/bazooka_filled.png"/>
+		<image id="modernhud-bazooka-kf" src="ui/modern/textures/modernhud/bazooka_kf.png"/>
+		<image id="modernhud-panzerschreck" src="ui/modern/textures/modernhud/panzerschreck.png"/>
+		<image id="modernhud-panzerschreck-filled" src="ui/modern/textures/modernhud/panzerschreck_filled.png"/>
+		<image id="modernhud-panzerschreck-kf" src="ui/modern/textures/modernhud/panzerschreck_kf.png"/>
+		<image id="modernhud-shotgun" src="ui/modern/textures/modernhud/shotgun.png"/>
+		<image id="modernhud-shotgun-filled" src="ui/modern/textures/modernhud/shotgun_filled.png"/>
+		<image id="modernhud-shotgun-kf" src="ui/modern/textures/modernhud/shotgun_kf.png"/>
+		<image id="modernhud-colt45" src="ui/modern/textures/modernhud/colt45.png"/>
+		<image id="modernhud-colt45-filled" src="ui/modern/textures/modernhud/colt45_filled.png"/>
+		<image id="modernhud-colt45-kf" src="ui/modern/textures/modernhud/colt45_kf.png"/>
+		<image id="modernhud-p38" src="ui/modern/textures/modernhud/p38.png"/>
+		<image id="modernhud-p38-filled" src="ui/modern/textures/modernhud/p38_filled.png"/>
+		<image id="modernhud-p38-kf" src="ui/modern/textures/modernhud/p38_kf.png"/>
+		<image id="modernhud-m2frag-grenade" src="ui/modern/textures/modernhud/m2frag_grenade.png"/>
+		<image id="modernhud-m2frag-grenade-filled" src="ui/modern/textures/modernhud/m2frag_grenade_filled.png"/>
+		<image id="modernhud-m2frag-grenade-kf" src="ui/modern/textures/modernhud/m2frag_grenade_kf.png"/>
+		<image id="modernhud-steilhandgranate" src="ui/modern/textures/modernhud/steilhandgranate.png"/>
+		<image id="modernhud-steilhandgranate-filled" src="ui/modern/textures/modernhud/steilhandgranate_filled.png"/>
+		<image id="modernhud-steilhandgranate-kf" src="ui/modern/textures/modernhud/steilhandgranate_kf.png"/>
+		<!-- Added in OPM: kill-feed headshot / bash / suicide markers (50px source, scaled in HUD). -->
+		<image id="modernhud-headshot-50" src="ui/modern/textures/modernhud/headshot_50.png"/>
+		<image id="modernhud-glove-50" src="ui/modern/textures/modernhud/glove_50.png"/>
+		<image id="modernhud-skull-50" src="ui/modern/textures/modernhud/skull_50.png"/>
+	</images>
+</ui-library>

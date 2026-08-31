@@ -35,10 +35,11 @@ typedef enum {
 class UIDMBox : public UIWidget
 {
     struct item_t {
-        str     string;
-        UColor  color;
-        UIFont *font;
-        int     flags;
+        str      string;
+        UColor   color;
+        UIFont  *font;
+        int      flags;
+        uint64_t stableId; /* Added in OPM: foreach lifetime key */
     };
 
 protected:
@@ -64,6 +65,7 @@ protected:
     void  HandleBoxMoving(void);
     void  PostMoveinEvent(void);
     void  PostDecayEvent(void);
+    void  ForceDueDecay(void);
     void  setShowState(void);
     void  RemoveTopItem(void);
     str   CalculateBreaks(UIFont *font, str text, float max_width);

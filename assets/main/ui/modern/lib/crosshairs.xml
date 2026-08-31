@@ -1,0 +1,137 @@
+<ui-library version="1">
+	<shapes>
+		<!-- Added in OPM: procedural crosshair previews (intrinsic 64×64, stretched to parent). -->
+		<shape id="crosshair-solid" width="64px" height="64px">
+			<props>
+				<prop name="size" type="length" default="8px"/>
+				<prop name="thickness" type="length" default="2px"/>
+			</props>
+			<!-- Single plus outline (union of horizontal + vertical bars) for correct stroke. -->
+			<path fill="{parent.fill}"
+			      d="M {parent.width * 0.5 - shape.thickness * 0.5}
+			         {parent.height * 0.5 - shape.size}
+			         L {parent.width * 0.5 + shape.thickness * 0.5}
+			         {parent.height * 0.5 - shape.size}
+			         L {parent.width * 0.5 + shape.thickness * 0.5}
+			         {parent.height * 0.5 - shape.thickness * 0.5}
+			         L {parent.width * 0.5 + shape.size}
+			         {parent.height * 0.5 - shape.thickness * 0.5}
+			         L {parent.width * 0.5 + shape.size}
+			         {parent.height * 0.5 + shape.thickness * 0.5}
+			         L {parent.width * 0.5 + shape.thickness * 0.5}
+			         {parent.height * 0.5 + shape.thickness * 0.5}
+			         L {parent.width * 0.5 + shape.thickness * 0.5}
+			         {parent.height * 0.5 + shape.size}
+			         L {parent.width * 0.5 - shape.thickness * 0.5}
+			         {parent.height * 0.5 + shape.size}
+			         L {parent.width * 0.5 - shape.thickness * 0.5}
+			         {parent.height * 0.5 + shape.thickness * 0.5}
+			         L {parent.width * 0.5 - shape.size}
+			         {parent.height * 0.5 + shape.thickness * 0.5}
+			         L {parent.width * 0.5 - shape.size}
+			         {parent.height * 0.5 - shape.thickness * 0.5}
+			         L {parent.width * 0.5 - shape.thickness * 0.5}
+			         {parent.height * 0.5 - shape.thickness * 0.5} Z"/>
+		</shape>
+
+		<shape id="crosshair-open" width="64px" height="64px">
+			<props>
+				<prop name="length" type="length" default="6px"/>
+				<prop name="thickness" type="length" default="2px"/>
+				<prop name="gap" type="length" default="4px"/>
+				<prop name="dot_size" type="length" default="0px"/>
+			</props>
+			<path fill="{parent.fill}"
+			      d="M {parent.width * 0.5 + shape.gap}
+			         {parent.height * 0.5 - shape.thickness * 0.5}
+			         L {parent.width * 0.5 + shape.gap + shape.length}
+			         {parent.height * 0.5 - shape.thickness * 0.5}
+			         L {parent.width * 0.5 + shape.gap + shape.length}
+			         {parent.height * 0.5 + shape.thickness * 0.5}
+			         L {parent.width * 0.5 + shape.gap}
+			         {parent.height * 0.5 + shape.thickness * 0.5} Z"/>
+			<path fill="{parent.fill}"
+			      d="M {parent.width * 0.5 - shape.gap - shape.length}
+			         {parent.height * 0.5 - shape.thickness * 0.5}
+			         L {parent.width * 0.5 - shape.gap}
+			         {parent.height * 0.5 - shape.thickness * 0.5}
+			         L {parent.width * 0.5 - shape.gap}
+			         {parent.height * 0.5 + shape.thickness * 0.5}
+			         L {parent.width * 0.5 - shape.gap - shape.length}
+			         {parent.height * 0.5 + shape.thickness * 0.5} Z"/>
+			<path fill="{parent.fill}"
+			      d="M {parent.width * 0.5 - shape.thickness * 0.5}
+			         {parent.height * 0.5 + shape.gap}
+			         L {parent.width * 0.5 + shape.thickness * 0.5}
+			         {parent.height * 0.5 + shape.gap}
+			         L {parent.width * 0.5 + shape.thickness * 0.5}
+			         {parent.height * 0.5 + shape.gap + shape.length}
+			         L {parent.width * 0.5 - shape.thickness * 0.5}
+			         {parent.height * 0.5 + shape.gap + shape.length} Z"/>
+			<path fill="{parent.fill}"
+			      d="M {parent.width * 0.5 - shape.thickness * 0.5}
+			         {parent.height * 0.5 - shape.gap - shape.length}
+			         L {parent.width * 0.5 + shape.thickness * 0.5}
+			         {parent.height * 0.5 - shape.gap - shape.length}
+			         L {parent.width * 0.5 + shape.thickness * 0.5}
+			         {parent.height * 0.5 - shape.gap}
+			         L {parent.width * 0.5 - shape.thickness * 0.5}
+			         {parent.height * 0.5 - shape.gap} Z"/>
+			<path fill="{parent.fill}"
+			      d="M {parent.width * 0.5}
+			         {parent.height * 0.5 - shape.dot_size * 0.5}
+			         A {shape.dot_size * 0.5} {shape.dot_size * 0.5} 0 1 1
+			         {parent.width * 0.5}
+			         {parent.height * 0.5 + shape.dot_size * 0.5}
+			         A {shape.dot_size * 0.5} {shape.dot_size * 0.5} 0 1 1
+			         {parent.width * 0.5}
+			         {parent.height * 0.5 - shape.dot_size * 0.5} Z"/>
+		</shape>
+
+		<shape id="crosshair-dot" width="64px" height="64px">
+			<props>
+				<prop name="size" type="length" default="4px"/>
+			</props>
+			<path fill="{parent.fill}"
+			      d="M {parent.width * 0.5}
+			         {parent.height * 0.5 - shape.size * 0.5}
+			         A {shape.size * 0.5} {shape.size * 0.5} 0 1 1
+			         {parent.width * 0.5}
+			         {parent.height * 0.5 + shape.size * 0.5}
+			         A {shape.size * 0.5} {shape.size * 0.5} 0 1 1
+			         {parent.width * 0.5}
+			         {parent.height * 0.5 - shape.size * 0.5} Z"/>
+		</shape>
+	</shapes>
+	<templates>
+		<template id="crosshair-display">
+			<container type="vertical" width="100%" height="100%" halign="center" valign="center" fill="{var.fill-transparent}">
+				<shape shape="crosshair-solid" width="64px" height="64px" halign="center" valign="center"
+				       fill="cvar-rgba:cg_crosshaircolor_r,cg_crosshaircolor_g,cg_crosshaircolor_b,cg_crosshairalpha"
+				       stroke="{var.fill-lab-track}" stroke-width="{cvar:cg_crosshair_outlinethickness}px"
+				       size="{cvar:cg_crosshair_solid_size}px" thickness="{cvar:cg_crosshairthickness}px"
+				       visible-if="cvar:cg_crosshair_mode=solid"/>
+				<container type="vertical" width="64px" height="64px" halign="center" valign="center" fill="{var.fill-transparent}"
+				           visible-if="cvar:cg_crosshair_mode=open">
+					<shape shape="crosshair-open" width="64px" height="64px" halign="center" valign="center"
+					       fill="cvar-rgba:cg_crosshaircolor_r,cg_crosshaircolor_g,cg_crosshaircolor_b,cg_crosshairalpha"
+					       stroke="{var.fill-lab-track}" stroke-width="{cvar:cg_crosshair_outlinethickness}px"
+					       length="{cvar:cg_crosshairsize}px" thickness="{cvar:cg_crosshairthickness}px"
+					       gap="{cvar:cg_crosshairgap}px" dot_size="0px"
+					       visible-if="cvar:cg_crosshairdot=0"/>
+					<shape shape="crosshair-open" width="64px" height="64px" halign="center" valign="center"
+					       fill="cvar-rgba:cg_crosshaircolor_r,cg_crosshaircolor_g,cg_crosshaircolor_b,cg_crosshairalpha"
+					       stroke="{var.fill-lab-track}" stroke-width="{cvar:cg_crosshair_outlinethickness}px"
+					       length="{cvar:cg_crosshairsize}px" thickness="{cvar:cg_crosshairthickness}px"
+					       gap="{cvar:cg_crosshairgap}px" dot_size="{cvar:cg_crosshairthickness}px"
+					       visible-if="cvar:cg_crosshairdot=1"/>
+				</container>
+				<shape shape="crosshair-dot" width="64px" height="64px" halign="center" valign="center"
+				       fill="cvar-rgba:cg_crosshaircolor_r,cg_crosshaircolor_g,cg_crosshaircolor_b,cg_crosshairalpha"
+				       stroke="{var.fill-lab-track}" stroke-width="{cvar:cg_crosshair_outlinethickness}px"
+				       size="{cvar:cg_crosshair_dot_size}px"
+				       visible-if="cvar:cg_crosshair_mode=dot"/>
+			</container>
+		</template>
+	</templates>
+</ui-library>

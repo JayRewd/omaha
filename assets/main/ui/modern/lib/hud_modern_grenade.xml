@@ -1,0 +1,61 @@
+<ui-library version="1">
+	<import src="ui/modern/lib/theme.xml"/>
+	<import src="ui/modern/lib/hud_modern_tokens.xml"/>
+	<import src="ui/modern/lib/shapes.xml"/>
+	<import src="ui/modern/lib/hud_modern_images.xml"/>
+	<templates>
+		<!--
+		  Classic timed grenade widget (unused by modern pack layout; kept for packs that use it).
+		-->
+		<template id="modern-grenade-widget">
+			<container type="vertical" width="48px"
+			           height="auto" gap="2px" halign="center" padding="0" fill="{var.fill-transparent}"
+			           visible="{cvar.ui_om_hud_weap_grenade_state != 3 and cvar.ui_om_hud_weapons_visible > 0}">
+				<container type="overlap" width="48px" height="48px" padding="0" fill="{var.fill-transparent}" halign="center">
+					<container width="48px" height="48px" background-image="modernhud-m2frag-grenade"
+					           background-fit="contain"
+					           visible="{((cvar.ui_om_hud_weap_grenade_state == 1 or cvar.ui_om_hud_weap_grenade_state == 2) and cvar.ui_om_hud_team == 3) or (cvar.ui_om_hud_weap_grenade_state == 2 and cvar.ui_om_hud_active_weapon == 'Frag Grenade')}"/>
+					<container width="48px" height="48px" background-image="modernhud-m2frag-grenade-filled"
+					           background-fit="contain"
+					           visible="{cvar.ui_om_hud_weap_grenade_state == 2 and cvar.ui_om_hud_active_weapon == 'Frag Grenade'}"/>
+					<container width="48px" height="48px" background-image="modernhud-steilhandgranate"
+					           background-fit="contain"
+					           visible="{((cvar.ui_om_hud_weap_grenade_state == 1 or cvar.ui_om_hud_weap_grenade_state == 2) and cvar.ui_om_hud_team == 4) or (cvar.ui_om_hud_weap_grenade_state == 2 and cvar.ui_om_hud_active_weapon == 'Stielhandgranate')}"/>
+					<container width="48px" height="48px" background-image="modernhud-steilhandgranate-filled"
+					           background-fit="contain"
+					           visible="{cvar.ui_om_hud_weap_grenade_state == 2 and cvar.ui_om_hud_active_weapon == 'Stielhandgranate'}"/>
+				</container>
+				<label font="body" font-size="{var.text-body}" color="{var.color-white}" valign="start" halign="end" padding="0 -12px 0 0"
+				       bind="cvar:ui_om_hud_ammo"
+				       visible="{cvar.ui_om_hud_weap_grenade_state == 2}">{cvar.ui_om_hud_ammo}</label>
+			</container>
+		</template>
+
+		<!--
+		  Added in OPM: inventory grenade panel left of weapons bar.
+		  Half weapons-bar height (64) and half skew (25); fill-panel / fill-divider stroke.
+		  Visible while inventory has grenades (count > 0); stays up when switching guns.
+		  One <image>: team via src ternary, mute via opacity (weapons-bar style). Size with
+		  height=… + width=auto (texel aspect). Overlap children set their own align.
+		-->
+		<template id="modern-grenade-inventory">
+			<container id="grenade_inventory" type="overlap" width="88px" height="64px"
+			           padding="0"
+			           fill="{var.fill-panel}"
+			           shape="skew-rect" skewl="25px" skewr="25px"
+			           stroke="{var.fill-divider}" stroke-width="1px" stroke-layout="false" crisp="true"
+			           visible="{cvar.ui_om_hud_grenade_count > 0}">
+				<!-- Change height only to retune icon size; width follows aspect. -->
+				<image src="{cvar.ui_om_hud_team == 4 ? modernhud-steilhandgranate : modernhud-m2frag-grenade}"
+				       height="52px" width="auto" fit="contain"
+				       halign="center" valign="center"
+				       opacity="{cvar.ui_om_hud_weap_grenade_state == 2 ? 1 : 0.5}"/>
+				<label font="body" font-size="18px" font-weight="700" line-height="18px"
+				       width="100%" height="100%" halign="center" valign="center"
+				       drop-shadow="true"
+				       color="{cvar.ui_om_hud_weap_grenade_state == 2 ? var.color-white : var.color-hud-muted}"
+				       bind="cvar:ui_om_hud_grenade_count"/>
+			</container>
+		</template>
+	</templates>
+</ui-library>

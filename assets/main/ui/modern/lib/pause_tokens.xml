@@ -1,0 +1,12 @@
+<ui-library version="1">
+	<vars>
+		<var id="color-pause-gold" value="#B3990CFF"/>
+		<var id="fill-pause-hover" value="#FFFFFF28"/>
+		<var id="fill-pause-hover-chip" value="#FFFFFF33"/>
+		<var id="fill-pause-panel" value="#0A120AF2"/>
+		<var id="fill-pause-panel-alt" value="#051200F2"/>
+		<var id="fill-pause-header" value="#8080504D"/>
+		<var id="fill-pause-button" value="#2B2B2B40"/>
+		<var id="fill-pause-button-strong" value="#2B2B2B80"/>
+	</vars>
+</ui-library>

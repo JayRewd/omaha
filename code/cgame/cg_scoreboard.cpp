@@ -25,6 +25,216 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include "cg_local.h"
 
+static qboolean CG_Scoreboard_UseModern(void)
+{
+    return CG_UseModernHudPack();
+}
+
+/*
+ * Added in OPM: publish Allied/Axis team totals for the modern HUD score strip.
+ * scoreField is the mode's real score (round wins or team kills); atoi skips a
+ * trailing " Wins" suffix used on round-mode headers.
+ */
+static void CG_Hud_SetTeamScoreCvar(int team, const char *scoreField)
+{
+    char buf[32];
+
+    if (!scoreField) {
+        scoreField = "0";
+    }
+    Com_sprintf(buf, sizeof(buf), "%d", atoi(scoreField));
+    if (team == TEAM_ALLIES) {
+        cgi.Cvar_Set("ui_om_hud_allied_score", buf);
+    } else if (team == TEAM_AXIS) {
+        cgi.Cvar_Set("ui_om_hud_axis_score", buf);
+    }
+}
+
+/*
+ * Added in OPM: request scores without opening the scoreboard. Reuses the retail
+ * 2s throttle on cg.scoresRequestTime so TAB and the HUD strip share one budget.
+ */
+void CG_RequestHudTeamScoresSilent(void)
+{
+    if (cgs.gametype <= GT_FFA) {
+        return;
+    }
+    if (cg.scoresRequestTime && cg.scoresRequestTime + 2000 >= cg.time) {
+        return;
+    }
+    cg.scoresRequestTime = cg.time;
+    cgi.SendClientCommand("score");
+}
+
+static void CG_Scoreboard_FormatKd(const char *killsStr, const char *deathsStr, char *out, int outSize)
+{
+    int kills;
+    int deaths;
+
+    if (!out || outSize <= 0) {
+        return;
+    }
+    kills  = killsStr ? atoi(killsStr) : 0;
+    deaths = deathsStr ? atoi(deathsStr) : 0;
+    if (deaths < 1) {
+        deaths = 1;
+    }
+    Com_sprintf(out, outSize, "%.2f", (float)kills / (float)deaths);
+}
+
+static void CG_Scoreboard_ColorToHex(const float *rgba, char *out, int outSize)
+{
+    int r, g, b, a;
+
+    if (!out || outSize < 10 || !rgba) {
+        if (out && outSize > 0) {
+            out[0] = 0;
+        }
+        return;
+    }
+    r = (int)(rgba[0] * 255.0f + 0.5f);
+    g = (int)(rgba[1] * 255.0f + 0.5f);
+    b = (int)(rgba[2] * 255.0f + 0.5f);
+    a = (int)(rgba[3] * 255.0f + 0.5f);
+    Com_sprintf(out, outSize, "#%02X%02X%02X%02X", r, g, b, a);
+}
+
+/*
+ * Added in OPM: modern scoreboard row fill from parse backColor only.
+ * Team chrome (Allies/Axis banners) is colored in XML, not per-player fills.
+ */
+static void CG_Scoreboard_ModernRowFill(char *out, int outSize, int clientTeam, const float *backColor)
+{
+    (void)clientTeam;
+    CG_Scoreboard_ColorToHex(backColor, out, outSize);
+}
+
+
+static void CG_Scoreboard_BeginModernParse(void)
+{
+    uir_scoreboard_meta_t meta;
+    int                   i;
+
+    if (!CG_Scoreboard_UseModern() || !cgi.UIR_Scoreboard_Clear) {
+        return;
+    }
+
+    memset(&meta, 0, sizeof(meta));
+    meta.gametype  = cgs.gametype;
+    meta.teamMode  = cgs.gametype > GT_FFA ? qtrue : qfalse;
+    meta.roundMode = cgs.gametype >= GT_TEAM_ROUNDS ? qtrue : qfalse;
+    Q_strncpyz(meta.deathsColLabel, cgs.gametype > GT_TEAM ? "Total" : "Deaths", sizeof(meta.deathsColLabel));
+
+    if (cgs.gametype == GT_TOW) {
+        for (i = 0; i < 5; i++) {
+            cvar_t *cv;
+            cv = cgi.Cvar_Find(va("tow_allied_obj%i", i + 1));
+            meta.towAlliedObj[i] = cv ? cv->integer : 0;
+            cv = cgi.Cvar_Find(va("tow_axis_obj%i", i + 1));
+            meta.towAxisObj[i] = cv ? cv->integer : 0;
+        }
+    }
+    if (cgs.gametype == GT_LIBERATION) {
+        cvar_t *cv;
+        cv = cgi.Cvar_Find("scoreboard_toggle1");
+        meta.libToggle1 = cv ? cv->integer : 0;
+        cv = cgi.Cvar_Find("scoreboard_toggle2");
+        meta.libToggle2 = cv ? cv->integer : 0;
+    }
+
+    cgi.UIR_Scoreboard_Clear();
+    cgi.UIR_Scoreboard_SetMeta(&meta);
+}
+
+static void CG_Scoreboard_EndModernParse(int entryCount)
+{
+    (void)entryCount;
+    if (!CG_Scoreboard_UseModern() || !cgi.UIR_Scoreboard_NotifyChanged) {
+        return;
+    }
+    cgi.UIR_Scoreboard_NotifyChanged();
+}
+
+static void CG_Scoreboard_AddModernRow(
+    int         clientNum,
+    int         clientTeam,
+    qboolean    isHeader,
+    qboolean    isSpectator,
+    const char *slot,
+    const char *name,
+    const char *kills,
+    const char *deaths,
+    const char *time,
+    const char *ping,
+    const float *textColor,
+    const float *backColor
+)
+{
+    uir_scoreboard_row_t row;
+
+    if (!CG_Scoreboard_UseModern() || !cgi.UIR_Scoreboard_AddRow) {
+        return;
+    }
+
+    if (clientNum == -2) {
+        return;
+    }
+    if (isSpectator && isHeader) {
+        return;
+    }
+
+    memset(&row, 0, sizeof(row));
+    row.clientNum = clientNum;
+    row.isHeader  = isHeader;
+    row.isSpectator = isSpectator && !isHeader;
+
+    if (isHeader || clientNum < 0) {
+        row.kind = UIR_SCORE_ROW_HEADER;
+    } else {
+        row.kind = UIR_SCORE_ROW_PLAYER;
+    }
+
+    if (slot) {
+        Q_strncpyz(row.slot, slot, sizeof(row.slot));
+    }
+    if (name) {
+        Q_strncpyz(row.name, name, sizeof(row.name));
+    } else if (isHeader && slot && slot[0]) {
+        Q_strncpyz(row.name, slot, sizeof(row.name));
+    }
+    if (kills) {
+        Q_strncpyz(row.kills, kills, sizeof(row.kills));
+    }
+    if (deaths) {
+        Q_strncpyz(row.deaths, deaths, sizeof(row.deaths));
+    }
+    if (time) {
+        Q_strncpyz(row.time, time, sizeof(row.time));
+    }
+    if (ping) {
+        Q_strncpyz(row.ping, ping, sizeof(row.ping));
+    }
+
+    if (row.kind == UIR_SCORE_ROW_PLAYER) {
+        CG_Scoreboard_FormatKd(row.kills, row.deaths, row.kd, sizeof(row.kd));
+    }
+
+    if (clientTeam == TEAM_ALLIES) {
+        Q_strncpyz(row.team, "allies", sizeof(row.team));
+    } else if (clientTeam == TEAM_AXIS) {
+        Q_strncpyz(row.team, "axis", sizeof(row.team));
+    } else if (row.isSpectator || clientTeam == TEAM_SPECTATOR) {
+        Q_strncpyz(row.team, "spectator", sizeof(row.team));
+    } else {
+        Q_strncpyz(row.team, "none", sizeof(row.team));
+    }
+
+    CG_Scoreboard_ColorToHex(textColor, row.textColor, sizeof(row.textColor));
+    CG_Scoreboard_ModernRowFill(row.rowFill, sizeof(row.rowFill), clientTeam, backColor);
+
+    cgi.UIR_Scoreboard_AddRow(&row);
+}
+
 void CG_GetScoreBoardColor(float *fR, float *fG, float *fB, float *fA)
 {
     *fR = 0.0f;
@@ -278,8 +488,14 @@ void CG_ParseScores_ver_15()
         cgi.Cvar_Set("scoreboard_toggle2", va("%i", (int)atof(cgi.Argv(iCurrentEntry++))));
     }
 
-    for (i = 0; i < iEntryCount; ++i) {
-        bIsHeader = qfalse;
+    CG_Scoreboard_BeginModernParse();
+
+    {
+        qboolean inSpectatorSection = qfalse;
+
+        for (i = 0; i < iEntryCount; ++i) {
+            qboolean isSpectator = qfalse;
+            bIsHeader = qfalse;
         if (cgs.gametype > GT_FFA) {
             iClientNum  = atoi(cgi.Argv(iCurrentEntry + iDatumCount * i));
             iClientTeam = atoi(cgi.Argv(1 + iCurrentEntry + iDatumCount * i));
@@ -341,6 +557,11 @@ void CG_ParseScores_ver_15()
             Q_strncpyz(szString6, cgi.Argv(4 + iCurrentEntry + iDatumCount * i), sizeof(szString6));
             Q_strncpyz(szString7, cgi.Argv(5 + iCurrentEntry + iDatumCount * i), sizeof(szString7));
 
+            /* Added in OPM: cache real team score (m_teamwins) before " Wins" suffix. */
+            if (bIsHeader && (iClientTeam == TEAM_ALLIES || iClientTeam == TEAM_AXIS)) {
+                CG_Hud_SetTeamScoreCvar(iClientTeam, szString4);
+            }
+
             if (cgs.gametype >= GT_TEAM_ROUNDS && iClientNum == -1
                 && (iClientTeam == TEAM_ALLIES || iClientTeam == TEAM_AXIS)) {
                 strcat(szString4, va(" %s", cgi.LV_ConvertString("Wins")));
@@ -369,7 +590,13 @@ void CG_ParseScores_ver_15()
             if (bIsDead) {
                 pItemTextColor = vDeadTextColorDead;
             }
+
+            if (iClientNum == -1 && iClientTeam == TEAM_SPECTATOR) {
+                inSpectatorSection = qtrue;
+            }
+            isSpectator = inSpectatorSection && iClientNum >= 0;
         } else {
+            iClientTeam = TEAM_FREEFORALL;
             iClientNum = atoi(cgi.Argv(iCurrentEntry + iDatumCount * i));
             if (iClientNum >= 0) {
                 Q_strncpyz(szString2, va("%i", iClientNum), sizeof(szString2));
@@ -383,9 +610,11 @@ void CG_ParseScores_ver_15()
                 if (iClientNum == -3) {
                     Q_strncpyz(szString2, cgi.LV_ConvertString("Players"), sizeof(szString2));
                     bIsHeader = qtrue;
+                    inSpectatorSection = qfalse;
                 } else if (iClientNum == -2) {
                     Q_strncpyz(szString2, cgi.LV_ConvertString("Spectators"), sizeof(szString2));
                     bIsHeader = qtrue;
+                    inSpectatorSection = qtrue;
                 } else {
                     // unknown
                     szString3[0] = 0;
@@ -403,6 +632,8 @@ void CG_ParseScores_ver_15()
                 pItemTextColor = vNoTeamTextColor;
                 pItemBackColor = vNoTeamBackColor;
             }
+
+            isSpectator = inSpectatorSection && iClientNum >= 0;
         }
 
         cgi.UI_SetScoreBoardItem(
@@ -419,9 +650,26 @@ void CG_ParseScores_ver_15()
             pItemBackColor,
             bIsHeader
         );
+
+        CG_Scoreboard_AddModernRow(
+            iClientNum,
+            iClientTeam,
+            bIsHeader,
+            isSpectator,
+            szString2,
+            szString3,
+            szString4,
+            szString5,
+            szString6,
+            szString7,
+            pItemTextColor,
+            pItemBackColor
+        );
+        }
     }
 
     cgi.UI_DeleteScoreBoardItems(iEntryCount);
+    CG_Scoreboard_EndModernParse(iEntryCount);
 }
 
 void CG_ParseScores_ver_6()
@@ -520,8 +768,14 @@ void CG_ParseScores_ver_6()
         iEntryCount = MAX_CLIENTS;
     }
 
-    for (i = 0; i < iEntryCount; ++i) {
-        bIsHeader = qfalse;
+    CG_Scoreboard_BeginModernParse();
+
+    {
+        qboolean inSpectatorSection = qfalse;
+
+        for (i = 0; i < iEntryCount; ++i) {
+            qboolean isSpectator = qfalse;
+            bIsHeader = qfalse;
         if (cgs.gametype > GT_FFA) {
             iClientNum  = atoi(cgi.Argv(iCurrentEntry + iDatumCount * i));
             iClientTeam = atoi(cgi.Argv(1 + iCurrentEntry + iDatumCount * i));
@@ -564,6 +818,18 @@ void CG_ParseScores_ver_6()
             Q_strncpyz(szString5, cgi.Argv(4 + iCurrentEntry + iDatumCount * i), sizeof(szString5));
             Q_strncpyz(szString6, cgi.Argv(5 + iCurrentEntry + iDatumCount * i), sizeof(szString6));
 
+            /*
+             * Added in OPM: ver6 round headers put m_teamwins in deaths (szString4);
+             * TDM headers put team kills in kills (szString3).
+             */
+            if (bIsHeader && (iClientTeam == TEAM_ALLIES || iClientTeam == TEAM_AXIS)) {
+                if (cgs.gametype >= GT_TEAM_ROUNDS) {
+                    CG_Hud_SetTeamScoreCvar(iClientTeam, szString4);
+                } else {
+                    CG_Hud_SetTeamScoreCvar(iClientTeam, szString3);
+                }
+            }
+
             if (iClientNum == cg.snap->ps.clientNum) {
                 pItemTextColor = vThisClientTextColor;
                 pItemBackColor = vThisClientBackColor;
@@ -586,7 +852,13 @@ void CG_ParseScores_ver_6()
             if (bIsDead) {
                 pItemTextColor = vDeadTextColorDead;
             }
+
+            if (iClientNum == -1 && iClientTeam == TEAM_SPECTATOR) {
+                inSpectatorSection = qtrue;
+            }
+            isSpectator = inSpectatorSection && iClientNum >= 0;
         } else {
+            iClientTeam = TEAM_FREEFORALL;
             iClientNum = atoi(cgi.Argv(iCurrentEntry + iDatumCount * i));
             if (iClientNum >= 0) {
                 Q_strncpyz(szString2, cg.clientinfo[iClientNum].name, sizeof(szString2));
@@ -598,9 +870,11 @@ void CG_ParseScores_ver_6()
                 if (iClientNum == -3) {
                     Q_strncpyz(szString2, cgi.LV_ConvertString("Players"), sizeof(szString2));
                     bIsHeader = qtrue;
+                    inSpectatorSection = qfalse;
                 } else if (iClientNum == -2) {
                     Q_strncpyz(szString2, cgi.LV_ConvertString("Spectators"), sizeof(szString2));
                     bIsHeader = qtrue;
+                    inSpectatorSection = qtrue;
                 } else {
                     // unknown
                     szString2[0] = 0;
@@ -618,6 +892,8 @@ void CG_ParseScores_ver_6()
                 pItemTextColor = vNoTeamTextColor;
                 pItemBackColor = vNoTeamBackColor;
             }
+
+            isSpectator = inSpectatorSection && iClientNum >= 0;
         }
 
         cgi.UI_SetScoreBoardItem(
@@ -634,9 +910,26 @@ void CG_ParseScores_ver_6()
             pItemBackColor,
             bIsHeader
         );
+
+        CG_Scoreboard_AddModernRow(
+            iClientNum,
+            iClientTeam,
+            bIsHeader,
+            isSpectator,
+            "",
+            szString2,
+            szString3,
+            szString4,
+            szString5,
+            szString6,
+            pItemTextColor,
+            pItemBackColor
+        );
+        }
     }
 
     cgi.UI_DeleteScoreBoardItems(iEntryCount);
+    CG_Scoreboard_EndModernParse(iEntryCount);
 }
 
 void CG_ParseScores()

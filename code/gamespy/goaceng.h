@@ -111,6 +111,10 @@ typedef enum {qt_basic, qt_info, qt_rules, qt_players, qt_info_rules, qt_status,
 /* Messages that are passed to the ListCallBackFn */
 #define	LIST_STATECHANGED		1 // ServerListState changed, no parameters
 #define LIST_PROGRESS			2 // New Server updated, param1 = GServer (server updated), param2 = percent done
+#define LIST_SERVERADDED		3 // Server discovered, param1 = GServer
+#define LIST_QUERYSTARTED		4 // Status query sent, param1 = GServer
+#define LIST_QUERYTIMEOUT		5 // Final status failure, param1 = GServer
+#define LIST_QUERYRETRY			6 // First attempt failed; retry queued
 
 //Single callback function into the client app for status  / progress messages
 typedef void (*ListCallBackFn)(GServerList serverlist, int msg, void *instance, void *param1, void *param2);
@@ -150,6 +154,17 @@ CallBackFn - The function or handle used for progress updates
 CallBackFnType - The type of the CallBackFn parameter (from the #define list above)
 instance - user-defined instance data (e.g. structure or object pointer) */
 GServerList	ServerListNew( const char *gamename, const char *enginename, const char *seckey, int maxconcupdates, void *CallBackFn, int CallBackFnType, void *instance);
+
+/* Idle-only browser configuration. Rejects changes while the list is busy. */
+GError ServerListSetMasterConcurrency(GServerList serverlist, int maxmasters);
+GError ServerListSetQueryTimeout(GServerList serverlist, unsigned long timeout);
+GError ServerListSetRetryTimeouts(
+	GServerList serverlist, unsigned long firstTimeout, unsigned long retryTimeout
+);
+GError ServerListSetPipelining(GServerList serverlist, gbool enabled);
+void   ServerListGetQueryStats(
+	GServerList serverlist, int *discovered, int *completed, int *responsive, int *timedout, int *active
+);
 
 /* ServerListFree
 -----------------

@@ -63,6 +63,10 @@ set(SOURCE_DIR ${CMAKE_SOURCE_DIR}/code)
 # Enable unit testing
 include(CTest)
 
+if(BUILD_TESTING)
+  include(tests/all)
+endif()
+
 if(DEFINED ENV{SOURCE_DATE_EPOCH})
     string(TIMESTAMP PRODUCT_DATE "%b %d %Y" UTC)
     add_compile_definitions(PRODUCT_DATE="${PRODUCT_DATE}")

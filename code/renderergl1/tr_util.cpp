@@ -401,7 +401,9 @@ int RE_GetShaderWidth(qhandle_t hShader)
         shader = tr.defaultShader;
     }
 
-    return shader->unfoggedStages[0]->bundle[0].image[0]->uploadWidth;
+	/* Changed in OPM: return source size (not POT upload size) so UI contain/cover
+	 * and tile math match the authored image aspect (same as RE_StretchPic defaults). */
+    return shader->unfoggedStages[0]->bundle[0].image[0]->width;
 }
 
 /*
@@ -419,7 +421,7 @@ int RE_GetShaderHeight(qhandle_t hShader)
         shader = tr.defaultShader;
     }
 
-    return shader->unfoggedStages[0]->bundle[0].image[0]->uploadHeight;
+    return shader->unfoggedStages[0]->bundle[0].image[0]->height;
 }
 
 /*

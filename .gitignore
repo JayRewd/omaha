@@ -1,4 +1,6 @@
 build*
+.cmake-build/
+.cmake-build-*/
 *.swp
 *tags
 *~
@@ -47,3 +49,14 @@ out
 # Flex and Bison
 ####################
 /code/parser/generated
+
+# Agents and AI (gotta love that slop) 
+/Artifacts
+/artifacts
+/.cursor
+
+# Python
+####################
+**/__pycache__/
+*.py[cod]
+*$py.class

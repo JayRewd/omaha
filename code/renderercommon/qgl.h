@@ -39,6 +39,8 @@ extern void (APIENTRYP qglMultiTexCoord2fARB) (GLenum target, GLfloat s, GLfloat
 extern void (APIENTRYP qglLockArraysEXT) (GLint first, GLsizei count);
 extern void (APIENTRYP qglUnlockArraysEXT) (void);
 
+extern void (APIENTRYP qglBlendFuncSeparate) (GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha);
+
 
 //===========================================================================
 
@@ -64,6 +66,7 @@ extern void (APIENTRYP qglUnlockArraysEXT) (void);
 	GLE(void, DrawElements, GLenum mode, GLsizei count, GLenum type, const GLvoid *indices) \
 	GLE(void, DrawPixels, GLsizei width, GLsizei height, GLenum format, GLenum type, const GLvoid *pixels) \
 	GLE(void, Enable, GLenum cap) \
+	GLE(GLboolean, IsEnabled, GLenum cap) \
 	GLE(void, Finish, void) \
 	GLE(void, Flush, void) \
 	GLE(void, Fogf, GLenum pname, GLfloat param) \
@@ -335,6 +338,10 @@ QGL_ARB_occlusion_query_PROCS;
 QGL_ARB_framebuffer_object_PROCS;
 QGL_ARB_vertex_array_object_PROCS;
 QGL_EXT_direct_state_access_PROCS;
+#undef GLE
+
+#define GLE(ret, name, ...) extern name##proc *qgl##name;
+QGL_ARB_framebuffer_object_PROCS;
 #undef GLE
 
 extern int qglMajorVersion, qglMinorVersion;

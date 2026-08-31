@@ -28,8 +28,11 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include "cl_ui.h"
 #include "../gamespy/goaceng.h"
+#include "../gamespy/gserverlist_scheduler.h"
 #include "../gamespy/sv_gamespy.h"
 #include "../gamespy/common/gsPlatformSocket.h"
+
+extern "C" unsigned int ServerListGetNumMasters();
 
 Event EV_FAKKServerList_Connect("connect", EV_DEFAULT, NULL, NULL, "Connect to the specified server");
 
@@ -323,14 +326,18 @@ UIFAKKServerList::UIFAKKServerList()
 
     AllowActivate(true);
     setHeaderFont("facfont-20");
-    m_serverList[0]   = NULL;
-    m_serverList[1]   = NULL;
-    m_bHasList        = false;
-    m_bGettingList[0] = false;
-    m_bGettingList[1] = false;
-    m_bUpdatingList   = false;
-    m_bLANListing     = false;
-    m_iLastSortColumn = 2;
+    m_serverList[0]            = NULL;
+    m_serverList[1]            = NULL;
+    m_bHasList                 = false;
+    m_bGettingList[0]          = false;
+    m_bGettingList[1]          = false;
+    m_bUpdatingList            = false;
+    m_bLANListing              = false;
+    m_iLastSortColumn          = 2;
+    m_iServerResponsiveCount  = 0;
+    m_iServerTimeoutCount      = 0;
+    m_iRefreshStartTime         = 0;
+    m_bRefreshCancelled         = false;
 }
 
 void UIFAKKServerList::SelectServer(Event *ev) {}
@@ -479,9 +486,6 @@ void UIFAKKServerList::UpdateUIElement(void)
 
 void UIFAKKServerList::RefreshServerList(Event *ev)
 {
-    int                 i;
-    FAKKServerListItem *pNewServerItem;
-
     if (m_serverList[0] && ServerListState(m_serverList[0]) != sl_idle) {
         // Fixed in OPM
         //  Only free the server list if it isn't currently being queried.
@@ -493,13 +497,10 @@ void UIFAKKServerList::RefreshServerList(Event *ev)
         return;
     }
 
-    for (i = 1; i <= getNumItems(); i++) {
-        pNewServerItem = static_cast<FAKKServerListItem *>(GetItem(i));
-        m_iTotalNumPlayers -= pNewServerItem->GetNumPlayers();
-        pNewServerItem->SetQueried(false);
-        pNewServerItem->SetNumPlayers(0);
-        pNewServerItem->SetQueryFailed(false);
+    while (getNumItems() > 0) {
+        DeleteItem(getNumItems());
     }
+    m_iTotalNumPlayers = 0;
 
     if (m_serverList[0]) {
         ServerListClear(m_serverList[0]);
@@ -516,12 +517,14 @@ void UIFAKKServerList::RefreshServerList(Event *ev)
         m_serverList[1] = NULL;
     }
 
-    if (!m_serverList[0] && (com_target_game->integer < target_game_e::TG_MOHTT || !m_serverList[1])) {
-        NewServerList();
-    }
+    NewServerList(true);
 
-    m_bDoneUpdating[0] = false;
-    m_bDoneUpdating[1] = false;
+    m_bDoneUpdating[0]       = false;
+    m_bDoneUpdating[1]       = m_serverList[1] == NULL;
+    m_bRefreshCancelled       = false;
+    m_iServerResponsiveCount  = 0;
+    m_iServerTimeoutCount     = 0;
+    m_iRefreshStartTime        = Sys_Milliseconds();
 
     Cvar_Set("dm_playercount", "0");
     {
@@ -576,32 +579,37 @@ void UIFAKKServerList::RefreshServerList(Event *ev)
 
 void UIFAKKServerList::RefreshLANServerList(Event *ev)
 {
-    int                 i;
-    FAKKServerListItem *pNewServerItem;
-
-    for (i = 1; i <= getNumItems(); i++) {
-        pNewServerItem = static_cast<FAKKServerListItem *>(GetItem(i));
-        m_iTotalNumPlayers -= pNewServerItem->GetNumPlayers();
-        pNewServerItem->SetQueried(false);
-        pNewServerItem->SetNumPlayers(0);
-        pNewServerItem->SetQueryFailed(false);
+    if (m_serverList[0] && ServerListState(m_serverList[0]) != sl_idle) {
+        return;
     }
+
+    if (m_serverList[1] && ServerListState(m_serverList[1]) != sl_idle) {
+        return;
+    }
+
+    while (getNumItems() > 0) {
+        DeleteItem(getNumItems());
+    }
+    m_iTotalNumPlayers = 0;
 
     if (m_serverList[0]) {
         ServerListClear(m_serverList[0]);
+        ServerListFree(m_serverList[0]);
+        m_serverList[0] = NULL;
     }
 
     if (m_serverList[1]) {
         ServerListClear(m_serverList[1]);
+        ServerListFree(m_serverList[1]);
+        m_serverList[1] = NULL;
     }
 
-    if (!m_serverList[0] && (com_target_game->integer < target_game_e::TG_MOHTT || !m_serverList[1])) {
-        NewServerList();
-    }
+    NewServerList(false);
 
     m_bDoneUpdating[0]        = false;
-    m_bDoneUpdating[1]        = false;
+    m_bDoneUpdating[1]        = m_serverList[1] == NULL;
     m_NeedAdditionalLANSearch = true;
+    m_bRefreshCancelled       = false;
 
     Cvar_Set("dm_playercount", "0");
     // Search all LAN servers from port 12300 to 12316
@@ -649,20 +657,61 @@ static void AddFilter(char *filter, const char *value, size_t maxsize)
 
 void UIFAKKServerList::CancelRefresh(Event *ev)
 {
-    ServerListHalt(m_serverList[0]);
+    m_bRefreshCancelled = true;
+    if (m_serverList[0]) {
+        ServerListHalt(m_serverList[0]);
+    }
     if (m_serverList[1]) {
         ServerListHalt(m_serverList[1]);
     }
 }
 
-void UIFAKKServerList::NewServerList(void)
+static int ClampBrowserCvar(cvar_t *cvar, int minimum, int maximum)
+{
+    if (cvar->integer < minimum) {
+        return minimum;
+    }
+    if (cvar->integer > maximum) {
+        return maximum;
+    }
+    return cvar->integer;
+}
+
+static void ConfigureInternetServerList(GServerList serverlist, int firstTimeout, int retryTimeout)
+{
+    ServerListSetMasterConcurrency(serverlist, (int)ServerListGetNumMasters());
+    ServerListSetRetryTimeouts(
+        serverlist, (unsigned long)firstTimeout, (unsigned long)retryTimeout
+    );
+    ServerListSetPipelining(serverlist, 1);
+}
+
+void UIFAKKServerList::NewServerList(bool internet)
 {
     int         iNumConcurrent;
+    int         iActiveLists;
+    int         firstTimeout;
+    int         retryTimeout;
     const char *secret_key;
     const char *game_name;
     cvar_t     *pRateCvar = Cvar_Get("rate", "5000", CVAR_ARCHIVE | CVAR_USERINFO);
+    static cvar_t *browserMaxQueries =
+        Cvar_Get("cl_browserMaxQueries", "32", CVAR_ARCHIVE);
+    static cvar_t *browserTimeout = Cvar_Get("cl_browserTimeout", "400", CVAR_ARCHIVE);
+    static cvar_t *browserRetryTimeout =
+        Cvar_Get("cl_browserRetryTimeout", "3000", CVAR_ARCHIVE);
+    static cvar_t *dm_omit_spearhead = Cvar_Get("dm_omit_spearhead", "0", 1);
 
-    if (pRateCvar->integer > 25000) {
+    if (internet) {
+        iActiveLists =
+            com_target_game->integer >= target_game_e::TG_MOHTT && !dm_omit_spearhead->integer ? 2
+                                                                                               : 1;
+        iNumConcurrent = GServerListSchedulerBudget(
+            ClampBrowserCvar(browserMaxQueries, 4, 64), iActiveLists
+        );
+        firstTimeout = ClampBrowserCvar(browserTimeout, 250, 10000);
+        retryTimeout = ClampBrowserCvar(browserRetryTimeout, 250, 10000);
+    } else if (pRateCvar->integer > 25000) {
         iNumConcurrent = 15;
     } else if (pRateCvar->integer > 5000) {
         iNumConcurrent = 10;
@@ -693,18 +742,22 @@ void UIFAKKServerList::NewServerList(void)
             (void *)&m_ServerListInst[0]
         );
 
+        if (internet) {
+            ConfigureInternetServerList(m_serverList[0], firstTimeout, retryTimeout);
+        }
+
         m_serverList[1] = NULL;
     } else {
-        static cvar_t *dm_omit_spearhead = Cvar_Get("dm_omit_spearhead", "0", 1);
-
         game_name  = GS_GetGameName(target_game_e::TG_MOHTT);
         secret_key = GS_GetGameKey(target_game_e::TG_MOHTT);
 
         m_ServerListInst[0].iServerType = target_game_e::TG_MOHTT;
         m_ServerListInst[0].serverList  = this;
 
-        // As there are 2 server lists it's better to balance the number of parallel requests
-        iNumConcurrent = iNumConcurrent * 4 / 5;
+        // LAN retains the historic 4/5 dual-list adjustment
+        if (!internet) {
+            iNumConcurrent = iNumConcurrent * 4 / 5;
+        }
 
         m_serverList[0] = ServerListNew(
             game_name,
@@ -715,6 +768,10 @@ void UIFAKKServerList::NewServerList(void)
             1,
             (void *)&m_ServerListInst[0]
         );
+
+        if (internet) {
+            ConfigureInternetServerList(m_serverList[0], firstTimeout, retryTimeout);
+        }
 
         if (!dm_omit_spearhead->integer) {
             // Since mohtt is compatible with mohta
@@ -734,6 +791,12 @@ void UIFAKKServerList::NewServerList(void)
                 1,
                 (void *)&m_ServerListInst[1]
             );
+
+            if (internet) {
+                ConfigureInternetServerList(m_serverList[1], firstTimeout, retryTimeout);
+            }
+        } else {
+            m_serverList[1] = NULL;
         }
     }
 }
@@ -1023,7 +1086,7 @@ void UIFAKKServerList::UpdateServerListCallBack(
     GServerList serverlist, int msg, void *instance, void *param1, void *param2
 )
 {
-    int                 i, j;
+    int                 i;
     int                 iPort, iGameSpyPort;
     unsigned int        iRealIP;
     str                 sAddress;
@@ -1045,6 +1108,7 @@ void UIFAKKServerList::UpdateServerListCallBack(
     static cvar_t *dm_run_fast          = Cvar_Get("dm_run_fast", "1", CVAR_ARCHIVE);
     static cvar_t *dm_run_normal        = Cvar_Get("dm_run_normal", "1", CVAR_ARCHIVE);
     static cvar_t *dm_omit_spearhead    = Cvar_Get("dm_omit_spearhead", "0", CVAR_ARCHIVE);
+    static cvar_t *cl_browserDebug      = Cvar_Get("cl_browserDebug", "0", CVAR_ARCHIVE);
 
     iServerType    = ((FAKKServerListInstance *)instance)->iServerType;
     uiServerList   = ((FAKKServerListInstance *)instance)->serverList;
@@ -1054,6 +1118,35 @@ void UIFAKKServerList::UpdateServerListCallBack(
     // Changed in OPM
     //  Instead of calling Cvar_Set() for each list
     //  RefreshStatus() is called to combine results of all lists
+
+    if (msg == LIST_SERVERADDED || msg == LIST_QUERYSTARTED || msg == LIST_QUERYRETRY
+        || msg == LIST_QUERYTIMEOUT) {
+        if (cl_browserDebug->integer && server) {
+            unsigned int elapsed = Sys_Milliseconds() - uiServerList->m_iRefreshStartTime;
+            const char   *label;
+
+            if (msg == LIST_SERVERADDED) {
+                label = "listed";
+            } else if (msg == LIST_QUERYSTARTED) {
+                label = "query";
+            } else if (msg == LIST_QUERYRETRY) {
+                label = "retry";
+            } else {
+                label = "timeout";
+            }
+
+            Com_Printf(
+                "browser +%u ms: %s %s:%i\n",
+                elapsed,
+                label,
+                ServerGetAddress(server),
+                ServerGetQueryPort(server)
+            );
+        }
+
+        uiServerList->RefreshStatus();
+        return;
+    }
 
     if (param2) {
         if (msg == LIST_PROGRESS && param2 == (void *)-1) {
@@ -1094,6 +1187,16 @@ void UIFAKKServerList::UpdateServerListCallBack(
         float       fGameVer;
         int         iNumPlayers, iMaxPlayers;
         int         iMinPlayers;
+
+        if (cl_browserDebug->integer && server) {
+            Com_Printf(
+                "browser +%u ms: response %s:%i (%i ms)\n",
+                Sys_Milliseconds() - uiServerList->m_iRefreshStartTime,
+                ServerGetAddress(server),
+                ServerGetQueryPort(server),
+                ServerGetPing(server)
+            );
+        }
 
         pszHostName      = ServerGetStringValue(server, "hostname", "(NONE)");
         bDiffVersion     = false;
@@ -1189,8 +1292,6 @@ void UIFAKKServerList::UpdateServerListCallBack(
         //Cvar_Set("dm_servercount", va("%d/%d", m_iServerQueryCount, m_iServerTotalCount));
 
         uiServerList->SortByLastSortColumn();
-
-        uiServerList->m_iServerQueryCount = uiServerList->getNumItems();
     } else if (msg == LIST_STATECHANGED) {
         switch (ServerListState(serverlist)) {
         case GServerListState::sl_idle:
@@ -1231,6 +1332,7 @@ void UIFAKKServerList::UpdateServerListCallBack(
                 uiServerList->m_bGettingList[1] = false;
             }
             uiServerList->m_bUpdatingList = true;
+            uiServerList->RefreshStatus();
             return;
         case GServerListState::sl_lanlist:
             // Removed in OPM
@@ -1330,12 +1432,59 @@ void UIFAKKServerList::UpdateServerListCallBack(
 void UIFAKKServerList::RefreshStatus()
 {
     bool doneUpdating;
+    bool mastersPending;
     int  i;
+    int  discovered = 0;
+    int  completed  = 0;
+    int  responsive = 0;
+    int  timedout   = 0;
+    int  listDiscovered;
+    int  listCompleted;
+    int  listResponsive;
+    int  listTimedout;
 
-    Cvar_Set("dm_servercount", va("%d", getNumItems()));
+    for (i = 0; i < NUM_SERVERLISTS; i++) {
+        if (!m_serverList[i]) {
+            continue;
+        }
+
+        ServerListGetQueryStats(
+            m_serverList[i], &listDiscovered, &listCompleted, &listResponsive, &listTimedout, NULL
+        );
+        discovered += listDiscovered;
+        completed += listCompleted;
+        responsive += listResponsive;
+        timedout += listTimedout;
+    }
+
+    m_iServerResponsiveCount = responsive;
+    m_iServerTimeoutCount      = timedout;
+    m_iServerQueryCount        = completed;
+    m_iServerTotalCount        = discovered;
+
     Cvar_Set("dm_playercount", va("%d", m_iTotalNumPlayers));
-    if (m_iServerTotalCount) {
-        Cvar_Set("dm_serverstatusbar", va("%i", 100 * m_iServerQueryCount / m_iServerTotalCount));
+    if (discovered > 0) {
+        int percent = (100 * completed) / discovered;
+
+        mastersPending = false;
+        for (i = 0; i < NUM_SERVERLISTS; i++) {
+            if (!m_serverList[i]) {
+                continue;
+            }
+            if (ServerListState(m_serverList[i]) != GServerListState::sl_idle) {
+                mastersPending = true;
+                break;
+            }
+        }
+
+        if (percent >= 100 && mastersPending) {
+            percent = 99;
+        }
+        Cvar_Set("dm_serverstatusbar", va("%i", percent));
+        Cvar_Set("dm_servercount", va("%d/%d", completed, discovered));
+    } else {
+        Cvar_Set("dm_servercount", va("%d", getNumItems()));
+        Cvar_Set("dm_serverstatusbar", "0");
     }
 
     doneUpdating = true;
@@ -1351,6 +1500,13 @@ void UIFAKKServerList::RefreshStatus()
         }
     }
 
+    if (m_bRefreshCancelled && doneUpdating) {
+        Cvar_Set("dm_serverstatus", "Refresh Cancelled.");
+        Cvar_Set("dm_serverstatusbar", "0");
+        Cvar_Set("dm_servercount", va("%d", getNumItems()));
+        return;
+    }
+
     for (i = 0; i < NUM_SERVERLISTS; i++) {
         if (!m_serverList[i]) {
             continue;
@@ -1359,10 +1515,17 @@ void UIFAKKServerList::RefreshStatus()
         switch (ServerListState(m_serverList[i])) {
         case GServerListState::sl_idle:
             if (doneUpdating) {
-                Cvar_Set("dm_serverstatus", "Done Updating.");
+                Cvar_Set(
+                    "dm_serverstatus",
+                    va("Done Updating. %d responsive, %d timed out.", responsive, timedout)
+                );
                 Cvar_Set("dm_serverstatusbar", "0");
+                Cvar_Set("dm_servercount", va("%d", getNumItems()));
             } else {
-                Cvar_Set("dm_serverstatus", "Querying Servers.");
+                Cvar_Set(
+                    "dm_serverstatus",
+                    va("Querying Servers. %d responsive, %d timed out.", responsive, timedout)
+                );
             }
             break;
         case GServerListState::sl_listxfer:
@@ -1370,11 +1533,12 @@ void UIFAKKServerList::RefreshStatus()
             break;
         case GServerListState::sl_lanlist:
             Cvar_Set("dm_serverstatus", "Searching LAN.");
-            Cvar_Set("dm_servercount", va("%d/%d", m_iServerQueryCount, m_iServerTotalCount));
             return;
         case GServerListState::sl_querying:
-            Cvar_Set("dm_serverstatus", "Querying Servers.");
-            Cvar_Set("dm_servercount", va("%d/%d", m_iServerQueryCount, m_iServerTotalCount));
+            Cvar_Set(
+                "dm_serverstatus",
+                va("Querying Servers. %d responsive, %d timed out.", responsive, timedout)
+            );
             return;
         default:
             break;

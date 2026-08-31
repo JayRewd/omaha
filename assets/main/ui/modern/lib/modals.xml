@@ -1,0 +1,114 @@
+<ui-library version="1">
+		<modals>
+			<modal id="bind_overwrite">
+				<container type="vertical" width="100%" height="100%" fill="{var.fill-scrim}"
+				           halign="center" valign="center">
+					<container type="vertical" width="480px" height="auto"
+					           padding="24px" gap="16px" fill="{var.fill-panel}" stroke="{var.fill-divider}" stroke-width="1px">
+						<label id="modal_bind_message" width="100%" height="auto" text-cvar="ui_modal_message"
+						       font="body" font-size="{var.text-body}" color="{var.color-primary}"/>
+						<container type="horizontal" width="100%" height="auto" gap="12px" halign="center" valign="equal-spacing">
+							<button id="modal_bind_no" width="auto" height="auto" padding="10px 24px"
+							        fill="{var.fill-divider}" hoverfill="{var.fill-chip}" color="{var.color-primary}"
+							        font="control" font-size="{var.text-control}" letter-spacing="2px" modal-role="cancel">
+								NO
+								<on event="click">
+									<hide-modal/>
+								</on>
+							</button>
+							<button id="modal_bind_yes" width="auto" height="auto" padding="10px 24px"
+							        fill="{var.color-accent}" hoverfill="{var.color-accent-hover}" color="{var.color-white}"
+							        font="control" font-size="{var.text-control}" letter-spacing="2px" modal-role="confirm">
+								YES
+								<on event="click">
+									<invoke name="modal-commit-keybind"/>
+									<hide-modal/>
+								</on>
+							</button>
+						</container>
+					</container>
+				</container>
+			</modal>
+			<modal id="exit_confirm">
+				<container type="vertical" width="100%" height="100%" fill="{var.fill-scrim}"
+				           halign="center" valign="center">
+					<container type="vertical" width="480px" height="auto"
+					           padding="24px" gap="16px" fill="{var.fill-panel}" stroke="{var.fill-divider}" stroke-width="1px">
+						<label width="100%" height="auto" halign="center"
+						       font="body" font-size="{var.text-body}" color="{var.color-primary}">Are you sure you want to exit?</label>
+						<container type="horizontal" width="100%" height="auto" gap="12px" halign="center" valign="equal-spacing">
+							<button id="modal_exit_no" width="auto" height="auto" padding="10px 24px"
+							        fill="{var.fill-divider}" hoverfill="{var.fill-chip}" color="{var.color-primary}"
+							        font="control" font-size="{var.text-control}" letter-spacing="2px" modal-role="cancel">
+								NO
+								<on event="click">
+									<hide-modal/>
+								</on>
+							</button>
+							<button id="modal_exit_yes" width="auto" height="auto" padding="10px 24px"
+							        fill="{var.color-accent}" hoverfill="{var.color-accent-hover}" color="{var.color-white}"
+							        font="control" font-size="{var.text-control}" letter-spacing="2px" modal-role="confirm">
+								YES
+								<on event="click">
+									<invoke name="quit"/>
+									<hide-modal/>
+								</on>
+							</button>
+						</container>
+					</container>
+				</container>
+			</modal>
+
+			<!-- Added in OPM: relative modals anchored to opener (select modal= / show-modal). -->
+			<modal id="player-model-allies" type="relative">
+				<container type="overlap" width="100%" height="100%" fill="#00000000">
+					<button width="100%" height="100%" fill="#00000000"
+					        hoverfill="#00000000" pressed-fill="#00000000">
+						<on event="click"><hide-modal/></on>
+					</button>
+					<container role="relative-panel" type="vertical" width="100%" height="auto"
+					           overflow="scroll" scrollbar="scrollbar-default"
+					           source="player-models-allies" bind="cvar:ui_dm_playermodel_set" commit="change"
+					           collection-display="label"
+					           fill="{var.fill-panel}" stroke="{var.fill-divider}" stroke-width="1px">
+						<foreach mode="all" type="vertical" width="100%" height="auto" gap="0">
+							<button width="100%" height="28px" padding="0 8px" set-index="{item.index}"
+							        fill="{item.selected ? var.color-accent : var.fill-transparent}"
+							        hoverfill="{item.selected ? var.color-accent-hover : var.fill-chip}"
+							        color="{item.selected ? var.color-white : var.color-primary}"
+							        font="control" font-size="{var.text-body}"
+							        halign="start" valign="center">
+								{item.display}
+								<on event="click"><hide-modal/></on>
+							</button>
+						</foreach>
+					</container>
+				</container>
+			</modal>
+			<modal id="player-model-axis" type="relative">
+				<container type="overlap" width="100%" height="100%" fill="#00000000">
+					<button width="100%" height="100%" fill="#00000000"
+					        hoverfill="#00000000" pressed-fill="#00000000">
+						<on event="click"><hide-modal/></on>
+					</button>
+					<container role="relative-panel" type="vertical" width="100%" height="auto"
+					           overflow="scroll" scrollbar="scrollbar-default"
+					           source="player-models-axis" bind="cvar:ui_dm_playergermanmodel_set" commit="change"
+					           collection-display="label"
+					           fill="{var.fill-panel}" stroke="{var.fill-divider}" stroke-width="1px">
+						<foreach mode="all" type="vertical" width="100%" height="auto" gap="0">
+							<button width="100%" height="28px" padding="0 8px" set-index="{item.index}"
+							        fill="{item.selected ? var.color-accent : var.fill-transparent}"
+							        hoverfill="{item.selected ? var.color-accent-hover : var.fill-chip}"
+							        color="{item.selected ? var.color-white : var.color-primary}"
+							        font="control" font-size="{var.text-body}"
+							        halign="start" valign="center">
+								{item.display}
+								<on event="click"><hide-modal/></on>
+							</button>
+						</foreach>
+					</container>
+				</container>
+			</modal>
+		</modals>
+</ui-library>

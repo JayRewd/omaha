@@ -1,0 +1,281 @@
+<ui-library version="1">
+	<import src="ui/modern/lib/theme.xml"/>
+	<import src="ui/modern/lib/hud_modern_tokens.xml"/>
+	<import src="ui/modern/lib/menu_tokens.xml"/>
+	<import src="ui/modern/lib/shapes.xml"/>
+	<import src="ui/modern/lib/hud_modern_images.xml"/>
+
+	<sources>
+		<source id="modern-primary-weapons">
+			<item value="M1 Garand" label="M1 Garand" image="modernhud-m1-garand"/>
+			<item value="Mauser KAR 98K" label="KAR 98K" image="modernhud-kar98"/>
+			<item value="KAR98 - Sniper" label="KAR98 Sniper" image="modernhud-kar98sniper"/>
+			<item value="Springfield '03 Sniper" label="Springfield" image="modernhud-springfield"/>
+			<item value="Thompson" label="Thompson" image="modernhud-thompsonsmg"/>
+			<item value="MP40" label="MP40" image="modernhud-mp40"/>
+			<item value="StG 44" label="Stg.44" image="modernhud-mp44"/>
+			<item value="BAR" label="BAR" image="modernhud-bar"/>
+			<item value="Shotgun" label="Shotgun" image="modernhud-shotgun"/>
+			<item value="Bazooka" label="Bazooka" image="modernhud-bazooka"/>
+			<item value="Panzerschreck" label="Panzerschreck" image="modernhud-panzerschreck"/>
+		</source>
+		<source id="modern-sidearm-weapons">
+			<item value="Colt 45" label="Colt 45" image="modernhud-colt45"/>
+			<item value="Walther P38" label="P38" image="modernhud-p38"/>
+		</source>
+	</sources>
+
+	<templates>
+		<template id="modern-weapons-bar">
+			<!--
+			  Explicit chrome so grenade inventory can match.
+			  W: image (62+192+24) + ammo 50 = 328, +2 = 330.
+			  H: pad-top 6 + image row 88 + name row.
+			  Name line box is ascent*1.4 (Oswald ~16.7 at 14px → ~23.4), not font-size*1.4:
+			  4+23.4+4 ≈ 31.4 → total ≈ 125.4; lock 128 (+2 width/height vs content) so names are not crushed.
+			  stroke-layout=false: stroke is paint-only (same visual ring; no content inset).
+			-->
+			<container id="weapons_bar" type="vertical" width="330px" height="128px"
+			           gap="0" padding="6px 0px 0px 0px"
+			           fill="{var.fill-panel}"
+			           shape="skew-rect" skewl="50px" skewr="50px"
+			           stroke="{var.fill-divider}" stroke-width="1px" stroke-layout="false" crisp="true"
+			           visible="{(cvar.ui_om_hud_spectator_text == '' or cvar.ui_om_hud_following_text != '') and (cvar.ui_om_hud_weap_pistol_state != 3 or cvar.ui_om_hud_weap_rifle_state != 3 or cvar.ui_om_hud_weap_smg_state != 3 or cvar.ui_om_hud_weap_mg_state != 3 or cvar.ui_om_hud_weap_heavy_state != 3)}">
+
+				<container id="weapons_bar_inner" type="horizontal" width="100%" height="88px"
+				           fill="{var.fill-transparent}" halign="end" valign="start">
+
+				<!-- Mute via visible. Image from sources+last_gun; sidearm scale 0.75; 12px outer margin. -->
+					<container id="weapons_bar_weapon_image" type="overlap"
+					           margin="12px 24px 12px 62px" width="192px" height="64px"
+					           fill="{var.fill-transparent}">
+						<container type="overlap" width="192px" height="64px"
+						           fill="{var.fill-transparent}"
+						           visible="{cvar.ui_om_hud_active_weapon != &quot;&quot; and cvar.ui_om_hud_active_weapon != &quot;Frag Grenade&quot; and cvar.ui_om_hud_active_weapon != &quot;Stielhandgranate&quot;}">
+							<container width="192px" height="64px" fill="{var.fill-transparent}"
+							           source="modern-primary-weapons" bind="cvar:ui_om_hud_last_gun">
+								<foreach mode="selected" width="192px" height="64px">
+									<container width="192px" height="64px"
+									           background-image="{item.field.image}"
+									           background-fit="contain"
+									           fill="{var.fill-transparent}"/>
+								</foreach>
+							</container>
+							<container width="192px" height="64px" fill="{var.fill-transparent}"
+							           source="modern-sidearm-weapons" bind="cvar:ui_om_hud_last_gun">
+								<foreach mode="selected" width="192px" height="64px">
+									<container width="192px" height="64px"
+									           background-image="{item.field.image}"
+									           background-fit="contain"
+									           background-scale="0.75"
+									           fill="{var.fill-transparent}"/>
+								</foreach>
+							</container>
+						</container>
+						<container type="overlap" width="192px" height="64px"
+						           fill="{var.fill-transparent}"
+						           opacity="0.5"
+						           visible="{cvar.ui_om_hud_active_weapon == &quot;&quot; or cvar.ui_om_hud_active_weapon == &quot;Frag Grenade&quot; or cvar.ui_om_hud_active_weapon == &quot;Stielhandgranate&quot;}">
+							<container width="192px" height="64px" fill="{var.fill-transparent}"
+							           source="modern-primary-weapons" bind="cvar:ui_om_hud_last_gun">
+								<foreach mode="selected" width="192px" height="64px">
+									<container width="192px" height="64px"
+									           background-image="{item.field.image}"
+									           background-fit="contain"
+									           fill="{var.fill-transparent}"/>
+								</foreach>
+							</container>
+							<container width="192px" height="64px" fill="{var.fill-transparent}"
+							           source="modern-sidearm-weapons" bind="cvar:ui_om_hud_last_gun">
+								<foreach mode="selected" width="192px" height="64px">
+									<container width="192px" height="64px"
+									           background-image="{item.field.image}"
+									           background-fit="contain"
+									           background-scale="0.75"
+									           fill="{var.fill-transparent}"/>
+								</foreach>
+							</container>
+						</container>
+					</container>
+
+					<container id="weapons_bar_ammo_count" type="vertical"
+					           width="50px" height="64px"
+					           fill="{var.fill-transparent}" valign="start" halign="end">
+						<label id="weapons_bar_total_ammo"
+							   width="100%"
+						       font-size="18px" font-weight="700"
+						       valign="center" halign="start"
+						       color="{(cvar.ui_om_hud_active_weapon == &quot;&quot; or cvar.ui_om_hud_active_weapon == &quot;Frag Grenade&quot; or cvar.ui_om_hud_active_weapon == &quot;Stielhandgranate&quot;) ? var.color-hud-muted : var.color-white}"
+						       bind="cvar:ui_om_hud_last_gun_ammo"/>
+						<label id="weapons_bar_mag_ammo"
+							   width="100%"
+						       font-size="22px" font-weight="700"
+						       padding="0 40px 0 0"
+						       valign="center" halign="end"
+						       color="{(cvar.ui_om_hud_active_weapon == &quot;&quot; or cvar.ui_om_hud_active_weapon == &quot;Frag Grenade&quot; or cvar.ui_om_hud_active_weapon == &quot;Stielhandgranate&quot;) ? var.color-hud-muted : var.color-white}"
+						       bind="cvar:ui_om_hud_last_gun_clip"/>
+					</container>
+				</container>
+
+				<container id="weapons_bar_outer" type="horizontal" width="100%" height="fill"
+				           padding="0 38px 0 0" gap="0"
+				           halign="start" valign="end" fill="{var.fill-transparent}">
+
+					<container id="primary_weapon_name" type="horizontal" width="fill" height="auto"
+					           padding="4px 0"
+					           shape="skew-rect" skewl="11.35px" skewr="11.35px" crisp="true"
+					           stroke-layout="false"
+					           stroke="{var.fill-divider}" stroke-width="1px"
+					           fill="{cvar.ui_om_hud_last_gun == cvar.ui_om_hud_primary_name ? var.fill-panel : var.fill-transparent}"
+					           visible="{cvar.ui_om_hud_weap_rifle_state == 1 or cvar.ui_om_hud_weap_rifle_state == 2 or cvar.ui_om_hud_weap_smg_state == 1 or cvar.ui_om_hud_weap_smg_state == 2 or cvar.ui_om_hud_weap_mg_state == 1 or cvar.ui_om_hud_weap_mg_state == 2 or cvar.ui_om_hud_weap_heavy_state == 1 or cvar.ui_om_hud_weap_heavy_state == 2}">
+						<label width="fill" font-size="14px" font-weight="700"
+						       halign="center" valign="center"
+						       color="{cvar.ui_om_hud_last_gun == cvar.ui_om_hud_primary_name ? var.color-white : var.color-hud-muted}"
+						       bind="cvar:ui_om_hud_primary_name"/>
+					</container>
+
+					<container id="secondary_weapon_name" type="horizontal" width="fill" height="auto"
+					           padding="4px 0"
+					           margin="{(cvar.ui_om_hud_weap_rifle_state != 3 or cvar.ui_om_hud_weap_smg_state != 3 or cvar.ui_om_hud_weap_mg_state != 3 or cvar.ui_om_hud_weap_heavy_state != 3) ? 0px 0px 0px -12px : 0}"
+					           shape="skew-rect" skewl="11.35px" skewr="11.35px" crisp="true"
+					           stroke-layout="false"
+					           stroke="{var.fill-divider}" stroke-width="1px"
+					           fill="{cvar.ui_om_hud_last_gun == cvar.ui_om_hud_sidearm_name ? var.fill-panel : var.fill-transparent}"
+					           visible="{cvar.ui_om_hud_weap_pistol_state == 1 or cvar.ui_om_hud_weap_pistol_state == 2}">
+						<label width="fill" font-size="14px" font-weight="700"
+						       halign="center" valign="center"
+						       color="{cvar.ui_om_hud_last_gun == cvar.ui_om_hud_sidearm_name ? var.color-white : var.color-hud-muted}"
+						       bind="cvar:ui_om_hud_sidearm_name"/>
+					</container>
+				</container>
+			</container>
+		</template>
+
+		<!--
+		  Modern BR compass. Props: width, height, fov-deg (degrees visible).
+		  px/deg = width/fov-deg; period = 360*px/deg; tape scroll uses heading cvar.
+		  Three period copies (offset -1 period) so wide FOV never runs past the tape end.
+		  Body has edge mask; damage is a sibling so it can own an off-arc mask (nest depth 1).
+		-->
+		<template id="modern-compass-period">
+			<props>
+				<prop name="width" type="length" required="true"/>
+				<prop name="height" type="length" required="true"/>
+				<prop name="px-per-deg" type="number" required="true"/>
+			</props>
+			<container type="overlap" width="{template.width}" height="{template.height}" padding="0" fill="{var.fill-transparent}">
+				<!--
+				  Cardinals: vertical column — tick / letter / tick (2px, same as minors).
+				  Overlap child X is translate only (no halign — that would shift by half period).
+				  Line margins center the 2px stroke in the 24px column.
+				-->
+				<container type="vertical" width="24px" height="{template.height}" gap="0" padding="0"
+				           valign="center" translate-x="{0 * template.px-per-deg - 12}px"
+				           fill="{var.fill-transparent}">
+					<container width="2px" height="fill" fill="{var.color-hud-muted}" margin="0 11px"/>
+					<label width="100%" height="auto" halign="center" valign="center"
+					       font="body" font-size="14px" font-weight="700" color="{var.color-white}" drop-shadow="true">N</label>
+					<container width="2px" height="fill" fill="{var.color-hud-muted}" margin="0 11px"/>
+				</container>
+				<container width="2px" height="14px" valign="center" translate-x="{15 * template.px-per-deg - 1}px" fill="{var.color-hud-muted}"/>
+				<container width="2px" height="14px" valign="center" translate-x="{30 * template.px-per-deg - 1}px" fill="{var.color-hud-muted}"/>
+				<container width="2px" height="14px" valign="center" translate-x="{45 * template.px-per-deg - 1}px" fill="{var.color-hud-muted}"/>
+				<container width="2px" height="14px" valign="center" translate-x="{60 * template.px-per-deg - 1}px" fill="{var.color-hud-muted}"/>
+				<container width="2px" height="14px" valign="center" translate-x="{75 * template.px-per-deg - 1}px" fill="{var.color-hud-muted}"/>
+				<container type="vertical" width="24px" height="{template.height}" gap="0" padding="0"
+				           valign="center" translate-x="{90 * template.px-per-deg - 12}px"
+				           fill="{var.fill-transparent}">
+					<container width="2px" height="fill" fill="{var.color-hud-muted}" margin="0 11px"/>
+					<label width="100%" height="auto" halign="center" valign="center"
+					       font="body" font-size="14px" font-weight="700" color="{var.color-white}" drop-shadow="true">E</label>
+					<container width="2px" height="fill" fill="{var.color-hud-muted}" margin="0 11px"/>
+				</container>
+				<container width="2px" height="14px" valign="center" translate-x="{105 * template.px-per-deg - 1}px" fill="{var.color-hud-muted}"/>
+				<container width="2px" height="14px" valign="center" translate-x="{120 * template.px-per-deg - 1}px" fill="{var.color-hud-muted}"/>
+				<container width="2px" height="14px" valign="center" translate-x="{135 * template.px-per-deg - 1}px" fill="{var.color-hud-muted}"/>
+				<container width="2px" height="14px" valign="center" translate-x="{150 * template.px-per-deg - 1}px" fill="{var.color-hud-muted}"/>
+				<container width="2px" height="14px" valign="center" translate-x="{165 * template.px-per-deg - 1}px" fill="{var.color-hud-muted}"/>
+				<container type="vertical" width="24px" height="{template.height}" gap="0" padding="0"
+				           valign="center" translate-x="{180 * template.px-per-deg - 12}px"
+				           fill="{var.fill-transparent}">
+					<container width="2px" height="fill" fill="{var.color-hud-muted}" margin="0 11px"/>
+					<label width="100%" height="auto" halign="center" valign="center"
+					       font="body" font-size="14px" font-weight="700" color="{var.color-white}" drop-shadow="true">S</label>
+					<container width="2px" height="fill" fill="{var.color-hud-muted}" margin="0 11px"/>
+				</container>
+				<container width="2px" height="14px" valign="center" translate-x="{195 * template.px-per-deg - 1}px" fill="{var.color-hud-muted}"/>
+				<container width="2px" height="14px" valign="center" translate-x="{210 * template.px-per-deg - 1}px" fill="{var.color-hud-muted}"/>
+				<container width="2px" height="14px" valign="center" translate-x="{225 * template.px-per-deg - 1}px" fill="{var.color-hud-muted}"/>
+				<container width="2px" height="14px" valign="center" translate-x="{240 * template.px-per-deg - 1}px" fill="{var.color-hud-muted}"/>
+				<container width="2px" height="14px" valign="center" translate-x="{255 * template.px-per-deg - 1}px" fill="{var.color-hud-muted}"/>
+				<container type="vertical" width="24px" height="{template.height}" gap="0" padding="0"
+				           valign="center" translate-x="{270 * template.px-per-deg - 12}px"
+				           fill="{var.fill-transparent}">
+					<container width="2px" height="fill" fill="{var.color-hud-muted}" margin="0 11px"/>
+					<label width="100%" height="auto" halign="center" valign="center"
+					       font="body" font-size="14px" font-weight="700" color="{var.color-white}" drop-shadow="true">W</label>
+					<container width="2px" height="fill" fill="{var.color-hud-muted}" margin="0 11px"/>
+				</container>
+				<container width="2px" height="14px" valign="center" translate-x="{285 * template.px-per-deg - 1}px" fill="{var.color-hud-muted}"/>
+				<container width="2px" height="14px" valign="center" translate-x="{300 * template.px-per-deg - 1}px" fill="{var.color-hud-muted}"/>
+				<container width="2px" height="14px" valign="center" translate-x="{315 * template.px-per-deg - 1}px" fill="{var.color-hud-muted}"/>
+				<container width="2px" height="14px" valign="center" translate-x="{330 * template.px-per-deg - 1}px" fill="{var.color-hud-muted}"/>
+				<container width="2px" height="14px" valign="center" translate-x="{345 * template.px-per-deg - 1}px" fill="{var.color-hud-muted}"/>
+			</container>
+		</template>
+
+		<template id="modern-compass">
+			<props>
+				<prop name="width" type="length" default="360px"/>
+				<prop name="height" type="length" default="40px"/>
+				<prop name="fov-deg" type="number" default="180"/>
+			</props>
+			<container type="overlap" width="{template.width}" height="{template.height}" padding="0"
+			           overflow="hidden" fill="{var.fill-transparent}"
+			           visible="{cvar.ui_compass > 0}">
+				<container id="body" type="overlap" width="{template.width}" height="{template.height}" padding="0"
+				           fill="{var.fill-panel}"
+				           stroke="{var.fill-divider}" stroke-width="1px" crisp="true"
+				           mask-image="linear(90deg, #FFFFFF00 0%, #FFFFFFFF 20%, #FFFFFFFF 80%, #FFFFFF00 100%)">
+					<container id="tape" type="horizontal" width="auto" height="{template.height}" gap="0" padding="0"
+					           fill="{var.fill-transparent}"
+					           translate-x="{template.width / 2 - (cvar.ui_om_hud_compass_heading % 360) * (template.width / template.fov-deg) - (360 * template.width / template.fov-deg)}px">
+						<use template="modern-compass-period"
+						     width="{360 * template.width / template.fov-deg}px"
+						     height="{template.height}"
+						     px-per-deg="{template.width / template.fov-deg}"/>
+						<use template="modern-compass-period"
+						     width="{360 * template.width / template.fov-deg}px"
+						     height="{template.height}"
+						     px-per-deg="{template.width / template.fov-deg}"/>
+						<use template="modern-compass-period"
+						     width="{360 * template.width / template.fov-deg}px"
+						     height="{template.height}"
+						     px-per-deg="{template.width / template.fov-deg}"/>
+					</container>
+					<container id="center" width="2px" height="28px" halign="center" valign="center"
+					           fill="{var.color-white}"/>
+					<container id="obj_arrow" width="12px" height="12px" shape="triangle-up"
+					           valign="end" fill="{var.color-hud-compass-objective}"
+					           translate-x="{template.width / 2 - 6 + clamp(cvar.ui_om_hud_obj_arrow_angle, -(template.fov-deg / 2), template.fov-deg / 2) * (template.width / template.fov-deg)}px"
+					           visible="{cvar.ui_om_hud_obj_arrow_visible > 0}"/>
+					<container id="obj_left" width="10px" height="10px" shape="triangle-up"
+					           valign="end" fill="{var.color-hud-compass-objective}"
+					           translate-x="{template.width / 2 - 5 + clamp(cvar.ui_om_hud_obj_left_angle, -(template.fov-deg / 2), template.fov-deg / 2) * (template.width / template.fov-deg)}px"
+					           visible="{cvar.ui_om_hud_obj_left_visible > 0}"/>
+					<container id="obj_right" width="10px" height="10px" shape="triangle-up"
+					           valign="end" fill="{var.color-hud-compass-objective}"
+					           translate-x="{template.width / 2 - 5 + clamp(cvar.ui_om_hud_obj_right_angle, -(template.fov-deg / 2), template.fov-deg / 2) * (template.width / template.fov-deg)}px"
+					           visible="{cvar.ui_om_hud_obj_right_visible > 0}"/>
+				</container>
+				<container id="damage" width="14px" height="14px" valign="center"
+				           fill="{var.color-hud-low-health-pip}"
+				           opacity="{cvar.ui_om_hud_damage_alpha}"
+				           translate-x="{template.width / 2 - 7 + clamp(cvar.ui_om_hud_damage_angle, -(template.fov-deg / 2), template.fov-deg / 2) * (template.width / template.fov-deg)}px"
+				           mask-image="{abs(cvar.ui_om_hud_damage_angle) > template.fov-deg / 2 ? linear(90deg, #FFFFFF00 0%, #FFFFFFFF 35%, #FFFFFFFF 65%, #FFFFFF00 100%) : linear(90deg, #FFFFFFFF 0%, #FFFFFFFF 100%)}"
+				           visible="{cvar.ui_om_hud_damage_alpha > 0.02}"/>
+			</container>
+		</template>
+
+	</templates>
+</ui-library>

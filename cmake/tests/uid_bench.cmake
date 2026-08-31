@@ -1,0 +1,63 @@
+#
+# Headless menu/HUD frame benchmark for modern UI (Stage 0+)
+#
+
+set(UID_BENCH_SOURCES
+    ${SOURCE_DIR}/uidesign/tools/uid_bench_menu.cpp
+    ${SOURCE_DIR}/client/cl_killfeed_classify.cpp
+    ${SOURCE_DIR}/uidesign/uid_diag.cpp
+    ${SOURCE_DIR}/uidesign/uid_value.cpp
+    ${SOURCE_DIR}/uidesign/uid_expr.cpp
+    ${SOURCE_DIR}/uidesign/uid_expr_bool.cpp
+    ${SOURCE_DIR}/uidesign/uid_invoke.cpp
+    ${SOURCE_DIR}/uidesign/uid_document.cpp
+    ${SOURCE_DIR}/uidesign/uid_xml.cpp
+    ${SOURCE_DIR}/uidesign/uid_template.cpp
+    ${SOURCE_DIR}/uidesign/uid_vars.cpp
+    ${SOURCE_DIR}/uidesign/uid_compile.cpp
+    ${SOURCE_DIR}/uidesign/uid_shape.cpp
+    ${SOURCE_DIR}/uidesign/uid_layout.cpp
+    ${SOURCE_DIR}/uidesign/uid_widget.cpp
+    ${SOURCE_DIR}/uidesign/uid_input.cpp
+    ${SOURCE_DIR}/uidesign/uid_action.cpp
+    ${SOURCE_DIR}/uidesign/uid_invoke.cpp
+    ${SOURCE_DIR}/uidesign/uid_binding.cpp
+    ${SOURCE_DIR}/uidesign/uid_modal.cpp
+    ${SOURCE_DIR}/uidesign/uid_collection.cpp
+    ${SOURCE_DIR}/uidesign/uid_menu_map_view.cpp
+    ${SOURCE_DIR}/uidesign/uid_scrollbar.cpp
+    ${SOURCE_DIR}/uidesign/uid_runtime.cpp
+    ${SOURCE_DIR}/uidesign/uid_profile.cpp
+    ${SOURCE_DIR}/uidesign/uid_opt.cpp
+    ${SOURCE_DIR}/thirdparty/tinyxml2/tinyxml2.cpp
+    ${SOURCE_DIR}/uirender/uir_viewport.c
+    ${SOURCE_DIR}/uirender/uir_path.c
+    ${SOURCE_DIR}/uirender/uir_svg.c
+    ${SOURCE_DIR}/uirender/uir_image.c
+    ${SOURCE_DIR}/uirender/uir_gradient.c
+    ${SOURCE_DIR}/uirender/uir_stencil.c
+    ${SOURCE_DIR}/uirender/uir_layer.c
+    ${SOURCE_DIR}/uirender/uir_compositor.c
+    ${SOURCE_DIR}/uirender/uir_draw2d.c
+    ${SOURCE_DIR}/uirender/uir_meshcache.c
+    ${SOURCE_DIR}/uirender/uir_pathcache.c
+    ${SOURCE_DIR}/uirender/uir_batch.c
+    ${SOURCE_DIR}/uirender/uir_menu_map_view.c
+    ${SOURCE_DIR}/qcommon/q_shared.c
+)
+
+add_executable(uid_bench_menu ${UID_BENCH_SOURCES})
+
+target_include_directories(uid_bench_menu PRIVATE
+    ${SOURCE_DIR}/uidesign
+    ${SOURCE_DIR}/uirender
+    ${SOURCE_DIR}/qcommon
+    ${SOURCE_DIR}/client
+    ${SOURCE_DIR}/thirdparty/tinyxml2
+)
+
+target_compile_features(uid_bench_menu PRIVATE cxx_std_17)
+
+target_compile_definitions(uid_bench_menu PRIVATE
+    "UID_TEST_FIXTURE_DIR=\"${CMAKE_SOURCE_DIR}/assets/main/ui/modern\""
+)

@@ -1,0 +1,94 @@
+<ui-library version="1">
+	<import src="ui/modern/lib/theme.xml"/>
+	<templates>
+		<template id="pause-modern-panel-header">
+			<props>
+				<prop name="title" type="string" required="true"/>
+			</props>
+			<container type="vertical" width="100%" height="48px" gap="0">
+				<label width="100%" height="fill" padding="0 16px" fill="{var.fill-input}" valign="center"
+				       font="control" font-size="{var.text-heading}" color="{var.color-white}"
+				       letter-spacing="2px" halign="start">{template.title}</label>
+				<container width="100%" height="1px" fill="{var.fill-divider}"/>
+			</container>
+		</template>
+
+		<template id="pause-modern-menu-btn">
+			<props>
+				<prop name="label" type="string" required="true"/>
+			</props>
+			<button width="100%" height="40px" padding="0 20px 0 26px"
+			        shape="skew-rect" skewl="12px" skewr="12px"
+			        fill="{var.fill-control}" hoverfill="{var.color-accent}"
+			        color="{var.color-white}" font="control" font-size="{var.text-control}"
+			        letter-spacing="2px" halign="start" valign="center">
+				{template.label}
+			</button>
+		</template>
+
+		<template id="pause-modern-accent-btn">
+			<props>
+				<prop name="label" type="string" required="true"/>
+			</props>
+			<button width="100%" height="40px" padding="0 20px 0 26px"
+			        shape="skew-rect" skewl="12px" skewr="12px"
+			        fill="{var.color-accent}" hoverfill="{var.color-accent-hover}"
+			        color="{var.color-white}" font="control" font-size="{var.text-control}"
+			        letter-spacing="2px" halign="center" valign="center">
+				{template.label}
+			</button>
+		</template>
+
+		<template id="pause-modern-ghost-btn">
+			<props>
+				<prop name="label" type="string" required="true"/>
+			</props>
+			<button width="100%" height="36px" padding="0 16px"
+			        fill="{var.fill-transparent}" hoverfill="{var.fill-hover-ghost}"
+			        color="{var.color-muted}" font="control" font-size="{var.text-body}"
+			        letter-spacing="1px" halign="center" valign="center">
+				{template.label}
+			</button>
+		</template>
+
+		<template id="pause-modern-team-card">
+			<props>
+				<prop name="title" type="string" required="true"/>
+				<prop name="color" type="string" required="true"/>
+			</props>
+			<container type="vertical" width="fill" height="auto" gap="8px" padding="12px"
+			           fill="{var.fill-control}" stroke="{var.stroke-border}" stroke-width="1px">
+				<label font="control" font-size="{var.text-heading}" color="{template.color}"
+				       letter-spacing="2px" halign="center">{template.title}</label>
+				<label font="body" font-size="{var.text-body}" color="{var.color-muted}" halign="center"
+				       text-wrap="word">Select to join this team.</label>
+			</container>
+		</template>
+
+		<template id="pause-modern-weapon-row">
+			<button width="100%" height="36px" padding="0 12px"
+			        fill="{var.fill-transparent}" hoverfill="{var.fill-hover-ghost}"
+			        color="{var.color-primary}" font="control" font-size="{var.text-control}"
+			        halign="start" valign="center">
+				{item.label}
+				<on event="click">
+					<set-cvar name="ui_om_cbuf" value="{item.field.cmd}"/>
+					<invoke name="cbuf"/>
+				</on>
+			</button>
+		</template>
+
+		<template id="pause-modern-vote-row">
+			<button width="100%" height="36px" padding="0 12px"
+			        fill="{var.fill-transparent}" hoverfill="{var.fill-hover-ghost}"
+			        color="{var.color-primary}" font="control" font-size="{var.text-control}"
+			        halign="start" valign="center">
+				{item.label}
+				<on event="click">
+					<set-cvar name="ui_om_cbuf" value="{item.field.cmd}"/>
+					<invoke name="cbuf"/>
+				</on>
+			</button>
+		</template>
+	</templates>
+</ui-library>

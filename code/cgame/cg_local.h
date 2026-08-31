@@ -350,6 +350,15 @@ extern "C" {
 		clientInfo_t clientinfo[MAX_CLIENTS];
 		radarClient_t radars[MAX_CLIENTS];
 		qhandle_t radarShaders[2];
+
+		/* Added in OPM: client-side first-person chase spectate state. */
+		struct {
+			qboolean active;
+			int      clientNum;
+			float    leanAngle;
+			qboolean inZoom;
+			int      zoomFov;
+		} spectateFp;
     } cg_t;
 
     typedef struct {
@@ -480,6 +489,8 @@ extern "C" {
     extern cvar_t *cg_crosshair;
     extern cvar_t *cg_crosshair_friend;
     extern cvar_t *ui_crosshair;
+    extern cvar_t *ui_legacy;
+    extern cvar_t *ui_om_hud;
     extern cvar_t *vm_offset_max;
     extern cvar_t *vm_offset_speed;
     extern cvar_t *vm_sway_front;
@@ -512,7 +523,19 @@ extern "C" {
     // Added in OPM
     //
     extern cvar_t *cg_fov;
+    extern cvar_t *cg_zoomSensitivity;
     extern cvar_t *cg_cheats;
+    extern cvar_t *cg_spectate_firstperson;
+
+    /* Added in OPM: optional VM anim inputs for FP spectate. */
+    typedef struct {
+        qboolean valid;
+        int      equippedWeaponStat;
+        char     activeItem[MAX_QPATH];
+        int      viewModelAnim;
+        int      viewModelAnimChanged;
+        int      animPrefixIndex;
+    } cgVMAnimOverride_t;
 
     //
     // cg_main.c
@@ -614,8 +637,24 @@ extern "C" {
     // cg_viewmodelanim.c
     //
     int  CG_GetVMAnimPrefixIndex();
+    int  CG_VMAnimPrefixIndexFromModelPath(const char *modelPath);
+    void CG_VMAnimWeaponDisplayName(int prefixIndex, char *out, int outSize);
     void CG_ViewModelAnimation(refEntity_t *pModel);
+    void CG_ViewModelAnimationEx(refEntity_t *pModel, const cgVMAnimOverride_t *ovr);
     void CG_CalcViewModelMovement(float fViewBobPhase, float fViewBobAmp, vec_t *vVelocity, vec_t *vMovement);
+
+    //
+    // cg_spectate_fp.c
+    //
+    void        CG_SpectateFP_RegisterCvars(void);
+    void        CG_SpectateFP_Update(void);
+    qboolean    CG_SpectateFP_Wanted(void);
+    qboolean    CG_SpectateFP_Active(void);
+    int         CG_SpectateFP_FollowClient(void);
+    qboolean    CG_SpectateFP_InZoom(void);
+    int         CG_SpectateFP_ZoomFov(void);
+    float       CG_SpectateFP_LeanAngle(void);
+    qboolean    CG_SpectateFP_CalcEye(vec3_t outOrigin, vec3_t outAngles);
 
     //
     // cg_drawtools.c
@@ -633,6 +672,8 @@ extern "C" {
     void CG_InitializeObjectives();
     void CG_DrawObjectives();
     void CG_Draw2D(void);
+    void CG_SyncModernHudCvars(void);
+    qboolean CG_UseModernHudPack(void);
 
     //
     // cg_draw.c
@@ -908,6 +949,8 @@ qboolean CG_LightStyleColor(int style, int realtime, vec4_t color, qboolean clam
     void CG_PrepScoreBoardInfo();
     void CG_ParseScores();
     void CG_InitScoresAPI(clientGameExport_t *cge);
+    /* Added in OPM: silent team-score refresh for modern HUD Allied/Axis strip. */
+    void CG_RequestHudTeamScoresSilent(void);
 
     //
     // cg_specialfx.cpp

@@ -55,8 +55,12 @@ private:
     int                    m_iServerQueryCount;
     int                    m_iServerTotalCount;
     int                    m_iTotalNumPlayers;
+    int                    m_iServerResponsiveCount;
+    int                    m_iServerTimeoutCount;
+    unsigned int           m_iRefreshStartTime;
     bool                   m_bDoneUpdating[NUM_SERVERLISTS];
     bool                   m_NeedAdditionalLANSearch;
+    bool                   m_bRefreshCancelled;
 
 protected:
     void     SelectServer(Event *ev);
@@ -66,7 +70,7 @@ protected:
     void     RefreshServerList(Event *ev);
     void     RefreshLANServerList(Event *ev);
     void     CancelRefresh(Event *ev);
-    void     NewServerList(void);
+    void     NewServerList(bool internet);
     void     MakeLANListing(Event *ev);
     void     UpdateServer(Event *ev);
     void     RefreshStatus();

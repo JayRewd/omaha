@@ -80,6 +80,61 @@ static const char *AnimPrefixList[] = {
     "PIAT"
 };
 
+/* Added in OPM: display names aligned with AnimPrefixList / CS_WEAPONS. */
+static const char *AnimPrefixDisplayName[] = {
+    "",
+    "Unarmed",
+    "Papers",
+    "Colt 45",
+    "Walther P38",
+    "Hi-Standard Silenced",
+    "M1 Garand",
+    "Mauser KAR 98K",
+    "KAR98 - Sniper",
+    "Springfield '03 Sniper",
+    "Thompson",
+    "MP40",
+    "BAR",
+    "StG 44",
+    "Frag Grenade",
+    "Stielhandgranate",
+    "Bazooka",
+    "Panzerschreck",
+    "Shotgun",
+    "Packed MG42 Turret",
+    "Webley Revolver",
+    "Nagant Revolver",
+    "Beretta",
+    "Lee-Enfield",
+    "SVT 40",
+    "Mosin Nagant Rifle",
+    "G 43",
+    "Enfield L42A1",
+    "Carcano",
+    "DeLisle",
+    "Sten Mark II",
+    "PPSH SMG",
+    "Moschetto",
+    "FG 42",
+    "Vickers-Berthier",
+    "Breda",
+    "F1 Grenade",
+    "Mills Grenade",
+    "Nebelhandgranate",
+    "M18 Smoke Grenade",
+    "RDG-1 Smoke Grenade",
+    "Bomba A Mano",
+    "Bomba A Mano Breda",
+    "LandmineAllies",
+    "Minedetector",
+    "Minensuchgerat",
+    "Detonator",
+    "Gewehrgranate",
+    "PIAT"
+};
+
+#define ANIM_PREFIX_COUNT (int)(sizeof(AnimPrefixList) / sizeof(AnimPrefixList[0]))
+
 enum animPrefix_e {
     WPREFIX_NONE,
     WPREFIX_UNARMED,
@@ -133,6 +188,64 @@ enum animPrefix_e {
     WPREFIX_KAR98_MORTAR,
     WPREFIX_PIAT
 };
+
+/*
+===============
+CG_VMAnimPrefixIndexFromModelPath
+
+Added in OPM: match a world/view weapon model path to AnimPrefixList.
+===============
+*/
+int CG_VMAnimPrefixIndexFromModelPath(const char *modelPath)
+{
+    int  i;
+    int  best;
+    int  bestLen;
+    char lower[MAX_QPATH];
+
+    if (!modelPath || !modelPath[0]) {
+        return 1; /* unarmed */
+    }
+
+    Q_strncpyz(lower, modelPath, sizeof(lower));
+    Q_strlwr(lower);
+
+    best    = 1;
+    bestLen = 0;
+    for (i = 1; i < ANIM_PREFIX_COUNT; i++) {
+        char tok[64];
+        int  len;
+
+        Q_strncpyz(tok, AnimPrefixList[i], sizeof(tok));
+        Q_strlwr(tok);
+        len = (int)strlen(tok);
+        if (len > bestLen && strstr(lower, tok)) {
+            best    = i;
+            bestLen = len;
+        }
+    }
+
+    return best;
+}
+
+/*
+===============
+CG_VMAnimWeaponDisplayName
+
+Added in OPM: CS_WEAPONS-style name for a prefix index (zoom overlay / VM anim).
+===============
+*/
+void CG_VMAnimWeaponDisplayName(int prefixIndex, char *out, int outSize)
+{
+    if (!out || outSize <= 0) {
+        return;
+    }
+    if (prefixIndex < 0 || prefixIndex >= ANIM_PREFIX_COUNT || !AnimPrefixDisplayName[prefixIndex][0]) {
+        Q_strncpyz(out, "Unarmed", outSize);
+        return;
+    }
+    Q_strncpyz(out, AnimPrefixDisplayName[prefixIndex], outSize);
+}
 
 int CG_GetVMAnimPrefixIndex()
 {
@@ -329,6 +442,18 @@ int CG_GetVMAnimPrefixIndex()
 
 void CG_ViewModelAnimation(refEntity_t *pModel)
 {
+    CG_ViewModelAnimationEx(pModel, NULL);
+}
+
+/*
+===============
+CG_ViewModelAnimationEx
+
+Added in OPM: optional overrides for client-side FP spectate (does not mutate snap).
+===============
+*/
+void CG_ViewModelAnimationEx(refEntity_t *pModel, const cgVMAnimOverride_t *ovr)
+{
     int         i;
     int         iAnimFlags;
     float       fCrossblendTime, fCrossblendFrac, fCrossblendAmount;
@@ -339,19 +464,38 @@ void CG_ViewModelAnimation(refEntity_t *pModel)
     dtiki_t    *pTiki;
     qboolean    bAnimChanged;
     qboolean    bWeaponChanged;
+    int         equippedStat;
+    int         viewModelAnim;
+    int         viewModelAnimChanged;
+    const char *activeItem;
 
     fCrossblendFrac = 0.0;
     bAnimChanged    = qfalse;
     bWeaponChanged  = qfalse; // Added in OPM
     pTiki           = pModel->tiki;
 
-    if (cgi.anim->g_iLastEquippedWeaponStat == cg.snap->ps.stats[STAT_EQUIPPED_WEAPON]
-        && !strcmp(cgi.anim->g_szLastActiveItem, CG_ConfigString(CS_WEAPONS + cg.snap->ps.activeItems[1]))) {
+    if (ovr && ovr->valid) {
+        equippedStat         = ovr->equippedWeaponStat;
+        viewModelAnim        = ovr->viewModelAnim;
+        viewModelAnimChanged = ovr->viewModelAnimChanged;
+        activeItem           = ovr->activeItem;
+    } else {
+        equippedStat         = cg.snap->ps.stats[STAT_EQUIPPED_WEAPON];
+        viewModelAnim        = cg.snap->ps.iViewModelAnim;
+        viewModelAnimChanged = cg.snap->ps.iViewModelAnimChanged;
+        activeItem           = CG_ConfigString(CS_WEAPONS + cg.snap->ps.activeItems[1]);
+    }
+
+    if (cgi.anim->g_iLastEquippedWeaponStat == equippedStat && !strcmp(cgi.anim->g_szLastActiveItem, activeItem)) {
         iAnimPrefixIndex = cgi.anim->g_iLastAnimPrefixIndex;
     } else {
-        iAnimPrefixIndex                    = CG_GetVMAnimPrefixIndex();
-        cgi.anim->g_iLastEquippedWeaponStat = cg.snap->ps.stats[STAT_EQUIPPED_WEAPON];
-        Q_strncpyz(cgi.anim->g_szLastActiveItem, CG_ConfigString(CS_WEAPONS + cg.snap->ps.activeItems[1]), sizeof(cgi.anim->g_szLastActiveItem));
+        if (ovr && ovr->valid && ovr->animPrefixIndex > 0) {
+            iAnimPrefixIndex = ovr->animPrefixIndex;
+        } else {
+            iAnimPrefixIndex = CG_GetVMAnimPrefixIndex();
+        }
+        cgi.anim->g_iLastEquippedWeaponStat = equippedStat;
+        Q_strncpyz(cgi.anim->g_szLastActiveItem, activeItem, sizeof(cgi.anim->g_szLastActiveItem));
         cgi.anim->g_iLastAnimPrefixIndex = iAnimPrefixIndex;
 
         bAnimChanged   = qtrue;
@@ -372,10 +516,10 @@ void CG_ViewModelAnimation(refEntity_t *pModel)
         cgi.anim->g_iLastVMAnim                                        = 0;
     }
 
-    if (cg.snap->ps.iViewModelAnimChanged != cgi.anim->g_iLastVMAnimChanged) {
+    if (viewModelAnimChanged != cgi.anim->g_iLastVMAnimChanged) {
         bAnimChanged                   = qtrue;
-        cgi.anim->g_iLastVMAnim        = cg.snap->ps.iViewModelAnim;
-        cgi.anim->g_iLastVMAnimChanged = cg.snap->ps.iViewModelAnimChanged;
+        cgi.anim->g_iLastVMAnim        = viewModelAnim;
+        cgi.anim->g_iLastVMAnimChanged = viewModelAnimChanged;
     }
 
     if (bAnimChanged) {

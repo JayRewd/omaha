@@ -1,0 +1,171 @@
+<ui version="1">
+	<definitions hud-id="modern" hud-label="Modern" draw-order="4">
+		<import src="ui/modern/lib/theme.xml"/>
+		<import src="ui/modern/lib/hud_modern_tokens.xml"/>
+		<import src="ui/modern/lib/shapes.xml"/>
+		<import src="ui/modern/lib/hud_modern_images.xml"/>
+		<import src="ui/modern/lib/hud_messaging.xml"/>
+		<import src="ui/modern/lib/hud_modern.xml"/>
+		<import src="ui/modern/lib/hud_modern_grenade.xml"/>
+	</definitions>
+	<canvas>
+		<!--
+		  Root stays visible so messaging (game msgs / kill-feed / chat) survives
+		  intermission. Play chrome is gated by ui_om_hud_show (retail HUD hide).
+		-->
+		<container id="hud_root" type="vertical" width="100%" height="100%" padding="0 16px 16px 16px" fill="{var.fill-transparent}">
+			<container id="hud_top_row" type="horizontal" width="100%" height="100px">
+				<container id="hud_top_row_left" type="horizontal" width="fill" height="100%" halign="start" valign="start">
+					<use template="hud-game-messages-panel" width="360px" height="120px"/>
+				</container>
+				<container id="hud_top_row_center" type="vertical" width="50%" height="100%"
+				           halign="center" valign="center"
+				           visible="{cvar.ui_om_hud_show}">
+					<!-- Allied|timer|Axis (team) or self|timer|leader (FFA). -->
+					<container type="horizontal" width="auto" height="32px" gap="4px"
+					           halign="center" valign="center"
+					           fill="{var.fill-transparent}"
+					           visible="{cvar.cg_gametype > 0}">
+						<!-- Team: Allied (blue) -->
+						<container type="horizontal" width="40px" height="32px" gap="0" padding="2px 8px"
+						           halign="center" valign="center"
+						           fill="{var.fill-hud-allied-score}"
+						           stroke="{var.fill-divider}" stroke-width="1px" crisp="true"
+						           visible="{cvar.cg_gametype > 1 and cvar.ui_om_hud_allied_score != ''}">
+							<label font="body" font-size="{var.text-control}" color="{var.color-white}" drop-shadow="true"
+							       width="100%" height="100%" halign="center" valign="center"
+							       bind="cvar:ui_om_hud_allied_score"/>
+						</container>
+						<!-- FFA: self -->
+						<container type="horizontal" width="40px" height="32px" gap="0" padding="2px 8px"
+						           halign="center" valign="center"
+						           fill="{var.fill-panel}"
+						           stroke="{var.fill-divider}" stroke-width="1px" crisp="true"
+						           visible="{cvar.cg_gametype == 1 and cvar.ui_om_hud_score_self != ''}">
+							<label font="body" font-size="{var.text-control}" color="{var.color-white}" drop-shadow="true"
+							       width="100%" height="100%" halign="center" valign="center"
+							       bind="cvar:ui_om_hud_score_self"/>
+						</container>
+						<!-- MM:SS from ui_om_hud_time_seconds (total seconds); pad seconds when &lt; 10. -->
+						<container type="horizontal" width="64px" height="32px" gap="0" padding="2px 10px"
+						           halign="center" valign="center"
+						           fill="{var.fill-panel}"
+						           stroke="{var.fill-divider}" stroke-width="1px" crisp="true"
+						           visible="{cvar.ui_om_hud_time_seconds != ''}">
+							<label font="body" font-size="{var.text-control}" color="{var.color-white}" drop-shadow="true"
+							       width="auto" height="auto" halign="end" valign="center">
+								{floor(cvar.ui_om_hud_time_seconds / 60)}:
+							</label>
+							<label font="body" font-size="{var.text-control}" color="{var.color-white}" drop-shadow="true"
+							       width="auto" height="auto" halign="start" valign="center"
+							       visible="{cvar.ui_om_hud_time_seconds % 60 &lt; 10}">
+								0
+							</label>
+							<label font="body" font-size="{var.text-control}" color="{var.color-white}" drop-shadow="true"
+							       width="auto" height="auto" halign="start" valign="center">
+								{floor(cvar.ui_om_hud_time_seconds % 60)}
+							</label>
+						</container>
+						<!-- Team: Axis (red) -->
+						<container type="horizontal" width="40px" height="32px" gap="0" padding="2px 8px"
+						           halign="center" valign="center"
+						           fill="{var.fill-hud-axis-score}"
+						           stroke="{var.fill-divider}" stroke-width="1px" crisp="true"
+						           visible="{cvar.cg_gametype > 1 and cvar.ui_om_hud_axis_score != ''}">
+							<label font="body" font-size="{var.text-control}" color="{var.color-white}" drop-shadow="true"
+							       width="100%" height="100%" halign="center" valign="center"
+							       bind="cvar:ui_om_hud_axis_score"/>
+						</container>
+						<!-- FFA: leader -->
+						<container type="horizontal" width="40px" height="32px" gap="0" padding="2px 8px"
+						           halign="center" valign="center"
+						           fill="{var.fill-panel}"
+						           stroke="{var.fill-divider}" stroke-width="1px" crisp="true"
+						           visible="{cvar.cg_gametype == 1 and cvar.ui_om_hud_score_leader != ''}">
+							<label font="body" font-size="{var.text-control}" color="{var.color-white}" drop-shadow="true"
+							       width="100%" height="100%" halign="center" valign="center"
+							       bind="cvar:ui_om_hud_score_leader"/>
+						</container>
+					</container>
+					<use id="compass" template="modern-compass" width="800px" height="32px" fov-deg="270"/>
+				</container>
+				<container id="hud_top_row_right" type="horizontal" width="fill" height="100%" halign="end" valign="start">
+					<use template="hud-kill-feed-panel" width="420px" height="140px"/>
+				</container>
+			</container>
+			<container id="hud_middle_row" type="horizontal" width="fill" height="fill" halign="center" valign="center">
+				<container id="hud_middle_row_left" type="horizontal" width="fill" height="100%" halign="start" valign="end">
+					<use id="modern_chat" template="hud-chat-panel" width="360px" height="160px"/>
+				</container>
+				<container id="hud_middle_row_center" type="vertical" width="33%" height="100%" halign="center" valign="center">
+				</container>
+				<container id="hud_middle_row_right" type="horizontal" width="fill" height="100%" halign="end" valign="center">
+				</container>
+			</container>
+			<container id="hud_bottom_row" type="horizontal" width="100%" height="auto" valign="end">
+				<container id="hud_bottom_row_left" type="vertical" width="fill" height="auto" halign="start" valign="end" gap="6px"
+				           visible="{cvar.ui_om_hud_show}">
+					<label id="spectated_player_name" font="body" font-size="16px" font-weight="700"
+					       width="auto" height="auto" halign="start" valign="center"
+					       margin="0 0 0 18px" drop-shadow="true"
+					       color="{cvar.ui_om_hud_following_team == &quot;axis&quot; ? var.color-axis : var.color-allied}"
+					       visible="{cvar.ui_om_hud_following_name != ''}"
+					       bind="cvar:ui_om_hud_following_name"/>
+					<!--
+					  Health: skewl/r negative (leans opposite weapons bar).
+					  Panels 44px → ±18.03; pips 16px → ±6.56. gap=0 — skew overhang separates.
+					  Pip gutter 14 > |skewl|+|skewr| so neighbors don't merge. Off = fill-panel.
+					-->
+					<container id="health_bar" type="horizontal" width="auto" height="auto"
+					           valign="center" halign="start" margin="0 0 0 18px" gap="0"
+					           fill="{var.fill-transparent}"
+					           visible="{cvar.ui_om_hud_spectator_text == '' or cvar.ui_om_hud_following_text != ''}">
+						<container id="health_value" type="horizontal" width="44px" height="44px"
+						           valign="center" halign="center"
+						           fill="{var.fill-panel}"
+						           shape="skew-rect" skewl="-18.03px" skewr="-18.03px"
+						           stroke="{var.fill-divider}" stroke-width="1px" crisp="true">
+							<label font="body" font-size="22px" color="{var.color-white}"
+							       width="100%" height="100%"
+							       halign="center" valign="center"
+							       bind="cvar:ui_om_hud_health"/>
+						</container>
+						<container id="health_pips" type="horizontal" width="auto" height="44px"
+						           valign="center" halign="start" margin="0 0 0 30px" padding="0 14px" gap="14px"
+						           fill="{var.fill-panel}"
+						           shape="skew-rect" skewl="-18.03px" skewr="-18.03px"
+						           stroke="{var.fill-divider}" stroke-width="1px" crisp="true">
+							<foreach count="5" type="horizontal" gap="14px" width="auto" height="auto"
+							         valign="center">
+								<container width="32px" height="16px"
+								           shape="skew-rect" skewl="-6.56px" skewr="-6.56px"
+								           stroke-layout="false"
+								           stroke="{var.fill-divider}" stroke-width="1px" crisp="true"
+								           fill="{cvar.ui_om_hud_health > item.index * 20 and cvar.ui_om_hud_health < 40 ? var.color-hud-low-health-pip : cvar.ui_om_hud_health > item.index * 20 ? var.color-hud-health-pip : var.fill-panel}"/>
+							</foreach>
+						</container>
+					</container>
+				</container>
+				<container id="hud_bottom_row_center" type="vertical" width="50%" height="auto" halign="center" valign="center">
+					<label font="body" font-size="18px" width="100%" height="auto" halign="center" valign="center" text-wrap="word"
+					       color="{var.color-white}" drop-shadow="true" visible="{cvar.ui_om_hud_centerprint != ''}"
+					       bind="cvar:ui_om_hud_centerprint">
+						{cvar.ui_om_hud_centerprint}
+					</label>
+					<label font="body" font-size="18px" width="100%" height="auto" halign="center" valign="center" text-wrap="word"
+					       color="{var.color-white}" drop-shadow="true"
+					       visible="{cvar.ui_om_hud_show and cvar.ui_om_hud_spectator_text != ''}"
+					       bind="cvar:ui_om_hud_spectator_text">
+						{cvar.ui_om_hud_spectator_text}
+					</label>
+				</container>
+				<container id="hud_bottom_row_right" type="horizontal" width="fill" height="auto" gap="12px"
+				           halign="end" valign="end"
+				           visible="{cvar.ui_om_hud_show}">
+					<use id="grenade_inventory" template="modern-grenade-inventory"/>
+					<use id="weapons_bar" template="modern-weapons-bar"/>
+				</container>
+			</container>
+		</container>
+	</canvas>
+</ui>

@@ -1,0 +1,192 @@
+<ui version="1">
+	<!--
+	  Layout lab — measure renderer primitives before polishing main.xml.
+	  set ui_design_file ui/modern/examples/layout_lab.xml ; ui_design_reload
+	-->
+	<definitions>
+		<import src="ui/modern/lib/theme.xml"/>
+		<import src="ui/modern/lib/lab_tokens.xml"/>
+		<import src="ui/modern/lib/shapes.xml"/>
+		<import src="ui/modern/lib/images.xml"/>
+		<templates>
+			<template id="scrollbar-default">
+				<scrollbar axis="vertical" width="8px">
+					<track fill="{var.fill-lab-track}" shape="rectangle"/>
+					<thumb width="8px" halign="center" valign="start"
+					       fill="{var.color-accent}" hoverfill="{var.color-accent-hover}" pressed-fill="{var.color-accent-pressed}"
+					       shape="rectangle"/>
+				</scrollbar>
+			</template>
+			<template id="scrollbar-lab">
+				<scrollbar axis="vertical" width="10px">
+					<track fill="{var.fill-lab-track}" shape="rectangle"/>
+					<thumb width="10px" halign="center" valign="start"
+					       fill="{var.fill-transparent}" shape="rectangle">
+						<shape shape="rectangle" width="100%" height="100%" fill="{var.color-accent}" radius="2px"/>
+					</thumb>
+				</scrollbar>
+			</template>
+		</templates>
+	</definitions>
+
+	<canvas>
+		<container id="lab_root" type="vertical" width="100%" height="100%"
+		           padding="16px" gap="14px" fill="{var.fill-panel}" overflow="scroll" scrollbar="scrollbar-lab">
+			<label font="control" font-size="{var.text-message-bold}" color="{var.color-white}">LAYOUT LAB</label>
+
+			<!-- 1. H + valign + gap -->
+			<container type="vertical" width="100%" height="auto" gap="4px">
+				<label font="control" font-size="{var.text-body}" color="{var.color-accent}">1) H · valign=center · gap=12</label>
+				<container type="horizontal" width="100%" height="56px" gap="12px" valign="center"
+				           fill="{var.fill-chip}" padding="0 12px">
+					<container width="40px" height="40px" fill="{var.color-lab-red}"/>
+					<container width="40px" height="20px" fill="{var.color-lab-green}"/>
+					<container width="80px" height="32px" fill="{var.color-lab-blue}"/>
+					<button width="120px" height="40px" shape="skew-rect" skewl="12px" skewr="0"
+					        padding="0 20px 0 26px" fill="{var.color-accent}"
+					        color="{var.color-white}" font="control" font-size="{var.text-control}">Join</button>
+				</container>
+			</container>
+
+			<!-- 2. Nested fill: V(fill) > H(fill) > three fill children -->
+			<container type="vertical" width="100%" height="72px" gap="4px">
+				<label font="control" font-size="{var.text-body}" color="{var.color-accent}">2) Nested fill · V&gt;H · three width=fill</label>
+				<container type="horizontal" width="100%" height="fill" gap="8px" padding="8px" fill="{var.fill-chip}">
+					<container width="fill" height="100%" fill="{var.color-lab-red}"/>
+					<container width="fill" height="100%" fill="{var.color-lab-green}"/>
+					<container width="fill" height="100%" fill="{var.color-lab-blue}"/>
+				</container>
+			</container>
+
+			<!-- 3. Padding 12 all sides + inner H center -->
+			<container type="vertical" width="100%" height="auto" gap="4px">
+				<label font="control" font-size="{var.text-body}" color="{var.color-accent}">3) Padding 12px · inner H halign=center</label>
+				<container type="horizontal" width="100%" height="48px" padding="12px" gap="8px"
+				           halign="center" valign="center" fill="{var.fill-chip}">
+					<container width="24px" height="24px" fill="{var.color-lab-red}"/>
+					<container width="24px" height="24px" fill="{var.color-lab-green}"/>
+					<button width="96px" height="24px" fill="{var.color-accent}" color="{var.color-white}"
+					        font="control" font-size="{var.text-body}">Mid</button>
+				</container>
+			</container>
+
+			<!-- 4. V cols: center / end + skew -->
+			<container type="horizontal" width="100%" height="140px" gap="16px">
+				<container type="vertical" width="30%" height="100%" gap="4px">
+					<label font="control" font-size="{var.text-body}" color="{var.color-accent}">4a) V · halign=center</label>
+					<container type="vertical" width="100%" height="fill" gap="8px" halign="center"
+					           fill="{var.fill-chip}" padding="10px">
+						<container width="64px" height="20px" fill="{var.color-lab-red}"/>
+						<button width="100px" height="32px" shape="skew-rect" skewl="12px" skewr="12px"
+						        padding="0 20px" fill="{var.color-accent}"
+						        color="{var.color-white}" font="control" font-size="{var.text-body}">Play</button>
+					</container>
+				</container>
+				<container type="vertical" width="30%" height="100%" gap="4px">
+					<label font="control" font-size="{var.text-body}" color="{var.color-accent}">4b) V · halign=end</label>
+					<container type="vertical" width="100%" height="fill" gap="8px" halign="end"
+					           fill="{var.fill-chip}" padding="10px">
+						<container width="64px" height="20px" fill="{var.color-lab-green}"/>
+						<button width="100px" height="32px" fill="{var.color-accent}"
+						        color="{var.color-white}" font="control" font-size="{var.text-body}">End</button>
+					</container>
+				</container>
+				<container type="vertical" width="fill" height="100%" gap="4px">
+					<label font="control" font-size="{var.text-body}" color="{var.color-accent}">4c) H · equal-spacing</label>
+					<container type="horizontal" width="100%" height="fill" gap="0" halign="equal-spacing"
+					           valign="center" fill="{var.fill-chip}" padding="10px">
+						<container width="32px" height="32px" fill="{var.color-lab-red}"/>
+						<container width="32px" height="32px" fill="{var.color-lab-green}"/>
+						<container width="32px" height="32px" fill="{var.color-lab-blue}"/>
+					</container>
+				</container>
+			</container>
+
+			<!-- 5. Text align matrix -->
+			<container type="vertical" width="100%" height="auto" gap="4px">
+				<label font="control" font-size="{var.text-body}" color="{var.color-accent}">5) Text align matrix</label>
+				<container type="horizontal" width="100%" height="44px" gap="10px">
+					<button width="130px" height="100%" fill="{var.color-accent}" color="{var.color-white}"
+					        font="control" font-size="{var.text-body}">Default ctr</button>
+					<button width="130px" height="100%" halign="start" valign="center" fill="{var.fill-chip}"
+					        color="{var.color-white}" font="control" font-size="{var.text-body}">Start</button>
+					<button width="130px" height="100%" halign="end" valign="center" fill="{var.fill-chip}"
+					        color="{var.color-white}" font="control" font-size="{var.text-body}">End</button>
+					<label width="130px" height="100%" fill="{var.fill-chip}" color="{var.color-white}"
+					       font="body" font-size="{var.text-body}">Label vc</label>
+				</container>
+			</container>
+
+			<!-- 6. Margin between siblings -->
+			<container type="vertical" width="100%" height="auto" gap="4px">
+				<label font="control" font-size="{var.text-body}" color="{var.color-accent}">6) Margin 0 16px on middle block</label>
+				<container type="horizontal" width="100%" height="36px" gap="0" fill="{var.fill-chip}">
+					<container width="60px" height="100%" fill="{var.color-lab-red}"/>
+					<container width="60px" height="100%" margin="0 16px" fill="{var.color-lab-green}"/>
+					<container width="60px" height="100%" fill="{var.color-lab-blue}"/>
+				</container>
+			</container>
+
+			<!-- 7. Skew text + allied star -->
+			<container type="vertical" width="100%" height="auto" gap="4px">
+				<label font="control" font-size="{var.text-body}" color="{var.color-accent}">7) text-skew=-18deg · allied-star</label>
+				<container type="horizontal" width="100%" height="56px" gap="16px" valign="center"
+				           fill="{var.fill-chip}" padding="0 16px">
+					<label font="control" font-size="{var.text-display}" color="{var.color-white}" text-skew="-18deg">PROJECT: OMAHA</label>
+					<shape shape="allied-star" width="40px" height="40px" fill="{var.color-white}"/>
+					<button width="120px" height="40px" shape="skew-rect" skewl="12px" skewr="12px"
+					        padding="0 20px" fill="{var.color-accent}"
+					        color="{var.color-white}" font="control" font-size="{var.text-heading}">Play</button>
+				</container>
+			</container>
+
+			<!-- 8. space-between (CSS) -->
+			<container type="vertical" width="100%" height="auto" gap="4px">
+				<label font="control" font-size="{var.text-body}" color="{var.color-accent}">8) H · space-between · three fixed</label>
+				<container type="horizontal" width="100%" height="40px" gap="0" halign="space-between"
+				           valign="center" fill="{var.fill-chip}" padding="0 8px">
+					<container width="48px" height="24px" fill="{var.color-lab-red}"/>
+					<container width="48px" height="24px" fill="{var.color-lab-green}"/>
+					<container width="48px" height="24px" fill="{var.color-lab-blue}"/>
+				</container>
+			</container>
+
+			<!-- 9. shape-rotation (paint-only) -->
+			<container type="vertical" width="100%" height="auto" gap="4px">
+				<label font="control" font-size="{var.text-body}" color="{var.color-accent}">9) shape-rotation 0° / 90° / 180° · allied-star</label>
+				<container type="horizontal" width="100%" height="56px" gap="24px" halign="center" valign="center"
+				           fill="{var.fill-chip}" padding="0 16px">
+					<shape shape="allied-star" width="40px" height="40px" fill="{var.color-white}"/>
+					<shape shape="allied-star" width="40px" height="40px" fill="{var.color-white}" shape-rotation="90"/>
+					<shape shape="allied-star" width="40px" height="40px" fill="{var.color-white}" shape-rotation="180"/>
+				</container>
+			</container>
+
+			<!-- 10. background-image + shape clip -->
+			<container type="vertical" width="100%" height="auto" gap="4px">
+				<label font="control" font-size="{var.text-body}" color="{var.color-accent}">10) background-image cover · skew-rect clip</label>
+				<container width="220px" height="120px" shape="skew-rect" skewl="12px" skewr="12px"
+				           background-image="panel" background-fit="cover" fill="{var.fill-transparent}"/>
+			</container>
+
+			<!-- 11. soft mask-image over fill + child -->
+			<container type="vertical" width="100%" height="auto" gap="4px">
+				<label font="control" font-size="{var.text-body}" color="{var.color-accent}">11) mask-image soft coverage</label>
+				<container width="220px" height="100px"
+				           fill="{var.color-accent}"
+				           mask-image="linear(90deg, #FFFFFFFF, #FFFFFF00)">
+					<label font="control" font-size="{var.text-body}" color="{var.color-white}"
+					       width="100%" height="100%" halign="center" valign="center"
+					       text="MASKED"/>
+				</container>
+				<container width="220px" height="100px" margin="8px 0 0 0"
+				           fill="{var.color-white}"
+				           mask-image="radial(50% 50%, #FFFFFFFF 0%, #FFFFFF00 70%)">
+					<label font="control" font-size="{var.text-body}" color="{var.color-black}"
+					       width="100%" height="100%" halign="center" valign="center"
+					       text="RADIAL MASK"/>
+				</container>
+			</container>
+		</container>
+	</canvas>
+</ui>

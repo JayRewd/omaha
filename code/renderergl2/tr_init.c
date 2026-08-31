@@ -1611,7 +1611,9 @@ void R_Register( void )
 	r_lodcap = ri.Cvar_Get("r_lodcap", "0.35", CVAR_ARCHIVE);
 	r_lodviewmodelcap = ri.Cvar_Get("r_lodviewmodelcap", "0.25", CVAR_ARCHIVE);
 	
-	r_uselod = ri.Cvar_Get("r_uselod", "1", CVAR_TEMP);
+	// Changed in OPM: CVAR_ARCHIVE so r_uselod 0/1 can be set and saved from the console.
+	r_uselod = ri.Cvar_Get("r_uselod", "1", CVAR_ARCHIVE);
+	ri.Cvar_CheckRange(r_uselod, 0, 1, qtrue);
 	lod_LOD = ri.Cvar_Get("lod_LOD", "0", CVAR_TEMP);
 	lod_minLOD = ri.Cvar_Get("lod_minLOD", "1.0", CVAR_TEMP);
 	lod_maxLOD = ri.Cvar_Get("lod_maxLOD", "0.3", CVAR_TEMP);
@@ -1983,6 +1985,8 @@ refexport_t *GetRefAPI ( int apiVersion, refimport_t *rimp ) {
 	re.RegisterSkin = RE_RegisterSkin;
 	re.RegisterShader = RE_RegisterShader;
 	re.RegisterShaderNoMip = RE_RegisterShaderNoMip;
+	re.CreateUIAtlas = RE_CreateUIAtlas;
+	re.UpdateUIAtlas = RE_UpdateUIAtlas;
 	re.LoadWorld = RE_LoadWorldMap;
 	re.SetWorldVisData = RE_SetWorldVisData;
 	re.EndRegistration = RE_EndRegistration;

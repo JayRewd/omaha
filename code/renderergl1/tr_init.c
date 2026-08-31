@@ -262,6 +262,8 @@ cvar_t* r_loadftx;
 cvar_t* r_showSkeleton;
 
 cvar_t* r_ext_multisample;
+cvar_t* r_uiFramebuffer;
+cvar_t* r_uiMultisample;
 cvar_t* r_noborder;
 cvar_t* r_ext_texture_filter_anisotropic;
 cvar_t* r_stereoEnabled;
@@ -1422,7 +1424,9 @@ void R_Register( void )
 	r_showImages = ri.Cvar_Get( "r_showImages", "0", CVAR_TEMP );
 	r_showlod = ri.Cvar_Get("r_showlod", "0", CVAR_TEMP);
 	r_showstaticlod = ri.Cvar_Get("r_showstaticlod", "0", CVAR_TEMP);
-	r_uselod = ri.Cvar_Get("r_uselod", "1", CVAR_TEMP);
+	// Changed in OPM: CVAR_ARCHIVE so r_uselod 0/1 can be set and saved from the console.
+	r_uselod = ri.Cvar_Get("r_uselod", "1", CVAR_ARCHIVE);
+	ri.Cvar_CheckRange(r_uselod, 0, 1, qtrue);
 	lod_LOD = ri.Cvar_Get("lod_LOD", "0", CVAR_TEMP);
 	lod_minLOD = ri.Cvar_Get("lod_minLOD", "1.0", CVAR_TEMP);
 	lod_maxLOD = ri.Cvar_Get("lod_maxLOD", "0.3", CVAR_TEMP);
@@ -1559,6 +1563,8 @@ void R_Register( void )
 	r_loadftx = ri.Cvar_Get("r_loadftx", "0", CVAR_LATCH);
 
 	r_ext_multisample = ri.Cvar_Get("r_ext_multisample", "0", CVAR_ARCHIVE | CVAR_LATCH);
+	r_uiFramebuffer = ri.Cvar_Get("r_uiFramebuffer", "1", CVAR_ARCHIVE);
+	r_uiMultisample = ri.Cvar_Get("r_uiMultisample", "8", CVAR_ARCHIVE | CVAR_LATCH);
 	r_noborder = ri.Cvar_Get("r_noborder", "0", CVAR_ARCHIVE | CVAR_LATCH);
 	r_ext_texture_filter_anisotropic = ri.Cvar_Get("r_ext_texture_filter_anisotropic",
 		"0", CVAR_ARCHIVE | CVAR_LATCH);
@@ -1740,6 +1746,7 @@ void RE_Shutdown( qboolean destroyWindow ) {
 
 	if ( tr.registered ) {
 		R_IssuePendingRenderCommands();
+		RE_UI2D_FboShutdown();
 		R_DeleteTextures();
 	}
 
@@ -1843,6 +1850,14 @@ GetRefAPI
 
 @@@@@@@@@@@@@@@@@@@@@
 */
+static qboolean RE_ExportModelPreviewPNG_stub(const refdef_t *fd, const char *vfsPath)
+{
+	(void)fd;
+	(void)vfsPath;
+	ri.Printf(PRINT_WARNING, "ExportModelPreviewPNG requires renderer_opengl2\n");
+	return qfalse;
+}
+
 #ifdef USE_RENDERER_DLOPEN
 Q_EXPORT refexport_t* QDECL GetRefAPI ( int apiVersion, refimport_t *rimp ) {
 #else
@@ -1972,6 +1987,38 @@ refexport_t *GetRefAPI ( int apiVersion, refimport_t *rimp ) {
     re.FreeRawImage = R_FreeRawImage;
 
 	re.Set2DInitialShaderTime = Set2DInitialShaderTime;
+
+	re.CreateUIAtlas = RE_CreateUIAtlas;
+	re.UpdateUIAtlas = RE_UpdateUIAtlas;
+	re.UiStencilAvailable = RE_UiStencilAvailable;
+	re.BeginUiStencilMask = RE_BeginUiStencilMask;
+	re.BeginUiStencilDraw = RE_BeginUiStencilDraw;
+	re.EndUiStencil = RE_EndUiStencil;
+	re.UI2DBatchSupported = RE_UI2DBatchSupported;
+	re.UI2DCanBatchShader = RE_UI2DCanBatchShader;
+	re.DrawUI2D = RE_DrawUI2D;
+	re.UI2DTargetAvailable = RE_UI2DTargetAvailable;
+	re.BeginUI2DTarget = RE_BeginUI2DTarget;
+	re.EndUI2DTarget = RE_EndUI2DTarget;
+	re.UI2DTargetIsActive = RE_UI2DTargetIsActive;
+	re.UI2DTargetSamples = RE_UI2DTargetSamples;
+	re.UI2DTargetRebind = RE_UI2DTargetRebind;
+	re.UiLayerAvailable = RE_UiLayerAvailable;
+	re.BeginUiLayer = RE_BeginUiLayer;
+	re.UiLayerApplyMask = RE_UiLayerApplyMask;
+	re.EndUiLayer = RE_EndUiLayer;
+	re.UiChromeCacheAvailable = RE_UiChromeCacheAvailable;
+	re.BeginUiChromeCacheCapture = RE_BeginUiChromeCacheCapture;
+	re.EndUiChromeCacheCapture = RE_EndUiChromeCacheCapture;
+	re.BlitUiChromeCache = RE_BlitUiChromeCache;
+	re.InvalidateUiChromeCache = RE_InvalidateUiChromeCache;
+	re.ClearWorld = RE_ClearWorld;
+	re.LoadMenuWorld = RE_LoadMenuWorld;
+	re.LoadMenuWorldStaged = RE_LoadMenuWorldStaged;
+	re.CommitMenuWorld = RE_CommitMenuWorld;
+	re.CancelMenuWorldStaging = RE_CancelMenuWorldStaging;
+	re.HasActiveWorld = RE_HasActiveWorld;
+	re.ExportModelPreviewPNG = RE_ExportModelPreviewPNG_stub;
 
 	return &re;
 }

@@ -21,6 +21,9 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
 
 #include "cl_ui.h"
+#include "cl_uirender.h"
+#include "cl_messages_host.h"
+#include "cl_killfeed.h"
 #include "../qcommon/localization.h"
 
 Event EV_DMBox_Goin
@@ -136,6 +139,11 @@ void UIDMBox::PostMoveinEvent(void)
 
 void UIDMBox::PostDecayEvent(void)
 {
+    /* Changed in OPM: modern HUD foreach lifetime owns expiry; capacity trim only. */
+    if (CL_UIR_UseModernHudPack()) {
+        return;
+    }
+
     if (!EventPending(EV_DMBox_Decay)) {
         float       fDelayTime;
         int         iNumLines;
@@ -162,6 +170,14 @@ void UIDMBox::PostDecayEvent(void)
             fDelayTime = iNumLines * 6.0;
         } else {
             fDelayTime = iNumLines * 5.0;
+        }
+
+        /* Fixed in OPM: tiny wrap widths create huge line counts and multi-minute
+         * decay timers that freeze the modern kill/chat feed at capacity. */
+        if (fDelayTime < 1.0f) {
+            fDelayTime = 1.0f;
+        } else if (fDelayTime > 20.0f) {
+            fDelayTime = 20.0f;
         }
 
         m_iBeginDecay = cls.realtime;
@@ -290,10 +306,8 @@ void UIDMBox::Print(const char *text)
 {
     const char *text1 = text;
 
-    if (m_numitems > 5) {
-        //
-        // Overwrite an item
-        //
+    /* Changed in OPM: capacity aligned with UIR_HUD_MESSAGES_MAX_ROWS. */
+    if (m_numitems >= UIR_HUD_MESSAGES_MAX_ROWS) {
         RemoveTopItem();
     }
 
@@ -321,9 +335,23 @@ void UIDMBox::Print(const char *text)
         m_items[m_numitems].color = m_foreground_color;
         m_items[m_numitems].font  = m_font;
     }
+    /* Added in OPM: Base (protocol < TA) deaths are print→dmbox only; feed kill-feed here.
+     * TA uses printdeathmsg (CL_KillFeed_HandlePrintDeathMsg) then also Printf into dmbox —
+     * skip here to avoid duplicate rows. */
+    if ((m_items[m_numitems].flags & DMBOX_ITEM_FLAG_DEATH) && com_protocol
+        && com_protocol->integer < PROTOCOL_MOHTA_MIN) {
+        CL_KillFeed_HandleDeathPrint(text1, (*text == MESSAGE_CHAT_GREEN) ? 1 : 0);
+    }
 
     m_items[m_numitems].string =
-        CalculateBreaks(m_items[m_numitems].font, Sys_LV_CL_ConvertString(text1), s_dmboxWidth);
+        CalculateBreaks(m_items[m_numitems].font, Sys_LV_CL_ConvertString(text1),
+                        s_dmboxWidth < 64.0f ? 64.0f : s_dmboxWidth);
+
+    /* Added in OPM: monotonic id for hud-messages foreach lifetime. */
+    {
+        static uint64_t s_nextHudMessageId = 1;
+        m_items[m_numitems].stableId = s_nextHudMessageId++;
+    }
 
     m_numitems++;
     VerifyBoxOut();
@@ -366,6 +394,36 @@ void UIDMBox::DecayEvent(Event *ev)
     }
 }
 
+/*
+====================
+UIDMBox::ForceDueDecay
+Fixed in OPM: modern HUD publishes via Draw and never runs the legacy overflow
+force-decay. If the scheduled EV_DMBox_Decay is lost/stuck, rows freeze at max.
+Drive the same RemoveTopItem path from Draw when the deadline has elapsed.
+====================
+*/
+void UIDMBox::ForceDueDecay(void)
+{
+    /* Changed in OPM: modern HUD skips timer decay (foreach lifetime). */
+    if (CL_UIR_UseModernHudPack()) {
+        return;
+    }
+
+    if (m_numitems <= 0 || m_iEndDecay <= 0 || m_iBeginDecay <= 0) {
+        return;
+    }
+    if (cls.realtime - m_iBeginDecay < m_iEndDecay) {
+        return;
+    }
+    if (EventPending(EV_DMBox_Decay)) {
+        CancelEventsOfType(EV_DMBox_Decay);
+    }
+    RemoveTopItem();
+    if (m_numitems) {
+        PostDecayEvent();
+    }
+}
+
 void UIDMBox::Draw(void)
 {
     float fsY;
@@ -377,9 +435,65 @@ void UIDMBox::Draw(void)
     HandleBoxMoving();
 
     if (!m_numitems) {
-        //
-        // Nothing to show
-        //
+        if (CL_UIR_UseModernHudPack()) {
+            /* Fixed in OPM: only publish an empty snapshot when rows were present.
+             * Calling Clear+NotifyChanged every idle frame bumped collection revision
+             * and forced classic HUD foreach/layout thrash. */
+            if (UIR_HudMessages_GetRowCount() > 0) {
+                UIR_HudMessages_Clear();
+                UIR_HudMessages_NotifyChanged();
+            }
+            /* Added in OPM: chat-only collection mirrors mixed clear. */
+            if (UIR_HudChat_GetRowCount() > 0) {
+                UIR_HudChat_Clear();
+                UIR_HudChat_NotifyChanged();
+            }
+        }
+        return;
+    }
+
+    /* Added in OPM: modern HUD pack paints chat via hud-messages collection. */
+    if (CL_UIR_UseModernHudPack()) {
+        uir_hud_message_input_t row;
+
+        if (!m_numitems) {
+            if (UIR_HudMessages_GetRowCount() > 0) {
+                UIR_HudMessages_Clear();
+                UIR_HudMessages_NotifyChanged();
+            }
+            if (UIR_HudChat_GetRowCount() > 0) {
+                UIR_HudChat_Clear();
+                UIR_HudChat_NotifyChanged();
+            }
+            return;
+        }
+
+        alphaScale = 0.8f;
+        if (cge) {
+            alphaScale = static_cast<float>(1.0 - cge->CG_GetObjectiveAlpha());
+        }
+
+        UIR_HudMessages_Clear();
+        UIR_HudMessages_SetAlphaScale(alphaScale);
+        UIR_HudChat_Clear();
+        UIR_HudChat_SetAlphaScale(alphaScale);
+        for (i = 0; i < m_numitems; i++) {
+            std::memset(&row, 0, sizeof(row));
+            row.text = m_items[i].string.c_str();
+            row.colorR = m_items[i].color.r;
+            row.colorG = m_items[i].color.g;
+            row.colorB = m_items[i].color.b;
+            row.colorA = m_items[i].color.a;
+            row.bold = (m_items[i].flags & DMBOX_ITEM_FLAG_BOLD) ? 1 : 0;
+            row.stableId = m_items[i].stableId;
+            UIR_HudMessages_AddRow(&row);
+            /* Added in OPM: hud-chat excludes death/kill lines. */
+            if (!(m_items[i].flags & DMBOX_ITEM_FLAG_DEATH)) {
+                UIR_HudChat_AddRow(&row);
+            }
+        }
+        UIR_HudMessages_NotifyChanged();
+        UIR_HudChat_NotifyChanged();
         return;
     }
 

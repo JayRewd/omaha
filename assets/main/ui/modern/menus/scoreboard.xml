@@ -1,0 +1,184 @@
+<ui version="1">
+	<definitions menu-id="scoreboard" draw-order="3">
+		<import src="ui/modern/lib/theme.xml"/>
+		<import src="ui/modern/lib/hud_modern_tokens.xml"/>
+		<import src="ui/modern/lib/shapes.xml"/>
+		<import src="ui/modern/lib/controls.xml"/>
+		<import src="ui/modern/lib/scoreboard.xml"/>
+	</definitions>
+	<!-- pointer: always on for spectator / intermission; in-play sticky via toggle ui_om_scoreboard_cursor -->
+	<canvas pointer="{cvar.ui_om_intermission == 1 or cvar.ui_om_spectator == 1 or cvar.ui_om_scoreboard_cursor == 1}">
+		<!-- Transparent root (retail scoreboard menu bgcolor); panel keeps fill-panel. -->
+		<container id="menu_root" type="vertical" width="100%" height="100%" fill="{var.fill-transparent}"
+		           halign="center" valign="center">
+			<!-- FFA: 80% screen height; player list fills remaining space.
+			     Stroke on outer panel; inner overflow=hidden clips overscan row dividers. -->
+			<container type="vertical" width="760px" height="80%"
+			           fill="{var.fill-panel}" stroke="{var.fill-divider}" stroke-width="1px"
+			           halign="center" valign="center" gap="0"
+			           visible="{cvar.ui_om_scoreboard_team_mode != 1}">
+				<container type="vertical" width="100%" height="100%" overflow="hidden"
+				           fill="{var.fill-transparent}" gap="0">
+					<use template="scoreboard-server-header"/>
+
+				<container type="vertical" width="100%" height="auto" fill="{var.fill-transparent}"
+				           visible="{cvar.ui_om_scoreboard_gametype == 5}">
+					<container type="vertical" width="100%" height="auto" gap="4px" padding="8px 12px"
+					           fill="{var.fill-transparent}" halign="start">
+						<label font="control" font-size="{var.text-caption}" color="{var.color-muted}" letter-spacing="1px" halign="start">TOW OBJECTIVES</label>
+						<container type="horizontal" width="100%" height="auto" gap="8px" halign="start">
+							<label font="control" font-size="{var.text-body}" color="{var.color-allied}" halign="start" bind="cvar:ui_om_scoreboard_tow_allied_obj1"/>
+							<label font="control" font-size="{var.text-body}" color="{var.color-allied}" halign="start" bind="cvar:ui_om_scoreboard_tow_allied_obj2"/>
+							<label font="control" font-size="{var.text-body}" color="{var.color-allied}" halign="start" bind="cvar:ui_om_scoreboard_tow_allied_obj3"/>
+							<label font="control" font-size="{var.text-body}" color="{var.color-allied}" halign="start" bind="cvar:ui_om_scoreboard_tow_allied_obj4"/>
+							<label font="control" font-size="{var.text-body}" color="{var.color-allied}" halign="start" bind="cvar:ui_om_scoreboard_tow_allied_obj5"/>
+						</container>
+						<container type="horizontal" width="100%" height="auto" gap="8px" halign="start">
+							<label font="control" font-size="{var.text-body}" color="{var.color-axis}" halign="start" bind="cvar:ui_om_scoreboard_tow_axis_obj1"/>
+							<label font="control" font-size="{var.text-body}" color="{var.color-axis}" halign="start" bind="cvar:ui_om_scoreboard_tow_axis_obj2"/>
+							<label font="control" font-size="{var.text-body}" color="{var.color-axis}" halign="start" bind="cvar:ui_om_scoreboard_tow_axis_obj3"/>
+							<label font="control" font-size="{var.text-body}" color="{var.color-axis}" halign="start" bind="cvar:ui_om_scoreboard_tow_axis_obj4"/>
+							<label font="control" font-size="{var.text-body}" color="{var.color-axis}" halign="start" bind="cvar:ui_om_scoreboard_tow_axis_obj5"/>
+						</container>
+					</container>
+					<container width="100%" height="1px" fill="{var.fill-divider}"/>
+				</container>
+
+				<container type="vertical" width="100%" height="auto" fill="{var.fill-transparent}"
+				           visible="{cvar.ui_om_scoreboard_gametype == 6}">
+					<container type="horizontal" width="100%" height="auto" gap="16px" padding="8px 12px"
+					           fill="{var.fill-transparent}" halign="start" valign="center">
+						<label font="control" font-size="{var.text-body}" color="{var.color-primary}" halign="start" bind="cvar:ui_om_scoreboard_lib_toggle1"/>
+						<label font="control" font-size="{var.text-body}" color="{var.color-primary}" halign="start" bind="cvar:ui_om_scoreboard_lib_toggle2"/>
+					</container>
+					<container width="100%" height="1px" fill="{var.fill-divider}"/>
+				</container>
+
+				<use template="scoreboard-column-header-row"/>
+
+				<container type="vertical" width="100%" height="fill"
+				           overflow="scroll" scrollbar="scrollbar-default" scrollbar-edge="border"
+				           source="scoreboard" fill="{var.fill-transparent}">
+					<foreach mode="window" row-height="29px">
+						<use template="scoreboard-row"/>
+					</foreach>
+				</container>
+
+				<container type="vertical" width="100%" height="auto" fill="{var.fill-transparent}" gap="0"
+				           visible="{cvar.ui_om_scoreboard_spectator_count > 0}">
+					<container width="100%" height="1px" fill="{var.fill-divider}" margin="4px 0 0 0"/>
+					<label width="100%" height="auto" padding="8px 12px 4px 12px"
+					       font="control" font-size="{var.text-caption}" color="{var.color-muted}" letter-spacing="1px"
+					       halign="start" valign="center">SPECTATORS</label>
+					<!-- join+marquee: compact scrolling names; scoreboard-spectator-row remains for other packs. -->
+					<container type="vertical" width="100%" height="auto" overflow="hidden" padding="0 12px 8px 12px"
+					           fill="{var.fill-transparent}">
+						<label width="100%" height="28px"
+						       font="control" font-size="{var.text-body}" color="{var.color-muted}"
+						       halign="start" valign="center"
+						       marquee="horizontal" marquee-speed="40px" marquee-gap="48px">
+							{join(scoreboard, name, ", ", item.field.is_spectator == 1)}
+						</label>
+					</container>
+					</container>
+				</container>
+			</container>
+
+			<!-- Team: open-book Allies | Axis; 80% screen height.
+			     Stroke on outer panel; inner overflow=hidden clips overscan row dividers. -->
+			<container type="vertical" width="1200px" height="80%"
+			           fill="{var.fill-panel}" stroke="{var.fill-divider}" stroke-width="1px"
+			           halign="center" valign="center" gap="0"
+			           visible="{cvar.ui_om_scoreboard_team_mode == 1}">
+				<container type="vertical" width="100%" height="100%" overflow="hidden"
+				           fill="{var.fill-transparent}" gap="0">
+					<use template="scoreboard-server-header"/>
+
+				<container type="vertical" width="100%" height="auto" fill="{var.fill-transparent}"
+				           visible="{cvar.ui_om_scoreboard_gametype == 5}">
+					<container type="vertical" width="100%" height="auto" gap="4px" padding="8px 12px"
+					           fill="{var.fill-transparent}" halign="start">
+						<label font="control" font-size="{var.text-caption}" color="{var.color-muted}" letter-spacing="1px" halign="start">TOW OBJECTIVES</label>
+						<container type="horizontal" width="100%" height="auto" gap="8px" halign="start">
+							<label font="control" font-size="{var.text-body}" color="{var.color-allied}" halign="start" bind="cvar:ui_om_scoreboard_tow_allied_obj1"/>
+							<label font="control" font-size="{var.text-body}" color="{var.color-allied}" halign="start" bind="cvar:ui_om_scoreboard_tow_allied_obj2"/>
+							<label font="control" font-size="{var.text-body}" color="{var.color-allied}" halign="start" bind="cvar:ui_om_scoreboard_tow_allied_obj3"/>
+							<label font="control" font-size="{var.text-body}" color="{var.color-allied}" halign="start" bind="cvar:ui_om_scoreboard_tow_allied_obj4"/>
+							<label font="control" font-size="{var.text-body}" color="{var.color-allied}" halign="start" bind="cvar:ui_om_scoreboard_tow_allied_obj5"/>
+						</container>
+						<container type="horizontal" width="100%" height="auto" gap="8px" halign="start">
+							<label font="control" font-size="{var.text-body}" color="{var.color-axis}" halign="start" bind="cvar:ui_om_scoreboard_tow_axis_obj1"/>
+							<label font="control" font-size="{var.text-body}" color="{var.color-axis}" halign="start" bind="cvar:ui_om_scoreboard_tow_axis_obj2"/>
+							<label font="control" font-size="{var.text-body}" color="{var.color-axis}" halign="start" bind="cvar:ui_om_scoreboard_tow_axis_obj3"/>
+							<label font="control" font-size="{var.text-body}" color="{var.color-axis}" halign="start" bind="cvar:ui_om_scoreboard_tow_axis_obj4"/>
+							<label font="control" font-size="{var.text-body}" color="{var.color-axis}" halign="start" bind="cvar:ui_om_scoreboard_tow_axis_obj5"/>
+						</container>
+					</container>
+					<container width="100%" height="1px" fill="{var.fill-divider}"/>
+				</container>
+
+				<container type="vertical" width="100%" height="auto" fill="{var.fill-transparent}"
+				           visible="{cvar.ui_om_scoreboard_gametype == 6}">
+					<container type="horizontal" width="100%" height="auto" gap="16px" padding="8px 12px"
+					           fill="{var.fill-transparent}" halign="start" valign="center">
+						<label font="control" font-size="{var.text-body}" color="{var.color-primary}" halign="start" bind="cvar:ui_om_scoreboard_lib_toggle1"/>
+						<label font="control" font-size="{var.text-body}" color="{var.color-primary}" halign="start" bind="cvar:ui_om_scoreboard_lib_toggle2"/>
+					</container>
+					<container width="100%" height="1px" fill="{var.fill-divider}"/>
+				</container>
+
+				<!-- Banners + headers stay fixed; one shared scrollbar for both player lists. -->
+				<container type="horizontal" width="100%" height="auto" gap="0" fill="{var.fill-transparent}">
+					<container type="vertical" width="fill" height="auto" fill="{var.fill-transparent}" gap="0">
+						<use template="scoreboard-team-banner-allied"/>
+						<use template="scoreboard-column-header-row"/>
+					</container>
+					<!-- fill (not 100%): percent height during auto intrinsic measure
+					     resolves against menu_root and stretches the panel fullscreen. -->
+					<container width="1px" height="fill" fill="{var.fill-divider}"/>
+					<container type="vertical" width="fill" height="auto" fill="{var.fill-transparent}" gap="0">
+						<use template="scoreboard-team-banner-axis"/>
+						<use template="scoreboard-column-header-row-axis"/>
+					</container>
+				</container>
+				<container type="vertical" width="100%" height="fill"
+				           overflow="scroll" scrollbar="scrollbar-default" scrollbar-edge="border"
+				           fill="{var.fill-transparent}">
+					<container type="horizontal" width="100%" height="auto" gap="0" fill="{var.fill-transparent}">
+						<container type="vertical" width="fill" height="auto"
+						           source="scoreboard" fill="{var.fill-transparent}">
+							<foreach>
+								<use template="scoreboard-team-player-row" team="allies"/>
+							</foreach>
+						</container>
+						<container width="1px" height="fill" fill="{var.fill-divider}"/>
+						<container type="vertical" width="fill" height="auto"
+						           source="scoreboard" fill="{var.fill-transparent}">
+							<foreach>
+								<use template="scoreboard-team-player-row-axis"/>
+							</foreach>
+						</container>
+					</container>
+				</container>
+
+				<container type="vertical" width="100%" height="auto" fill="{var.fill-transparent}" gap="0"
+				           visible="{cvar.ui_om_scoreboard_spectator_count > 0}">
+					<container width="100%" height="1px" fill="{var.fill-divider}" margin="4px 0 0 0"/>
+					<label width="100%" height="auto" padding="8px 12px 4px 12px"
+					       font="control" font-size="{var.text-caption}" color="{var.color-muted}" letter-spacing="1px"
+					       halign="start" valign="center">SPECTATORS</label>
+					<container type="vertical" width="100%" height="auto" overflow="hidden" padding="0 12px 8px 12px"
+					           fill="{var.fill-transparent}">
+						<label width="100%" height="28px"
+						       font="control" font-size="{var.text-body}" color="{var.color-muted}"
+						       halign="start" valign="center"
+						       marquee="horizontal" marquee-speed="40px" marquee-gap="48px">
+							{join(scoreboard, name, ", ", item.field.is_spectator == 1)}
+						</label>
+					</container>
+					</container>
+				</container>
+			</container>
+		</container>
+	</canvas>
+</ui>

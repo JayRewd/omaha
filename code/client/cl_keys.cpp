@@ -21,6 +21,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
 #include "client.h"
 #include "cl_ui.h"
+#include "cl_uirender.h"
+#include "cl_uimenu_dispatcher.h"
 #include "../uilib/ui_public.h"
 
 /*
@@ -1145,9 +1147,29 @@ void CL_KeyEvent(int key, qboolean down, unsigned time)
             cl.mouseButtons &= ~(1 << (key - K_MOUSE1));
         }
 
-        if (in_guimouse) {
-            return;
+        if (in_guimouse || (CL_UIMenu_HasPointerMenuOpen() && clc.state == CA_ACTIVE)) {
+            /*
+             * Fixed in OPM: while capturing a keybind, mouse buttons must reach
+             * the design capture path (legacy UIBindButton binds MOUSE1..5).
+             */
+            if (!CL_UIR_IsCapturingKeybind()) {
+                return;
+            }
         }
+    }
+
+    /*
+     * Fixed in OPM: spectator / intermission scoreboard shows a pointer but does
+     * not ShouldOwnInput. Route MWHEEL into the design wheel delta so overflow=
+     * scroll lists move; otherwise weapnext/weapprev bindings steal the wheel.
+     * Also route while hold-TAB scoreboard is open without a pointer so lists
+     * stay scrollable in-play.
+     */
+    if ((key == K_MWHEELUP || key == K_MWHEELDOWN) && down && clc.state == CA_ACTIVE
+        && (CL_UIMenu_HasPointerMenuOpen() || CL_UIMenu_IsOpen("scoreboard"))
+        && !CL_UIR_ShouldOwnInput() && !CL_UIR_LegacyModalOwnsInput() && !UI_ConsoleIsVisible()) {
+        CL_UIR_KeyEvent(key, qtrue, time);
+        return;
     }
 
     // keys can still be used for bound actions
@@ -1157,9 +1179,28 @@ void CL_KeyEvent(int key, qboolean down, unsigned time)
         key = K_ESCAPE;
     }
 
+    /*
+     * Added in OPM: design keybind capture beats menubound F-keys and Escape
+     * menu routing. Engine emergency shortcuts (console, Alt+Enter) already
+     * returned above.
+     */
+    if (CL_UIR_IsCapturingKeybind() && !CL_UIR_LegacyModalOwnsInput()) {
+        if (CL_UIR_KeyEvent(key, down, time)) {
+            return;
+        }
+    }
+
     // escape is always handled special
     if (key == K_ESCAPE) {
         if (down) {
+            /* Prefer design keybind / chrome Escape via UI_KeyEvent path when
+             * modern main is capturing; avoid opening legacy menus over it. */
+            if (CL_UIR_ShouldOwnInput()) {
+                if (CL_UIR_KeyEvent(key, qtrue, time)) {
+                    return;
+                }
+            }
+
             qboolean wasup = UI_MenuUp();
             UI_DeactiveFloatingWindows();
 
@@ -1187,13 +1228,42 @@ void CL_KeyEvent(int key, qboolean down, unsigned time)
                 UI_MenuEscape("main");
             }
             return;
+        } else {
+            /* Changed in OPM: deliver Escape key-up to modern for modifier clear. */
+            if (CL_UIR_IsModernMainActive() && !CL_UIR_LegacyModalOwnsInput()) {
+                CL_UIR_KeyEvent(key, qfalse, time);
+            }
         }
     } else if (down) {
-        if ((Key_GetCatcher() & KEYCATCH_UI && !menubound[key]) || UI_BindActive()) {
-            UI_KeyEvent(key, time);
+        /*
+         * Changed in OPM: when modern owns input (or capturing), include menubound
+         * keys so F-keys reach design before bound-command dispatch.
+         * Fixed in OPM: do not swallow menubound binds (e.g. F12 screenshotJPEG)
+         * after UI handling — only non-menubound keys stay UI-exclusive.
+         */
+        const qboolean modernOwns =
+            CL_UIR_ShouldOwnInput() || CL_UIR_IsCapturingKeybind();
+        qboolean       dispatchBind = qfalse;
+
+        if ((Key_GetCatcher() & KEYCATCH_UI && (!menubound[key] || modernOwns)) || UI_BindActive()
+            || modernOwns) {
+            UI_KeyEvent(key, qtrue, time);
+            if (modernOwns && CL_UIR_IsCapturingKeybind()) {
+                return;
+            }
+            if (modernOwns && !menubound[key]) {
+                return;
+            }
+            if (modernOwns && menubound[key]) {
+                dispatchBind = qtrue;
+            }
         } else if (cls.loading & KEYCATCH_MESSAGE) {
             Message_Key(key);
         } else if (clc.state != CA_DISCONNECTED || menubound[key]) {
+            dispatchBind = qtrue;
+        }
+
+        if (dispatchBind) {
             // send the bound action
             kb = altkeys[key].binding;
             if (!kb || !altkeys[key].down) {
@@ -1240,6 +1310,11 @@ void CL_KeyEvent(int key, qboolean down, unsigned time)
             }
         }
         return;
+    } else {
+        /* Changed in OPM: route key-up whenever modern UI owns input (Shift clear, HUD chat). */
+        if (CL_UIR_ShouldOwnInput() && !CL_UIR_LegacyModalOwnsInput()) {
+            CL_UIR_KeyEvent(key, qfalse, time);
+        }
     }
 
     if (altkeys[key].down) {

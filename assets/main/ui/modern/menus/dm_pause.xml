@@ -1,0 +1,454 @@
+<ui version="1">
+	<!--
+		Added in OPM: classic HUD MP pause — full modern XML tree (no UIFAKK).
+		Stage = full canvas as 640×480 virtual space (same stretch as retail virtualres).
+		Author coords as % of that stage (URC /640 and /480). Base escmenu + team/weapon art.
+	-->
+	<definitions menu-id="dm_pause" draw-order="7">
+		<import src="ui/modern/lib/theme.xml"/>
+		<import src="ui/modern/lib/pause_tokens.xml"/>
+		<import src="ui/modern/lib/shapes.xml"/>
+		<import src="ui/modern/lib/controls.xml"/>
+		<import src="ui/modern/lib/sources.xml"/>
+		<import src="ui/modern/lib/pause_images.xml"/>
+		<templates>
+			<template id="pause-weapon-hit">
+				<button width="100%" height="fill"
+				        fill="{var.fill-transparent}" hoverfill="{var.fill-pause-hover}"
+				        color="{var.fill-transparent}" font="control" font-size="1px">
+					<on event="focus">
+						<set-cvar name="ui_weaponsign" value="{item.field.sign}"/>
+					</on>
+					<on event="click">
+						<set-cvar name="ui_om_cbuf" value="{item.field.cmd}"/>
+						<invoke name="cbuf"/>
+					</on>
+				</button>
+			</template>
+			<template id="pause-vote-row">
+				<button width="100%" height="32px" padding="0 8px"
+				        fill="{var.fill-transparent}" hoverfill="{var.fill-pause-hover}"
+				        color="{var.color-pause-gold}" font="control" font-size="{var.text-control}"
+				        halign="start" valign="center">
+					{item.label}
+					<on event="click">
+						<set-cvar name="ui_om_cbuf" value="{item.field.cmd}"/>
+						<invoke name="cbuf"/>
+					</on>
+				</button>
+			</template>
+		</templates>
+	</definitions>
+	<canvas pointer="1">
+		<!-- 640×480 virtual stage: 100% maps like UIFAKK vid/640 × vid/480. -->
+		<container id="pause_stage" type="overlap" width="100%" height="100%" fill="{var.fill-transparent}">
+
+			<!-- Retail URC outside-plaque dismiss zones. Root closes; submenus return to root. -->
+			<button width="100%" height="28.3333%" fill="{var.fill-transparent}" color="{var.fill-transparent}"
+			        visible="{cvar.ui_om_pause_panel == root}">
+				<on event="click"><set-cvar name="ui_om_cbuf" value="ui_close menu dm_pause"/><invoke name="cbuf"/></on>
+			</button>
+			<button width="100%" height="30%" margin="70% 0 0 0" fill="{var.fill-transparent}" color="{var.fill-transparent}"
+			        visible="{cvar.ui_om_pause_panel == root}">
+				<on event="click"><set-cvar name="ui_om_cbuf" value="ui_close menu dm_pause"/><invoke name="cbuf"/></on>
+			</button>
+			<button width="33.75%" height="41.6667%" margin="28.3333% 0 0 0" fill="{var.fill-transparent}" color="{var.fill-transparent}"
+			        visible="{cvar.ui_om_pause_panel == root}">
+				<on event="click"><set-cvar name="ui_om_cbuf" value="ui_close menu dm_pause"/><invoke name="cbuf"/></on>
+			</button>
+			<button width="33.75%" height="41.6667%" margin="28.3333% 0 0 66.25%" fill="{var.fill-transparent}" color="{var.fill-transparent}"
+			        visible="{cvar.ui_om_pause_panel == root}">
+				<on event="click"><set-cvar name="ui_om_cbuf" value="ui_close menu dm_pause"/><invoke name="cbuf"/></on>
+			</button>
+
+			<button width="100%" height="16.6667%" fill="{var.fill-transparent}" color="{var.fill-transparent}"
+			        visible="{cvar.ui_om_pause_panel == team and cvar.cg_gametype != 4}">
+				<on event="click"><set-cvar name="ui_om_cbuf" value="set ui_om_pause_panel root"/><invoke name="cbuf"/></on>
+			</button>
+			<button width="25%" height="63.3333%" margin="16.6667% 0 0 0" fill="{var.fill-transparent}" color="{var.fill-transparent}"
+			        visible="{cvar.ui_om_pause_panel == team and cvar.cg_gametype != 4}">
+				<on event="click"><set-cvar name="ui_om_cbuf" value="set ui_om_pause_panel root"/><invoke name="cbuf"/></on>
+			</button>
+			<button width="25%" height="63.3333%" margin="16.6667% 0 0 75%" fill="{var.fill-transparent}" color="{var.fill-transparent}"
+			        visible="{cvar.ui_om_pause_panel == team and cvar.cg_gametype != 4}">
+				<on event="click"><set-cvar name="ui_om_cbuf" value="set ui_om_pause_panel root"/><invoke name="cbuf"/></on>
+			</button>
+			<button width="100%" height="20%" margin="80% 0 0 0" fill="{var.fill-transparent}" color="{var.fill-transparent}"
+			        visible="{cvar.ui_om_pause_panel == team and cvar.cg_gametype != 4}">
+				<on event="click"><set-cvar name="ui_om_cbuf" value="set ui_om_pause_panel root"/><invoke name="cbuf"/></on>
+			</button>
+
+			<button width="100%" height="10%" fill="{var.fill-transparent}" color="{var.fill-transparent}"
+			        visible="{cvar.ui_om_pause_panel == team and cvar.cg_gametype == 4}">
+				<on event="click"><set-cvar name="ui_om_cbuf" value="set ui_om_pause_panel root"/><invoke name="cbuf"/></on>
+			</button>
+			<button width="25%" height="80%" margin="10% 0 0 0" fill="{var.fill-transparent}" color="{var.fill-transparent}"
+			        visible="{cvar.ui_om_pause_panel == team and cvar.cg_gametype == 4}">
+				<on event="click"><set-cvar name="ui_om_cbuf" value="set ui_om_pause_panel root"/><invoke name="cbuf"/></on>
+			</button>
+			<button width="25%" height="80%" margin="10% 0 0 75%" fill="{var.fill-transparent}" color="{var.fill-transparent}"
+			        visible="{cvar.ui_om_pause_panel == team and cvar.cg_gametype == 4}">
+				<on event="click"><set-cvar name="ui_om_cbuf" value="set ui_om_pause_panel root"/><invoke name="cbuf"/></on>
+			</button>
+			<button width="100%" height="10%" margin="90% 0 0 0" fill="{var.fill-transparent}" color="{var.fill-transparent}"
+			        visible="{cvar.ui_om_pause_panel == team and cvar.cg_gametype == 4}">
+				<on event="click"><set-cvar name="ui_om_cbuf" value="set ui_om_pause_panel root"/><invoke name="cbuf"/></on>
+			</button>
+
+			<button width="100%" height="20%" fill="{var.fill-transparent}" color="{var.fill-transparent}"
+			        visible="{cvar.ui_om_pause_panel == weapon}">
+				<on event="click"><set-cvar name="ui_om_cbuf" value="set ui_om_pause_panel root"/><invoke name="cbuf"/></on>
+			</button>
+			<button width="31.25%" height="58.3333%" margin="20% 0 0 0" fill="{var.fill-transparent}" color="{var.fill-transparent}"
+			        visible="{cvar.ui_om_pause_panel == weapon}">
+				<on event="click"><set-cvar name="ui_om_cbuf" value="set ui_om_pause_panel root"/><invoke name="cbuf"/></on>
+			</button>
+			<button width="31.25%" height="58.3333%" margin="20% 0 0 68.75%" fill="{var.fill-transparent}" color="{var.fill-transparent}"
+			        visible="{cvar.ui_om_pause_panel == weapon}">
+				<on event="click"><set-cvar name="ui_om_cbuf" value="set ui_om_pause_panel root"/><invoke name="cbuf"/></on>
+			</button>
+			<button width="100%" height="21.6667%" margin="78.3333% 0 0 0" fill="{var.fill-transparent}" color="{var.fill-transparent}"
+			        visible="{cvar.ui_om_pause_panel == weapon}">
+				<on event="click"><set-cvar name="ui_om_cbuf" value="set ui_om_pause_panel root"/><invoke name="cbuf"/></on>
+			</button>
+
+			<!-- ========== ROOT Escape (Pak0 dm_main: escmenu 216,136 208×200) ========== -->
+			<container id="pause_root_panel" type="overlap" width="32.5%" height="41.6667%"
+			           margin="28.3333% 0 0 33.75%" fill="{var.fill-transparent}"
+			           background-image="pause-escmenu" background-fit="stretch"
+			           visible="{cvar.ui_om_pause_panel == root}">
+				<!-- Hits relative to plaque (208×200). -->
+				<button id="pause_root_main" width="92.3077%" height="16%" margin="4% 0 0 3.8462%"
+				        fill="{var.fill-transparent}" hoverfill="{var.fill-pause-hover}" color="{var.fill-transparent}" font="control" font-size="1px">
+					<on event="click">
+						<set-cvar name="ui_om_cbuf" value="ui_close menu dm_pause;set ui_om_main_panel settings;pushmenu main"/>
+						<invoke name="cbuf"/>
+					</on>
+				</button>
+				<button width="92.3077%" height="16%" margin="20% 0 0 3.8462%"
+				        fill="{var.fill-transparent}" hoverfill="{var.fill-pause-hover}" color="{var.fill-transparent}" font="control" font-size="1px">
+					<on event="click">
+						<set-cvar name="ui_om_cbuf" value="set ui_om_pause_panel team"/>
+						<invoke name="cbuf"/>
+					</on>
+				</button>
+				<button width="92.3077%" height="16%" margin="36% 0 0 3.8462%"
+				        fill="{var.fill-transparent}" hoverfill="{var.fill-pause-hover}" color="{var.fill-transparent}" font="control" font-size="1px">
+					<on event="click">
+						<set-cvar name="ui_om_cbuf" value="set ui_om_pause_panel weapon"/>
+						<invoke name="cbuf"/>
+					</on>
+				</button>
+				<button width="92.3077%" height="16%" margin="52% 0 0 3.8462%"
+				        fill="{var.fill-transparent}" hoverfill="{var.fill-pause-hover}" color="{var.fill-transparent}" font="control" font-size="1px">
+					<on event="click">
+						<set-cvar name="ui_om_cbuf" value="ui_close menu dm_pause;set ui_om_main_panel play;pushmenu main"/>
+						<invoke name="cbuf"/>
+					</on>
+				</button>
+				<button width="92.3077%" height="16%" margin="68% 0 0 3.8462%"
+				        fill="{var.fill-transparent}" hoverfill="{var.fill-pause-hover}" color="{var.fill-transparent}" font="control" font-size="1px">
+					<on event="click">
+						<set-cvar name="ui_om_cbuf" value="spectator;ui_close menu dm_pause"/>
+						<invoke name="cbuf"/>
+					</on>
+				</button>
+				<button width="38.4615%" height="8%" margin="88% 0 0 30.7692%"
+				        fill="{var.fill-transparent}" hoverfill="{var.fill-pause-hover}" color="{var.fill-transparent}" font="control" font-size="1px">
+					<on event="click">
+						<set-cvar name="ui_om_cbuf" value="ui_close menu dm_pause"/>
+						<invoke name="cbuf"/>
+					</on>
+				</button>
+			</container>
+
+			<!-- ========== TEAM SelectTeam (160,80 320×304) ========== -->
+			<container id="pause_team_panel" type="overlap" width="50%" height="63.3333%"
+			           margin="16.6667% 0 0 25%" fill="{var.fill-transparent}"
+			           background-image="pause-selectteam" background-fit="stretch"
+			           visible="{cvar.ui_om_pause_panel == team and cvar.cg_gametype != 1 and cvar.cg_gametype != 4}">
+				<model id="team_allies_model" team="allies" anim="americanselectionidle"
+				       bind="cvar:ui_dm_playermodel_set"
+				       offset="60 12 0" angles="10 180 0" scale="1" framing-scale="1.15"
+				       width="62.5%" height="65.7895%" margin="13.1579% 0 0 2.5%" fill="{var.fill-transparent}"/>
+				<model id="team_axis_model" team="axis" anim="germanselectionidle"
+				       bind="cvar:ui_dm_playergermanmodel_set"
+				       offset="60 -12 0" angles="10 180 0" scale="1" framing-scale="1.15"
+				       width="62.5%" height="65.7895%" margin="13.1579% 0 0 35%" fill="{var.fill-transparent}"/>
+				<!-- Tall side hits -->
+				<button id="pause_team_allies" width="47.5%" height="78.9474%" margin="2.6316% 0 0 2.5%"
+				        fill="{var.fill-transparent}" hoverfill="{var.fill-divider}" color="{var.fill-transparent}" font="control" font-size="1px">
+					<on event="click">
+						<set-cvar name="ui_om_cbuf" value="join_team allies;ui_close menu dm_pause"/>
+						<invoke name="cbuf"/>
+					</on>
+				</button>
+				<button id="pause_team_axis" width="47.5%" height="78.9474%" margin="2.6316% 0 0 50%"
+				        fill="{var.fill-transparent}" hoverfill="{var.fill-divider}" color="{var.fill-transparent}" font="control" font-size="1px">
+					<on event="click">
+						<set-cvar name="ui_om_cbuf" value="join_team axis;ui_close menu dm_pause"/>
+						<invoke name="cbuf"/>
+					</on>
+				</button>
+				<!-- Bottom row: Allies / Auto / Axis / Cancel -->
+				<button width="20%" height="5.2632%" margin="84.2105% 0 0 7.5%"
+				        fill="{var.fill-transparent}" hoverfill="{var.fill-pause-hover}" color="{var.fill-transparent}" font="control" font-size="1px">
+					<on event="click">
+						<set-cvar name="ui_om_cbuf" value="join_team allies;ui_close menu dm_pause"/>
+						<invoke name="cbuf"/>
+					</on>
+				</button>
+				<button width="40%" height="5.2632%" margin="84.2105% 0 0 30%"
+				        fill="{var.fill-transparent}" hoverfill="{var.fill-pause-hover}" color="{var.fill-transparent}" font="control" font-size="1px">
+					<on event="click">
+						<set-cvar name="ui_om_cbuf" value="auto_join_team;ui_close menu dm_pause"/>
+						<invoke name="cbuf"/>
+					</on>
+				</button>
+				<button width="20%" height="5.2632%" margin="84.2105% 0 0 72.5%"
+				        fill="{var.fill-transparent}" hoverfill="{var.fill-pause-hover}" color="{var.fill-transparent}" font="control" font-size="1px">
+					<on event="click">
+						<set-cvar name="ui_om_cbuf" value="join_team axis;ui_close menu dm_pause"/>
+						<invoke name="cbuf"/>
+					</on>
+				</button>
+				<button width="30%" height="5.2632%" margin="92.1053% 0 0 35%"
+				        fill="{var.fill-transparent}" hoverfill="{var.fill-pause-hover}" color="{var.fill-transparent}" font="control" font-size="1px">
+					<on event="click">
+						<set-cvar name="ui_om_cbuf" value="set ui_om_pause_panel root"/>
+						<invoke name="cbuf"/>
+					</on>
+				</button>
+			</container>
+
+			<!-- ========== FFA SelectFFAModel (selectmodel art, same rects as team) ========== -->
+			<container type="overlap" width="50%" height="63.3333%"
+			           margin="16.6667% 0 0 25%" fill="{var.fill-transparent}"
+			           background-image="pause-selectmodel" background-fit="stretch"
+			           visible="{cvar.ui_om_pause_panel == team and cvar.cg_gametype == 1}">
+				<model id="ffa_allies_model" team="allies" anim="americanselectionidle"
+				       bind="cvar:ui_dm_playermodel_set"
+				       offset="60 12 0" angles="10 180 0" scale="1"
+				       width="62.5%" height="65.7895%" margin="13.1579% 0 0 2.5%" fill="{var.fill-transparent}"/>
+				<model id="ffa_axis_model" team="axis" anim="germanselectionidle"
+				       bind="cvar:ui_dm_playergermanmodel_set"
+				       offset="60 -12 0" angles="10 180 0" scale="1"
+				       width="62.5%" height="65.7895%" margin="13.1579% 0 0 35%" fill="{var.fill-transparent}"/>
+				<button width="47.5%" height="78.9474%" margin="2.6316% 0 0 2.5%"
+				        fill="{var.fill-transparent}" hoverfill="{var.fill-divider}" color="{var.fill-transparent}" font="control" font-size="1px">
+					<on event="click">
+						<set-cvar name="ui_om_cbuf" value="join_team allies;ui_close menu dm_pause"/>
+						<invoke name="cbuf"/>
+					</on>
+				</button>
+				<button width="47.5%" height="78.9474%" margin="2.6316% 0 0 50%"
+				        fill="{var.fill-transparent}" hoverfill="{var.fill-divider}" color="{var.fill-transparent}" font="control" font-size="1px">
+					<on event="click">
+						<set-cvar name="ui_om_cbuf" value="join_team axis;ui_close menu dm_pause"/>
+						<invoke name="cbuf"/>
+					</on>
+				</button>
+				<button width="20%" height="5.2632%" margin="84.2105% 0 0 17.5%"
+				        fill="{var.fill-transparent}" hoverfill="{var.fill-pause-hover}" color="{var.fill-transparent}" font="control" font-size="1px">
+					<on event="click">
+						<set-cvar name="ui_om_cbuf" value="join_team allies;ui_close menu dm_pause"/>
+						<invoke name="cbuf"/>
+					</on>
+				</button>
+				<button width="20%" height="5.2632%" margin="84.2105% 0 0 62.5%"
+				        fill="{var.fill-transparent}" hoverfill="{var.fill-pause-hover}" color="{var.fill-transparent}" font="control" font-size="1px">
+					<on event="click">
+						<set-cvar name="ui_om_cbuf" value="join_team axis;ui_close menu dm_pause"/>
+						<invoke name="cbuf"/>
+					</on>
+				</button>
+				<button width="30%" height="5.2632%" margin="92.1053% 0 0 35%"
+				        fill="{var.fill-transparent}" hoverfill="{var.fill-pause-hover}" color="{var.fill-transparent}" font="control" font-size="1px">
+					<on event="click">
+						<set-cvar name="ui_om_cbuf" value="set ui_om_pause_panel root"/>
+						<invoke name="cbuf"/>
+					</on>
+				</button>
+			</container>
+
+			<!-- ========== OBJ TEAM (160,48 320×384) ========== -->
+			<container type="overlap" width="50%" height="80%"
+			           margin="10% 0 0 25%" fill="{var.fill-transparent}"
+			           background-image="pause-objteam" background-fit="stretch"
+			           visible="{cvar.ui_om_pause_panel == team and cvar.cg_gametype == 4}">
+				<model id="obj_allies_model" team="allies" anim="americanselectionidle"
+				       bind="cvar:ui_dm_playermodel_set"
+				       offset="60 12 0" angles="10 180 0" scale="1"
+				       width="62.5%" height="52.0833%" margin="10.4167% 0 0 2.5%" fill="{var.fill-transparent}"/>
+				<model id="obj_axis_model" team="axis" anim="germanselectionidle"
+				       bind="cvar:ui_dm_playergermanmodel_set"
+				       offset="60 -12 0" angles="10 180 0" scale="1"
+				       width="62.5%" height="52.0833%" margin="10.4167% 0 0 35%" fill="{var.fill-transparent}"/>
+				<label width="47.5%" height="6.25%" margin="72.9167% 0 0 2.5%"
+				       color="{var.color-white}" font="control" font-size="{var.text-caption}" halign="center"
+				       bind="cvar:cg_obj_alliedtext1">{cvar.cg_obj_alliedtext1}</label>
+				<label width="47.5%" height="6.25%" margin="72.9167% 0 0 50%"
+				       color="{var.color-white}" font="control" font-size="{var.text-caption}" halign="center"
+				       bind="cvar:cg_obj_axistext1">{cvar.cg_obj_axistext1}</label>
+				<label width="47.5%" height="6.25%" margin="79.1667% 0 0 2.5%"
+				       color="{var.color-white}" font="control" font-size="{var.text-caption}" halign="center"
+				       bind="cvar:cg_obj_alliedtext2">{cvar.cg_obj_alliedtext2}</label>
+				<label width="47.5%" height="6.25%" margin="79.1667% 0 0 50%"
+				       color="{var.color-white}" font="control" font-size="{var.text-caption}" halign="center"
+				       bind="cvar:cg_obj_axistext2">{cvar.cg_obj_axistext2}</label>
+				<label width="47.5%" height="6.25%" margin="85.4167% 0 0 2.5%"
+				       color="{var.color-white}" font="control" font-size="{var.text-caption}" halign="center"
+				       bind="cvar:cg_obj_alliedtext3">{cvar.cg_obj_alliedtext3}</label>
+				<label width="47.5%" height="6.25%" margin="85.4167% 0 0 50%"
+				       color="{var.color-white}" font="control" font-size="{var.text-caption}" halign="center"
+				       bind="cvar:cg_obj_axistext3">{cvar.cg_obj_axistext3}</label>
+				<button width="47.5%" height="62.5%" margin="2.0833% 0 0 2.5%"
+				        fill="{var.fill-transparent}" hoverfill="{var.fill-divider}" color="{var.fill-transparent}" font="control" font-size="1px">
+					<on event="click">
+						<set-cvar name="ui_om_cbuf" value="join_team allies;ui_close menu dm_pause"/>
+						<invoke name="cbuf"/>
+					</on>
+				</button>
+				<button width="47.5%" height="62.5%" margin="2.0833% 0 0 50%"
+				        fill="{var.fill-transparent}" hoverfill="{var.fill-divider}" color="{var.fill-transparent}" font="control" font-size="1px">
+					<on event="click">
+						<set-cvar name="ui_om_cbuf" value="join_team axis;ui_close menu dm_pause"/>
+						<invoke name="cbuf"/>
+					</on>
+				</button>
+				<button width="20%" height="4.1667%" margin="66.6667% 0 0 7.5%"
+				        fill="{var.fill-transparent}" hoverfill="{var.fill-pause-hover}" color="{var.fill-transparent}" font="control" font-size="1px">
+					<on event="click">
+						<set-cvar name="ui_om_cbuf" value="join_team allies;ui_close menu dm_pause"/>
+						<invoke name="cbuf"/>
+					</on>
+				</button>
+				<button width="40%" height="4.1667%" margin="66.6667% 0 0 30%"
+				        fill="{var.fill-transparent}" hoverfill="{var.fill-pause-hover}" color="{var.fill-transparent}" font="control" font-size="1px">
+					<on event="click">
+						<set-cvar name="ui_om_cbuf" value="auto_join_team;ui_close menu dm_pause"/>
+						<invoke name="cbuf"/>
+					</on>
+				</button>
+				<button width="20%" height="4.1667%" margin="66.6667% 0 0 72.5%"
+				        fill="{var.fill-transparent}" hoverfill="{var.fill-pause-hover}" color="{var.fill-transparent}" font="control" font-size="1px">
+					<on event="click">
+						<set-cvar name="ui_om_cbuf" value="join_team axis;ui_close menu dm_pause"/>
+						<invoke name="cbuf"/>
+					</on>
+				</button>
+				<button width="30%" height="4.1667%" margin="93.75% 0 0 35%"
+				        fill="{var.fill-transparent}" hoverfill="{var.fill-pause-hover}" color="{var.fill-transparent}" font="control" font-size="1px">
+					<on event="click">
+						<set-cvar name="ui_om_cbuf" value="set ui_om_pause_panel root"/>
+						<invoke name="cbuf"/>
+					</on>
+				</button>
+			</container>
+
+			<!-- ========== WEAPON SelectPrimaryWeapon (200,96 240×280) ========== -->
+			<container id="pause_weapon_panel" type="overlap" width="37.5%" height="58.3333%"
+			           margin="20% 0 0 31.25%" fill="{var.fill-transparent}"
+			           background-image="pause-selectprimary" background-fit="stretch"
+			           visible="{cvar.ui_om_pause_panel == weapon}">
+				<label width="93.3333%" height="8.5714%" margin="8.5714% 0 0 3.3333%"
+				       fill="{var.fill-transparent}" background-image="{cvar.ui_weaponsign}" background-fit="contain"
+				       bind="cvar:ui_weaponsign" halign="center"/>
+				<container type="vertical" width="93.3333%" height="68.5714%"
+				           margin="20% 0 0 3.3333%" gap="0" fill="{var.fill-transparent}"
+				           source="pause-weapons">
+					<foreach mode="all" type="vertical" width="100%" height="100%" gap="0">
+						<!-- height=fill on <use> so foreach wrap inherits fill (template-only fill is invisible to CopyForeachTemplateLayout). -->
+						<use template="pause-weapon-hit" width="100%" height="fill"/>
+					</foreach>
+				</container>
+				<button width="33.3333%" height="5.7143%" margin="91.4286% 0 0 33.3333%"
+				        fill="{var.fill-transparent}" hoverfill="{var.fill-pause-hover}" color="{var.fill-transparent}" font="control" font-size="1px">
+					<on event="click">
+						<set-cvar name="ui_om_cbuf" value="set ui_om_pause_panel root"/>
+						<invoke name="cbuf"/>
+					</on>
+				</button>
+			</container>
+
+			<!-- ========== VOTE CALL / SUB ========== -->
+			<container type="vertical" width="52.5%" height="auto" gap="0"
+			           margin="15% 0 0 23.75%" fill="{var.fill-pause-panel}"
+			           visible="{cvar.ui_om_pause_panel == vote_call or cvar.ui_om_pause_panel == vote_sub}">
+				<label width="100%" height="24px" padding="0 8px" fill="{var.fill-pause-header}"
+				       color="{var.color-pause-gold}" font="control" font-size="{var.text-control}" valign="center"
+				       visible="{cvar.ui_om_pause_panel == vote_call}">Select the vote to call</label>
+				<label width="100%" height="24px" padding="0 8px" fill="{var.fill-pause-header}"
+				       color="{var.color-pause-gold}" font="control" font-size="{var.text-control}" valign="center"
+				       visible="{cvar.ui_om_pause_panel == vote_sub}"
+				       bind="cvar:ui_votesubtitle">{cvar.ui_votesubtitle}</label>
+				<container type="vertical" width="100%" height="auto" gap="0" padding="8px"
+				           source="vote-options" fill="{var.fill-transparent}">
+					<foreach mode="all">
+						<use template="pause-vote-row"/>
+					</foreach>
+				</container>
+				<button width="100%" height="32px" padding="0 8px"
+				        fill="{var.fill-pause-button}" hoverfill="{var.fill-pause-hover}"
+				        color="{var.color-pause-gold}" font="control" font-size="{var.text-body}">
+					Back
+					<on event="click">
+						<set-cvar name="ui_om_cbuf" value="set ui_om_pause_panel root"/>
+						<invoke name="cbuf"/>
+					</on>
+				</button>
+			</container>
+
+			<!-- ========== VOTE ENTRY ========== -->
+			<container type="vertical" width="52.5%" height="auto" gap="8px" padding="12px"
+			           margin="20% 0 0 23.75%" fill="{var.fill-pause-panel}"
+			           visible="{cvar.ui_om_pause_panel == vote_entry}">
+				<label width="100%" height="24px" color="{var.color-pause-gold}" font="control" font-size="{var.text-control}"
+				       bind="cvar:ui_votesubtitle">{cvar.ui_votesubtitle}</label>
+				<input type="text" width="100%" height="auto" padding="8px"
+				       bind="cvar:ui_votestringentry" commit="change" max-length="64"
+				       fill="{var.fill-input}" color="{var.color-pause-gold}" font="body" font-size="{var.text-body}"/>
+				<button width="100%" height="32px" fill="{var.fill-pause-button-strong}" hoverfill="{var.fill-pause-hover-chip}"
+				        color="{var.color-pause-gold}" font="control" font-size="{var.text-body}">
+					Submit Vote
+					<on event="click">
+						<set-cvar name="ui_om_cbuf" value="callentryvote;ui_close menu dm_pause"/>
+						<invoke name="cbuf"/>
+					</on>
+				</button>
+				<button width="100%" height="32px" fill="{var.fill-pause-button}" hoverfill="{var.fill-pause-hover}"
+				        color="{var.color-pause-gold}" font="control" font-size="{var.text-body}">
+					Back
+					<on event="click">
+						<set-cvar name="ui_om_cbuf" value="pushcallvote"/>
+						<invoke name="cbuf"/>
+					</on>
+				</button>
+			</container>
+
+			<!-- ========== VOTE CAST ========== -->
+			<container type="vertical" width="52.5%" height="auto" gap="8px" padding="12px"
+			           margin="25% 0 0 23.75%" fill="{var.fill-pause-panel-alt}"
+			           visible="{cvar.ui_om_pause_panel == vote_cast}">
+				<label width="100%" height="24px" color="{var.color-pause-gold}" font="control" font-size="{var.text-control}"
+				       bind="cvar:ui_votesubtitle">{cvar.ui_votesubtitle}</label>
+				<label width="100%" color="{var.color-pause-gold}" font="control" font-size="{var.text-body}">Cast your vote:</label>
+				<container type="horizontal" width="100%" height="auto" gap="8px" source="pause-vote-cast">
+					<foreach mode="all" type="horizontal" width="100%" height="auto" gap="8px">
+						<button width="fill" height="32px"
+						        fill="{var.fill-pause-button-strong}" hoverfill="{var.fill-pause-hover-chip}"
+						        color="{var.color-pause-gold}" font="control" font-size="{var.text-body}"
+						        halign="center" valign="center">
+							{item.label}
+							<on event="click">
+								<set-cvar name="ui_om_cbuf" value="{item.field.cmd}"/>
+								<invoke name="cbuf"/>
+							</on>
+						</button>
+					</foreach>
+				</container>
+			</container>
+
+		</container>
+	</canvas>
+</ui>

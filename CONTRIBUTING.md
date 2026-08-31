@@ -1,191 +1,54 @@
-# Contributing guidelines
+# Contributing to Project: Omaha
 
-Whether you're reporting issues or coding, follow the guidelines below to help keep the project consistent and maintainable.
+All contributions (issues, discussions, code comments, commit messages, documentation) must be written in **English**.
 
-All contributions, including **issues**, **discussions**, **code comments**, **commit messages**, and **documentation**, must be written in *English*. This ensures clarity and consistency for all contributors.
+## Scope of this fork
 
-There are many ways to contribute. Contributions are welcome in the following areas:
-- Fixing [bugs and crashes](#issues).
-- Documentation improvements
-- Performance improvements
-- Testing
-- Helping users (issues, discussions)
-- Suggesting enhancements (via issues only)
+Project: Omaha is an **independent** client-focused fork. It is not the official OpenMoHAA project and will not be contributed upstream as a matter of course.
 
-New features are designed and implemented by maintainers, so the project's direction and maintenance burden stay consistent.
+- Prefer **stock-server-compatible client** changes (`code/client/`, `code/cgame/`, UI, renderer). Do not change `code/server/` or `code/fgame/` unless the task explicitly overrides that rule.
+- Keep retail MOHAA net/assets/scripts/SP compatibility unless the change intentionally alters them.
 
-If you want to propose a new feature, please open an issue first.
+## Generative AI
 
-Do not start implementing a new feature before getting approval. Pull requests that introduce unapproved features may be closed without review.
+**Allowed in this repository.** AI-authored and AI-assisted code, docs, commits, and refactors are permitted.
 
----
+Upstream OpenMoHAA’s “no generative AI” policy applies to **their** repository only. Do **not** submit Omaha AI-assisted work to official OpenMoHAA as if it met their policy.
+
+## Forking / licensing (hard requirements)
+
+This tree is a **GPL-2+** derivative. See [`COPYING.txt`](COPYING.txt).
+
+| Requirement | Rule |
+| --- | --- |
+| Notices | Keep copyright and license notices intact on inherited files (Id, OpenMoHAA, ioquake3, third-party). |
+| Same license | New and modified Omaha code stays GPL-2+ (or later, matching in-tree wording). No proprietary relicensing. |
+| Change notice | On inherited files you edit, prefer `// Added\|Changed\|Fixed\|Removed in OPM` (or equivalent). Do not replace upstream copyright lines with Omaha-only credit. |
+| License text | Keep `COPYING.txt` and third-party licenses with redistributed binaries. |
+| Source | Binary recipients must get corresponding source (this tree) or a written offer. |
+| No false endorsement | Do not claim to be official OpenMoHAA or endorsed by the OpenMoHAA team / EA. |
+| Third-party | Do not rebrand or rewrite third-party LICENSE files. |
+
+New fork-owned files use the Project: Omaha header template: [`docs/markdown/05-contributing/01-license-header.md`](docs/markdown/05-contributing/01-license-header.md).
+
+## Coding style
+
+Match the file you edit. Prefer existing patterns over new abstractions.
+
+- Annotate meaningful Omaha changes: `// Added|Changed|Fixed|Removed in OPM`.
+- Format touched modern C++ with clang-format; do not mass-reformat tabbed legacy files.
+- English comments only; no `// @Author` tags.
+- See `.cursor/skills/openmohaa/SKILL.md` for architecture and module boundaries.
+
+Further inherited style notes (Event layout, Class patterns) remain useful in:
+
+- `docs/markdown/04-coding/01-code/01-creating-class.md`
+- Upstream-oriented sections of older docs (treat product name “OpenMoHAA” there as historical unless updated)
 
 ## Issues
 
-Before opening a new issue:
-1. Make sure you're running the [latest development version](https://github.com/openmoh/openmohaa/releases/tag/dev).
-2. Check if the issue already exists.
+When reporting bugs, include:
 
-When filing an issue, include as much detail as possible, this helps reproducing and fixing the problem effectively:
-- Clear description of the bug.
-- Steps to reproduce.
-- Log file (`qconsole.log`) and crash output if applicable:
-    - Attach the relevant log file.
-    - For crashes, paste the console output that includes the backtrace.
-- Operating System and version. Example: `Debian 13`.
-- Full game version. Example: `0.70.0-alpha+0.0b1a20dcf win_msvc64-x86_64-debug`. The version is obtained at the start of the log file, or by executing the `version` command in console.
-
-## Usage of generative AI / Large language models
-
-### Policy
-
-This project requires that all contributions be human-authored.
-
-Do not submit any code, documentation, issues, pull requests, commit messages or comments that are generated using AI or similar assistive tools (such as Microsoft Copilot, Anthropic Claude, ChatGPT...).
-
-- **No AI-derived patches**. If the change was proposed by an AI, it must not be ported over "by hand". If the idea came from AI, treat is as untrusted and do your own independent implementation.
-- **No AI-assisted refactors**. Mass rewrites, LLM-based formatting, or modernization are not accepted.
-- **Enforcement**. Maintainers may request clarification. PRs suspected of AI involvement may be rejected or reverted, and may lead to a ban.
-
-#### Acceptable uses
-
-- **Non-generative tools** are allowed: static analyzers, formatters, linters, sanitizers, fuzzers and IDE features are fine as long they do not generate code.
-- **Translation tools** to help communicating between people.
-
-### Reasoning
-
-This policy exists due to:
-- **Copyright and licensing risk**. The origin of the outputs may be unclear as these tools plagiarize the original sources without permission.
-- **Security and authenticity**. AI produces plausible code but may often look wrong. This could work, but would turn into undefined behavior, vulnerabilities, or time spent in a debugger.
-- **Maintability**. Changes must be explainable and reviewable. Humans can explain tradeoffs they consciously accepted. Generated code can't. If you can't explain why a specific line exists, it shouldn't be proposed at all.
-- **Respect for maintainers**. Submitting contributions generated by these tools waste maintainers resources to review them.
-
-### Responsibility
-
-When submitting, you agree that:
-
-- The submission **complies with this policy**. Changes must be able to be explained and justified during review.
-- The submission **can be declined** if it is **suspected to use AI** or is raising reviewability concerns.
-
-## Coding
-
-### Compatibility
-
-All changes must stay retro-compatible with the original game:
-- Assets must be loaded correctly.
-- Changes related to networking must be compatible with existing MOHAA clients and servers, these changes must not cause an error/disconnect.
-- Scripts/mods must remain functional.
-- The singleplayer campaign must be fully playable.
-
-### Coding style & Guidelines
-
-- Match the existing code style in any files you modify.
-- Avoid personal tags or author comments (.e.g., `// @Name: note`). Git already tracks authorship.
-- Ensure the code builds successfully using CI.
-- Use **camelCase** notation for all variables, and **PascalCase** notation for functions. Even if some existing code doesn't.
-- Format code using `clang-format`.
-    - In VSCode from the command palette: **Format document**
-
-### Event declaration
-
-When declaring a new Event, use the following structure:
-```cpp
-Event EV_YourEventName  // Pascal Case naming convention
-(
-    "name",             // Each parameter on a new line
-    flags,
-    "format specifiers...",
-    "argument names...",
-    "description"
-);
-```
-
-### Code annotations
-
-When modifying existing code from the original game or adding new classes, annotate your changes using one of the following patterns:
-
-#### Additions
-
-```cpp
-// Added in OPM
-//  Description
-```
-
-#### Changes
-
-```cpp
-// Changed in OPM
-//  Description
-```
-
-#### Fixes
-
-```cpp
-// Fixed in OPM
-//  Description
-```
-
-#### Removal
-
-```cpp
-// Removed in OPM
-//  Description
-```
-
-If referencing a specific game version, replace OPM with that version number. Example:
-```cpp
-// Added in 2.11
-//  Make sure to clean turret stuff up
-//  when the player is deleted
-```
-Known versions are `1.00`, `1.10`, `1.11`, `2.0`, `2.1`, `2.11`, `2.15`, `2.30`, `2.40`.
-
-You can also group multiple related functions like this:
-```cpp
-// Added in OPM
-//====
-void Function1();
-void Function2();
-void Function3();
-//====
-```
-
-For new source files, include the annotation after the license notice.
-
-### Source files
-
-- Always put the license notice as the header of the file (template [here](docs/markdown/05-contributing/01-license-header.md)).
-- Only `#include` what's necessary.
-- Each source file should contain related classes and functions.
-
----
-
-## Pull Requests
-
-Pull Requests are the preferred way of submitting code changes.
-
-### Before you start
-
-1. **Discuss major changes first**: open an issue or discuss about it.
-2. **Create a branch** based on the `main` branch (you shouldn't commit directly on `main`)
-3. **Keep PRs as small as possible and focused**: One clear purpose per PR.
-
-### Submitting a PR
-
-- Target the correct branch (usually `main`).
-- Add a short and clear description of what you changed and why.
-- Reference matching issues (e.g. `Fixes #123`).
-- Make sure your code builds and passes tests.
-- Test locally to ensure your changes don't break functionality or compatibility.
-
-### Reviews
-
-- Maintainers may ask for tweaks or commit changes directly to your PR, that's normal.
-- Stay polite and technical.
-- Once approved, your changes will be merged.
-
-### Additional Notes
-
-- Contributions follow the same license as the project.
-- Keep things consistent with existing code and docs.
-- If you're unsure about anything, you can discuss it on Discord via [this link](https://discord.gg/NYtH58R).
+- Clear description and steps to reproduce
+- Relevant `qconsole.log` / crash backtrace
+- OS and full `version` console string (should show **Project: Omaha**)

@@ -1,0 +1,56 @@
+<ui version="1">
+	<definitions>
+		<import src="ui/modern/lib/theme.xml"/>
+		<import src="ui/modern/lib/shapes.xml"/>
+		<defaults type="vertical" width="100%" height="100%"
+		          halign="center" valign="center"
+		          padding="0" margin="0" gap="0"
+		          overflow="none" fill="{var.fill-transparent}"
+		          shape="rectangle" font="body"
+		          font-size="{var.text-caption}" font-weight="400"
+		          visible="true" enabled="true"/>
+
+		<templates>
+			<template id="vertical-input">
+				<props>
+					<prop name="label" type="string" required="true"/>
+					<prop name="bind" type="binding" required="true"/>
+				</props>
+				<container type="vertical" width="{parent.width}" height="{parent.height}">
+					<label width="fill">{template.label}</label>
+					<input type="number" bind="{template.bind}"/>
+				</container>
+			</template>
+		</templates>
+	</definitions>
+
+	<canvas>
+		<container id="main" type="vertical" width="100%" height="100%">
+			<button id="open-settings">
+				Settings
+				<on event="click">
+					<set target="settings" property="visible" value="true"/>
+					<set target="play" property="visible" value="false"/>
+				</on>
+			</button>
+			<container id="play" type="vertical" width="100%" height="fill" visible="true">
+				<label>Play</label>
+			</container>
+			<container id="settings" type="vertical" width="100%" height="fill" visible="false" gap="8px">
+				<use id="fov-setting" template="vertical-input"
+				     label="Field of view" bind="cvar:cg_fov"
+				     width="150px" height="84px"/>
+				<slider bind="cvar:cg_fov" min="60" max="120" step="1"/>
+				<toggle bind="cvar:r_fullscreen"/>
+				<select bind="cvar:r_mode" source="video-modes"/>
+				<keybind binding="+forward"/>
+				<button id="apply-video">
+					Apply
+					<on event="click">
+						<invoke name="apply-video"/>
+					</on>
+				</button>
+			</container>
+		</container>
+	</canvas>
+</ui>
