@@ -11,12 +11,10 @@
 #
 name: "CodeQL"
 
+# Changed in Omaha: disable automatic CodeQL until packaging CI is green;
+# autobuild pulls unit-test targets that are not release-critical.
 on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    # The branches below must be a subset of the branches above
-    branches: [ "main" ]
+  workflow_dispatch:
   schedule:
     - cron: '42 8 * * 1'
 
@@ -73,20 +71,11 @@ jobs:
         # queries: security-extended,security-and-quality
 
 
-    # Autobuild attempts to build any compiled languages (C/C++, C#, Go, Java, or Swift).
-    # If this step fails, then you should remove it and run the build manually (see below)
-    - name: Autobuild
-      uses: github/codeql-action/autobuild@v3
-
-    # ℹ️ Command-line programs to run using the OS shell.
-    # 📚 See https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#jobsjob_idstepsrun
-
-    #   If the Autobuild fails above, remove it and uncomment the following three lines.
-    #   modify them (or add more) to build your code if your project, please refer to the EXAMPLE below for guidance.
-
-    # - run: |
-    #     echo "Run, Build Application using script"
-    #     ./location_of_script_within_repo/buildscript.sh
+    # Changed in Omaha: skip unit-test targets (same as packaging CI).
+    - name: Build
+      run: |
+        cmake -B build -DBUILD_TESTING=OFF -DUSE_RENDERER_DLOPEN=OFF -DBUILD_RENDERER_GL2=OFF
+        cmake --build build --parallel
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v3

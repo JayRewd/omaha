@@ -49,6 +49,7 @@ set(UID_BENCH_SOURCES
     ${LIBTESS2_SOURCES}
     ${SOURCE_DIR}/uirender/uir_menu_map_view.c
     ${SOURCE_DIR}/uirender/tests/uir_modelpreview_stub.c
+    ${SOURCE_DIR}/uirender/tests/uir_menuworld_stub.c
     ${SOURCE_DIR}/qcommon/q_shared.c
 )
 

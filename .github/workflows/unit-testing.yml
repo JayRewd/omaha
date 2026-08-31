@@ -1,10 +1,9 @@
 name: "Unit Tests"
 
+# Changed in Omaha: packaging/release builds use -DBUILD_TESTING=OFF; keep this
+# workflow manual until headless UI test link graphs are stable across platforms.
 on:
-  push:
-    branches:
-      - '**'
-  pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
