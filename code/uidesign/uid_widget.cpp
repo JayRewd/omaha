@@ -42,6 +42,11 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include <string>
 #include <vector>
 
+/* Fixed in Omaha: MSVC <cmath> does not define M_PI without _USE_MATH_DEFINES. */
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 namespace {
 
 bool IsPaintKind(uid_node_kind_t kind)

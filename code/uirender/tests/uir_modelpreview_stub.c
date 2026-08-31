@@ -23,11 +23,12 @@ source tree, or write to the Free Software Foundation, Inc.,
 */
 
 /*
- * Added in Omaha: headless stub for UI design/bench targets that link
- * uir_compositor without the full model-preview backend.
+ * Added in Omaha: headless stubs for UI design/bench targets that link
+ * uir_compositor without full model-preview / menu-world backends.
  */
 
 #include "../uir_modelpreview.h"
+#include "../uir_menuworld.h"
 
 void UIR_ModelPreviewSetBackend(const uir_modelpreview_backend_t *backend)
 {
@@ -38,5 +39,12 @@ uir_status_t UIR_ModelPreviewDraw(const uir_rect_t *destPx, const uir_model_prev
 {
 	(void)destPx;
 	(void)params;
+	return UIR_OK;
+}
+
+uir_status_t UIR_MenuWorldDraw(const uir_rect_t *destPx, int realtime)
+{
+	(void)destPx;
+	(void)realtime;
 	return UIR_OK;
 }

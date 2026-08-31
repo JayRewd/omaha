@@ -47,7 +47,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include <cstdlib>
 #include <cstring>
 
-/* Stub for q_shared Q_strncpyz used by kill-feed classify in this test binary. */
+/* Stubs for q_shared helpers used by this headless test binary. */
 extern "C" void Com_Error(int code, const char *fmt, ...)
 {
 	va_list args;
@@ -57,6 +57,11 @@ extern "C" void Com_Error(int code, const char *fmt, ...)
 	va_end(args);
 	std::fputc('\n', stderr);
 	std::abort();
+}
+
+extern "C" void Com_Printf(const char *fmt, ...)
+{
+	(void)fmt;
 }
 
 #include "../uirender/uir_menu_map_view.h"

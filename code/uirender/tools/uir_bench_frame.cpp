@@ -43,6 +43,11 @@ void QDECL Com_Error(int level, const char *error, ...)
 	(void)level;
 	(void)error;
 }
+
+/* Fixed in Omaha: draw2d/batch call this; compositor is not linked into the bench. */
+void UIR_InvalidateAppliedClip(void)
+{
+}
 }
 
 static int g_boxDrawCount = 0;

@@ -2,6 +2,8 @@
 # Headless menu/HUD frame benchmark for modern UI (Stage 0+)
 #
 
+include(libraries/libtess2)
+
 set(UID_BENCH_SOURCES
     ${SOURCE_DIR}/uidesign/tools/uid_bench_menu.cpp
     ${SOURCE_DIR}/client/cl_killfeed_classify.cpp
@@ -43,6 +45,8 @@ set(UID_BENCH_SOURCES
     ${SOURCE_DIR}/uirender/uir_meshcache.c
     ${SOURCE_DIR}/uirender/uir_pathcache.c
     ${SOURCE_DIR}/uirender/uir_batch.c
+    ${SOURCE_DIR}/uirender/uir_tess.c
+    ${LIBTESS2_SOURCES}
     ${SOURCE_DIR}/uirender/uir_menu_map_view.c
     ${SOURCE_DIR}/uirender/tests/uir_modelpreview_stub.c
     ${SOURCE_DIR}/qcommon/q_shared.c
@@ -56,6 +60,7 @@ target_include_directories(uid_bench_menu PRIVATE
     ${SOURCE_DIR}/qcommon
     ${SOURCE_DIR}/client
     ${SOURCE_DIR}/thirdparty/tinyxml2
+    ${LIBTESS2_INCLUDES}
 )
 
 target_compile_features(uid_bench_menu PRIVATE cxx_std_17)

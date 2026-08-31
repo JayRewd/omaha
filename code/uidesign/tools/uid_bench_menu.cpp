@@ -43,6 +43,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -50,6 +51,19 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include <set>
 #include <string>
 #include <vector>
+
+/* Stubs for q_shared helpers used by this headless bench binary. */
+extern "C" void Com_Error(int code, const char *fmt, ...)
+{
+	(void)code;
+	(void)fmt;
+	std::abort();
+}
+
+extern "C" void Com_Printf(const char *fmt, ...)
+{
+	(void)fmt;
+}
 
 #ifndef UID_TEST_FIXTURE_DIR
 #define UID_TEST_FIXTURE_DIR "assets/main/ui/modern"
