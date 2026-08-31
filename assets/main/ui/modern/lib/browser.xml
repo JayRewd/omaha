@@ -6,7 +6,7 @@
 				<prop name="column" type="string" required="true"/>
 				<prop name="width" type="string" required="true"/>
 			</props>
-			<button type="horizontal" width="{template.width}" height="100%" padding="0 4px" gap="4px"
+			<button type="horizontal" width="{template.width}" height="100%" padding="0" gap="4px"
 			        fill="{var.fill-transparent}" hoverfill="{var.fill-chip}" halign="start" valign="center">
 				<label font="control" font-size="{var.text-body}" color="{var.color-muted}">{template.label}</label>
 				<container width="10px" height="12px" visible="{cvar.ui_om_browser_sort == {template.column}}">
@@ -62,7 +62,9 @@
 					</container>
 					<container type="vertical" width="100%" height="fill" overflow="scroll" scrollbar="scrollbar-default">
 						<foreach mode="window" row-height="36px">
-							<container type="horizontal" width="100%" height="36px" padding="0 8px" valign="center">
+							<!-- Fixed in Omaha: column % must be siblings of the favorite cell (same parent as header). -->
+							<container type="horizontal" width="100%" height="36px" padding="0 8px" valign="center"
+							           fill="{item.selected ? #1A6FD448 : var.fill-transparent}">
 								<button width="5%" height="100%" padding="0"
 								        fill="{var.fill-transparent}" hoverfill="{var.fill-chip}"
 								        halign="center" valign="center">
@@ -73,17 +75,48 @@
 										<invoke name="toggle-server-favorite"/>
 									</on>
 								</button>
-								<button type="horizontal" width="fill" height="100%" padding="0"
+								<button type="horizontal" width="35%" height="100%" padding="0"
 								        set-index="{item.index}" valign="center"
-								        fill="{item.selected ? #1A6FD448 : var.fill-transparent}"
-								        hoverfill="{var.fill-hover-ghost}" pressed-fill="{var.color-accent}">
+								        fill="{var.fill-transparent}" hoverfill="{var.fill-hover-ghost}"
+								        pressed-fill="{var.color-accent}">
 									<on event="dblclick"><invoke name="join-selected"/></on>
-									<label width="35%" font="control" font-size="{var.text-control}" color="{var.color-primary}">{item.field.name}</label>
-									<label width="15%" font="control" font-size="{var.text-control}" color="{var.color-primary}">{item.field.map}</label>
-									<label width="10%" font="control" font-size="{var.text-control}" color="{var.color-primary}">{item.field.players}</label>
-									<label width="15%" font="control" font-size="{var.text-control}" color="{var.color-primary}">{item.field.gametype}</label>
-									<label width="8%" font="control" font-size="{var.text-control}" color="{var.color-primary}">{item.field.ping}</label>
-									<label width="12%" font="control" font-size="{var.text-body}" color="{var.color-muted}">{item.value}</label>
+									<label width="100%" text-overflow="ellipsis"
+									       font="control" font-size="{var.text-control}" color="{var.color-primary}">{item.field.name}</label>
+								</button>
+								<button type="horizontal" width="15%" height="100%" padding="0"
+								        set-index="{item.index}" valign="center"
+								        fill="{var.fill-transparent}" hoverfill="{var.fill-hover-ghost}"
+								        pressed-fill="{var.color-accent}">
+									<on event="dblclick"><invoke name="join-selected"/></on>
+									<label width="100%" font="control" font-size="{var.text-control}" color="{var.color-primary}">{item.field.map}</label>
+								</button>
+								<button type="horizontal" width="10%" height="100%" padding="0"
+								        set-index="{item.index}" valign="center"
+								        fill="{var.fill-transparent}" hoverfill="{var.fill-hover-ghost}"
+								        pressed-fill="{var.color-accent}">
+									<on event="dblclick"><invoke name="join-selected"/></on>
+									<label width="100%" font="control" font-size="{var.text-control}" color="{var.color-primary}">{item.field.players}</label>
+								</button>
+								<button type="horizontal" width="15%" height="100%" padding="0"
+								        set-index="{item.index}" valign="center"
+								        fill="{var.fill-transparent}" hoverfill="{var.fill-hover-ghost}"
+								        pressed-fill="{var.color-accent}">
+									<on event="dblclick"><invoke name="join-selected"/></on>
+									<label width="100%" font="control" font-size="{var.text-control}" color="{var.color-primary}">{item.field.gametype}</label>
+								</button>
+								<button type="horizontal" width="8%" height="100%" padding="0"
+								        set-index="{item.index}" valign="center"
+								        fill="{var.fill-transparent}" hoverfill="{var.fill-hover-ghost}"
+								        pressed-fill="{var.color-accent}">
+									<on event="dblclick"><invoke name="join-selected"/></on>
+									<label width="100%" font="control" font-size="{var.text-control}" color="{var.color-primary}">{item.field.ping}</label>
+								</button>
+								<button type="horizontal" width="12%" height="100%" padding="0"
+								        set-index="{item.index}" valign="center"
+								        fill="{var.fill-transparent}" hoverfill="{var.fill-hover-ghost}"
+								        pressed-fill="{var.color-accent}">
+									<on event="dblclick"><invoke name="join-selected"/></on>
+									<label width="100%" font="control" font-size="{var.text-body}" color="{var.color-muted}">{item.value}</label>
 								</button>
 							</container>
 						</foreach>

@@ -408,6 +408,14 @@ Examples: `assets/main/ui/modern/examples/layout_lab.xml`, `layout_lab_nested.xm
 
 No-op when text fits, when speed is 0, or when `text-wrap="word"`. Driven by `doc->updateTimeMs` (no layout dirty each frame).
 
+**Text overflow** — paint-time ellipsis when a single-line label exceeds its content box:
+
+| Attr | Values |
+|------|--------|
+| `text-overflow` | `none` (default), `ellipsis` |
+
+Shortens the drawn string so `prefix + "..."` fits via `fontMeasure` (same letter-spacing as paint). No-op when text fits; skipped when `marquee` is active or `text-wrap="word"` / multiline. Layout width unchanged. Opt-in only (not inherited). Currently used on the server browser name column.
+
 At **template expand**, any `template.*` / resolvable `parent.*` idents inside those `{expr}` forms (and inside brace-stripped style/bool ternary bodies) are replaced with numeric literals so the leftover runtime expr only needs `cvar.*` / `item.*`.
 
 `background-image` accepts exact cvar substitution only; use `{item.field.texture}` substituted at foreach expand for per-weapon paths.

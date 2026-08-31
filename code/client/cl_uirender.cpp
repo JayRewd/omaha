@@ -2497,7 +2497,9 @@ static int uid_fill_display_refresh(
 }
 
 typedef struct {
-	char        key[16];
+	/* Fixed in Omaha: key must be stable (ip), not visible index — foreach bakes
+	 * click actions at expand; positional keys leave stale favorite targets after sort. */
+	char        key[64];
 	char        value[64];
 	char        label[UIR_BROWSER_NAME_LEN];
 	char        fav[8];
@@ -2626,7 +2628,7 @@ static int uid_query_collection_servers(
 		const uir_browser_row_t *row = &g_browserRows[rowId];
 		uid_server_collection_slot_t *slot = &slots[written];
 
-		Com_sprintf(slot->key, sizeof(slot->key), "%d", i);
+		Q_strncpyz(slot->key, row->ip, sizeof(slot->key));
 		Q_strncpyz(slot->value, row->ip, sizeof(slot->value));
 		Q_strncpyz(slot->label, row->name, sizeof(slot->label));
 		Q_strncpyz(slot->fav, row->favorite ? "*" : "o", sizeof(slot->fav));

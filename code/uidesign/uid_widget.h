@@ -51,6 +51,19 @@ bool UID_ResolveTextColor(const uid_document_t *doc, uid_node_id_t id, uid_color
 /* Display text: runtime value, else edit buffer / node text. */
 std::string UID_NodeDisplayText(const uid_document_t *doc, uid_node_id_t id);
 
+/*
+ * Added in Omaha: shorten text so Measure(prefix + "...") fits maxWidth (paint-time
+ * text-overflow=ellipsis). Returns text unchanged when it already fits. tracking is
+ * the same letter-spacing used by label paint (0 when unused).
+ */
+std::string UID_EllipsizeToWidth(
+	const char *text,
+	float maxWidth,
+	void *font,
+	const uid_backend_t *backend,
+	float tracking
+);
+
 /* Paint one node's background/shape into the border box (no children). */
 void UID_PaintNodeBackground(uid_document_t *doc, uid_node_id_t id, const uid_backend_t *backend, float opacityMul = 1.0f);
 

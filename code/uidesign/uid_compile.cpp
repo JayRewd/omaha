@@ -389,6 +389,14 @@ bool ValidateKnownAttrs(uid_diag_list_t *diags, const uid_node_def_t &node)
 				}
 				ok = false;
 			}
+		} else if (name == "text-overflow") {
+			/* Added in Omaha: paint-time ellipsis for single-line labels. */
+			if (!LooksDeferredExpr(value) && value != "none" && value != "ellipsis") {
+				if (diags) {
+					diags->Error(node.source, "text-overflow must be none or ellipsis");
+				}
+				ok = false;
+			}
 		} else if (name == "line-height") {
 			if (!LooksDeferredExpr(value)) {
 				uid_length_t len;

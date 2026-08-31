@@ -240,6 +240,8 @@ bool IsCommonBoxAttr(const std::string &name)
 		"drop-shadow",
 		/* Added in OPM: paint-time marquee on labels (clip via parent overflow=hidden). */
 		"marquee", "marquee-speed", "marquee-gap", "marquee-delay",
+		/* Added in Omaha: paint-time single-line ellipsis when text overflows content box. */
+		"text-overflow",
 		"visible", "enabled",
 		"text-cvar", "modal-role"
 	};

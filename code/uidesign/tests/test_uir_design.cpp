@@ -10870,6 +10870,98 @@ static void TestMarqueeLabelPaint(void)
 	UID_DestroyDocument(doc);
 }
 
+/* Added in Omaha: text-overflow=ellipsis shortens overflowing single-line labels. */
+static void TestTextOverflowEllipsis(void)
+{
+	static const char *kDoc = R"(
+<ui version="1">
+  <definitions>
+    <defaults type="vertical" width="100%" height="100%"/>
+    <fonts><font id="control" src="fonts/x.ttf" weight="600"/></fonts>
+  </definitions>
+  <canvas>
+    <container type="vertical" width="100%" height="100%" gap="8px">
+      <label id="trunc" width="80px" height="24px" font="control" font-size="14px"
+             text-overflow="ellipsis">ABCDEFGHIJKLMNOPQRSTUVWXYZ</label>
+      <label id="fits" width="400px" height="24px" font="control" font-size="14px"
+             text-overflow="ellipsis">Hi</label>
+    </container>
+  </canvas>
+</ui>
+)";
+	uid_limits_t lim;
+	UID_DefaultLimits(&lim);
+	uid_document_t *doc = UID_CreateDocument();
+	uid_diag_list_t diags(lim.maxDiagnostics);
+	FakeBackendState st;
+	st.fontMeasurePx = 8.0f;
+	uid_backend_t be = MakeFakeBackend(&st);
+
+	CHECK(UID_ParseXml("ellipsis_label.xml", kDoc, std::strlen(kDoc), &lim, nullptr, doc, &diags) == UID_OK);
+	CHECK(UID_ExpandDocument(doc, &diags) == UID_OK);
+	CHECK(UID_CompileDocument(doc, &diags) == UID_OK);
+	CHECK(!diags.HasErrors());
+
+	uid_node_id_t truncId = doc->idIndex.count("trunc") ? doc->idIndex["trunc"] : UID_INVALID_NODE_ID;
+	CHECK(truncId >= 0);
+	CHECK(std::strcmp(doc->nodes[static_cast<size_t>(truncId)].properties.GetCStr("text-overflow", ""), "ellipsis") == 0);
+
+	/* Helper: 80px / 8px-per-char → 10 glyphs; "..." is 3 → prefix length 7 → "ABCDEFG..." */
+	{
+		void *font = be.fontResolve ? be.fontResolve("control", 14.0f, 1.0f) : nullptr;
+		const std::string out = UID_EllipsizeToWidth("ABCDEFGHIJKLMNOPQRSTUVWXYZ", 80.0f, font, &be, 0.0f);
+		CHECK(out == "ABCDEFG...");
+		CHECK(fake_fontMeasure(font, out.c_str()) <= 80.0f + 0.5f);
+	}
+	{
+		void *font = be.fontResolve ? be.fontResolve("control", 14.0f, 1.0f) : nullptr;
+		const std::string out = UID_EllipsizeToWidth("Hi", 400.0f, font, &be, 0.0f);
+		CHECK(out == "Hi");
+	}
+
+	UID_SyncBindings(doc, &be);
+	CHECK(UID_LayoutDocument(doc, 640, 480, 1.0f, 1.0f, &be, &diags) == UID_OK);
+	st.fontDrawLog.clear();
+	UID_PaintChrome(doc, &be);
+
+	bool sawTrunc = false;
+	bool sawFullAlphabet = false;
+	bool sawHi = false;
+	for (const std::string &line : st.fontDrawLog) {
+		if (line.find("'ABCDEFG...'") != std::string::npos) {
+			sawTrunc = true;
+		}
+		if (line.find("'ABCDEFGHIJKLMNOPQRSTUVWXYZ'") != std::string::npos) {
+			sawFullAlphabet = true;
+		}
+		if (line.find("'Hi'") != std::string::npos) {
+			sawHi = true;
+		}
+	}
+	CHECK(sawTrunc);
+	CHECK(!sawFullAlphabet);
+	CHECK(sawHi);
+
+	/* Invalid value rejected at compile. */
+	{
+		static const char *kBad = R"(
+<ui version="1">
+  <definitions><defaults type="vertical" width="100%" height="100%"/></definitions>
+  <canvas><label text-overflow="clip">x</label></canvas>
+</ui>
+)";
+		uid_document_t *bad = UID_CreateDocument();
+		uid_diag_list_t badDiags(lim.maxDiagnostics);
+		CHECK(UID_ParseXml("ellipsis_bad.xml", kBad, std::strlen(kBad), &lim, nullptr, bad, &badDiags) == UID_OK);
+		CHECK(UID_ExpandDocument(bad, &badDiags) == UID_OK);
+		CHECK(UID_CompileDocument(bad, &badDiags) != UID_OK);
+		CHECK(badDiags.HasErrors());
+		UID_DestroyDocument(bad);
+	}
+
+	UID_DestroyDocument(doc);
+}
+
 /* Added in OPM: printdeathmsg phrase classifier fixtures. */
 static void TestKillFeedClassify(void)
 {
@@ -11104,6 +11196,7 @@ int main(void)
 	TestJoinCollectionLabel();
 	TestWindowForeachOverscanPaintCull();
 	TestMarqueeLabelPaint();
+	TestTextOverflowEllipsis();
 	TestKillFeedClassify();
 
 	if (g_failures) {

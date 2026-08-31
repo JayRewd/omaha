@@ -2065,6 +2065,68 @@ std::string UID_NodeDisplayText(const uid_document_t *doc, uid_node_id_t id)
 	return std::string();
 }
 
+/* Added in Omaha: paint-time text-overflow=ellipsis helper (byte-prefix + "..."). */
+std::string UID_EllipsizeToWidth(
+	const char *text,
+	float maxWidth,
+	void *font,
+	const uid_backend_t *backend,
+	float tracking
+)
+{
+	if (!text || !text[0]) {
+		return std::string();
+	}
+	if (!font || !backend || !backend->fontMeasure || maxWidth <= 0.0f) {
+		return std::string(text);
+	}
+
+	auto measure = [&](const char *s) -> float {
+		if (!s || !s[0]) {
+			return 0.0f;
+		}
+		float w = backend->fontMeasure(font, s);
+		const size_t n = std::strlen(s);
+		if (tracking > 0.0f && n > 1) {
+			w += tracking * static_cast<float>(n - 1);
+		}
+		return w;
+	};
+
+	if (measure(text) <= maxWidth + 0.5f) {
+		return std::string(text);
+	}
+
+	static const char kEllipsis[] = "...";
+	const float ellW = measure(kEllipsis);
+	if (ellW > maxWidth + 0.5f) {
+		return std::string(kEllipsis);
+	}
+
+	const size_t len = std::strlen(text);
+	size_t lo = 0;
+	size_t hi = len;
+	size_t best = 0;
+	while (lo <= hi) {
+		const size_t mid = lo + (hi - lo) / 2;
+		std::string candidate(text, mid);
+		candidate += kEllipsis;
+		if (measure(candidate.c_str()) <= maxWidth + 0.5f) {
+			best = mid;
+			lo = mid + 1;
+		} else {
+			if (mid == 0) {
+				break;
+			}
+			hi = mid - 1;
+		}
+	}
+
+	std::string out(text, best);
+	out += kEllipsis;
+	return out;
+}
+
 void UID_PaintNodeBackground(uid_document_t *doc, uid_node_id_t id, const uid_backend_t *backend, float opacityMul)
 {
 	uid_node_def_t *node = UID_GetNode(doc, id);
@@ -2624,10 +2686,6 @@ void UID_PaintNodeContent(uid_document_t *doc, uid_node_id_t id, const uid_backe
 		ResolveTextRotation(doc, *node, st->borderBox, &textRotDeg, &textPivotX, &textPivotY);
 
 		if (!multiline) {
-			float x = st->contentBox.x;
-			float y = st->contentBox.y;
-			ComputeTextDrawOrigin(doc, *node, *st, text.c_str(), font, backend, &x, &y);
-
 			float skewTan = 0.0f;
 			float tracking = 0.0f;
 			const char *skewProp = node->properties.GetCStr("text-skew", nullptr);
@@ -2660,12 +2718,25 @@ void UID_PaintNodeContent(uid_document_t *doc, uid_node_id_t id, const uid_backe
 				}
 			}
 
+			/* Added in Omaha: text-overflow=ellipsis (skipped when marquee is active). */
+			std::string drawText = text;
+			const char *overflowProp = node->properties.GetCStr("text-overflow", "none");
+			const bool wantEllipsis =
+				overflowProp && std::strcmp(overflowProp, "ellipsis") == 0 && marqueeAxis == kMarqueeNone;
+			if (wantEllipsis) {
+				drawText = UID_EllipsizeToWidth(text.c_str(), st->contentBox.w, font, backend, tracking);
+			}
+
+			float x = st->contentBox.x;
+			float y = st->contentBox.y;
+			ComputeTextDrawOrigin(doc, *node, *st, drawText.c_str(), font, backend, &x, &y);
+
 			float textW = 0.0f;
 			float textH = FontLogicalPx(doc, *node);
 			if (backend->fontMeasure) {
-				textW = backend->fontMeasure(font, text.c_str());
-				if (tracking > 0.0f && text.size() > 1) {
-					textW += tracking * static_cast<float>(text.size() - 1);
+				textW = backend->fontMeasure(font, drawText.c_str());
+				if (tracking > 0.0f && drawText.size() > 1) {
+					textW += tracking * static_cast<float>(drawText.size() - 1);
 				}
 			}
 			if (backend->fontAscent) {
@@ -2737,7 +2808,7 @@ void UID_PaintNodeContent(uid_document_t *doc, uid_node_id_t id, const uid_backe
 				*node,
 				x + marqueeDx,
 				y + marqueeDy,
-				text.c_str(),
+				drawText.c_str(),
 				rgba,
 				opacityMul,
 				skewTan,
@@ -2755,7 +2826,7 @@ void UID_PaintNodeContent(uid_document_t *doc, uid_node_id_t id, const uid_backe
 					*node,
 					x + marqueeDx + (marqueeAxis == kMarqueeH ? loopPitch : 0.0f),
 					y + marqueeDy + (marqueeAxis == kMarqueeV ? loopPitch : 0.0f),
-					text.c_str(),
+					drawText.c_str(),
 					rgba,
 					opacityMul,
 					skewTan,
