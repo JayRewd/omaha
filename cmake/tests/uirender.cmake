@@ -23,6 +23,7 @@ add_executable(test_uirender
     ${SOURCE_DIR}/uirender/uir_compositor.c
     ${SOURCE_DIR}/uirender/uir_debug.c
     ${SOURCE_DIR}/uirender/uir_modelpreview_math.c
+    ${SOURCE_DIR}/uirender/tests/uir_modelpreview_stub.c
     ${SOURCE_DIR}/uirender/uir_menuworld.c
     ${SOURCE_DIR}/uirender/uir_menu_map_view.c
     ${SOURCE_DIR}/uirender/uir_map_env.c

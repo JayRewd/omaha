@@ -24,8 +24,9 @@ source tree, or write to the Free Software Foundation, Inc.,
 
 #include "uid_invoke.h"
 
+#include "../qcommon/q_shared.h"
+
 #include <cstring>
-#include <strings.h>
 
 namespace {
 
@@ -44,7 +45,7 @@ int FindInvokeIndex(const char *name)
 		return -1;
 	}
 	for (int i = 0; i < UID_INVOKE_MAX_ENTRIES; ++i) {
-		if (g_invokes[i].used && strcasecmp(g_invokes[i].name, name) == 0) {
+		if (g_invokes[i].used && Q_stricmp(g_invokes[i].name, name) == 0) {
 			return i;
 		}
 	}

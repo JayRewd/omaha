@@ -28,10 +28,11 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "uid_value.h"
 #include "../thirdparty/tinyxml2/tinyxml2.h"
 
+#include "../qcommon/q_shared.h"
+
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
-#include <strings.h>
 #include <set>
 #include <string>
 #include <vector>
@@ -2282,7 +2283,7 @@ static bool ImageSrcHasAllowedExt(const char *src)
 	if (!dot || !dot[1]) {
 		return true;
 	}
-	return ::strcasecmp(dot, ".png") == 0 || ::strcasecmp(dot, ".tga") == 0;
+	return Q_stricmp(dot, ".png") == 0 || Q_stricmp(dot, ".tga") == 0;
 }
 
 bool ParseImages(ParseContext &ctx, XMLElement *imagesEl)
