@@ -87,6 +87,13 @@
                                 WorkingDirectory="INSTALLFOLDER" />
                         </File>
                     </Component>
+
+                    <!-- Changed in Omaha: harvest modern UI + fonts into openmohaa/main/... -->
+                    <Files Include="files\main\**" />
+
+                    <Component Id="COPYING.txt">
+                        <File Source="files/COPYING.txt" />
+                    </Component>
                 </Directory>
             </Directory>
         </StandardDirectory>
@@ -110,6 +117,10 @@
             <ComponentRef Id="launch_openmohaa_base.exe" />
             <ComponentRef Id="launch_openmohaa_spearhead.exe" />
             <ComponentRef Id="launch_openmohaa_breakthrough.exe" />
+        </ComponentGroup>
+
+        <ComponentGroup Id="License">
+            <ComponentRef Id="COPYING.txt" />
         </ComponentGroup>
 
         <Property Id="INSTALLFOLDER">

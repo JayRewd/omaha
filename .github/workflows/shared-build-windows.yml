@@ -258,13 +258,56 @@ jobs:
         Copy-Item '${{github.workspace}}/thirdparties/curl/install/bin/*.dll' -Destination '${{github.workspace}}/package'
         if (Test-Path ${{github.workspace}}/install/bin) { Copy-Item '${{github.workspace}}/install/bin/*' -Include '*.dll','*.exe','*.pdb' -Destination '${{github.workspace}}/package' }
         if (Test-Path ${{github.workspace}}/install/lib) { Copy-Item '${{github.workspace}}/install/lib/*' -Include '*.dll','*.exe','*.pdb' -Destination '${{github.workspace}}/package' }
+        # Changed in Omaha: ship modern UI + fonts next to the client (gameroot/main/...).
+        if (-not (Test-Path '${{github.workspace}}/install/bin/main')) {
+          throw 'cmake --install did not produce install/bin/main (fonts/ui)'
+        }
+        Copy-Item '${{github.workspace}}/install/bin/main' -Destination '${{github.workspace}}/package/main' -Recurse -Force
+        Copy-Item '${{github.workspace}}/source/COPYING.txt' -Destination '${{github.workspace}}/package/COPYING.txt' -Force
+        $markers = @(
+          '${{github.workspace}}/package/main/ui/modern/main.xml',
+          '${{github.workspace}}/package/main/fonts/Oswald-Medium.ttf',
+          '${{github.workspace}}/package/main/ui/modern/textures/panel.png'
+        )
+        foreach ($m in $markers) {
+          if (-not (Test-Path $m)) { throw "missing required package asset: $m" }
+        }
+        $mainCount = (Get-ChildItem -Path '${{github.workspace}}/package/main' -Recurse -File).Count
+        if ($mainCount -lt 90) { throw "package/main has only $mainCount files (need >= 90)" }
+        Write-Host "package/main OK ($mainCount files)"
 
     - name: Generate setup files
       working-directory: ${{github.workspace}}
       run: |
         Copy-Item -Path '${{github.workspace}}/package' -Destination 'source/misc/setup/windows/app/files' -Recurse
+        $stageMarkers = @(
+          'source/misc/setup/windows/app/files/main/ui/modern/main.xml',
+          'source/misc/setup/windows/app/files/main/fonts/Oswald-Medium.ttf',
+          'source/misc/setup/windows/app/files/main/ui/modern/textures/panel.png'
+        )
+        foreach ($m in $stageMarkers) {
+          if (-not (Test-Path $m)) { throw "MSI staging missing required asset: $m" }
+        }
+        $stageCount = (Get-ChildItem -Path 'source/misc/setup/windows/app/files/main' -Recurse -File).Count
+        if ($stageCount -lt 90) { throw "MSI staging files/main has only $stageCount files (need >= 90)" }
         dotnet build -p Platform=${{matrix.architecture.config}} -c Release -o out source/misc/setup/windows/app
-
+        $msi = '${{github.workspace}}/out/en-us/Setup.msi'
+        if (-not (Test-Path $msi)) { throw "Setup.msi was not produced at $msi" }
+        $installer = New-Object -ComObject WindowsInstaller.Installer
+        $db = $installer.OpenDatabase($msi, 0)
+        $view = $db.OpenView("SELECT FileName FROM File")
+        $view.Execute() | Out-Null
+        $foundMainXml = $false
+        while ($true) {
+          $rec = $view.Fetch()
+          if (-not $rec) { break }
+          $name = $rec.StringData(1)
+          if ($name -match '(^|\|)main\.xml$') { $foundMainXml = $true; break }
+        }
+        if (-not $foundMainXml) {
+          throw 'Setup.msi File table does not contain main.xml (WiX harvest failed)'
+        }
+        Write-Host 'Setup.msi contains main.xml'
     ###
     # Artifact
     ###

@@ -247,6 +247,24 @@ jobs:
         cp -l ${{github.workspace}}/thirdparties/curl/install/lib*/libcurl.so.4 '${{github.workspace}}/package/'
         if [ -d ${{github.workspace}}/install/bin ]; then cp -r ${{github.workspace}}/install/bin/openmohaa/. '${{github.workspace}}/package'; fi
         if [ -d ${{github.workspace}}/install/lib ]; then cp -r ${{github.workspace}}/install/lib/openmohaa/. '${{github.workspace}}/package'; fi
+        # Changed in Omaha: ship GPL license with redistributable packages.
+        cp -f ${{github.workspace}}/source/COPYING.txt '${{github.workspace}}/package/COPYING.txt'
+        for f in \
+          '${{github.workspace}}/package/main/ui/modern/main.xml' \
+          '${{github.workspace}}/package/main/fonts/Oswald-Medium.ttf' \
+          '${{github.workspace}}/package/main/ui/modern/textures/panel.png'
+        do
+          if [ ! -f "$f" ]; then
+            echo "missing required package asset: $f" >&2
+            exit 1
+          fi
+        done
+        main_count=$(find '${{github.workspace}}/package/main' -type f | wc -l)
+        if [ "$main_count" -lt 90 ]; then
+          echo "package/main has only $main_count files (need >= 90)" >&2
+          exit 1
+        fi
+        echo "package/main OK ($main_count files)"
 
     ###
     # Artifacts
