@@ -39,6 +39,7 @@ set(UID_BENCH_SOURCES
     ${SOURCE_DIR}/uirender/uir_layer.c
     ${SOURCE_DIR}/uirender/uir_compositor.c
     ${SOURCE_DIR}/uirender/uir_draw2d.c
+    ${SOURCE_DIR}/uirender/uir_debug.c
     ${SOURCE_DIR}/uirender/uir_meshcache.c
     ${SOURCE_DIR}/uirender/uir_pathcache.c
     ${SOURCE_DIR}/uirender/uir_batch.c

@@ -52,6 +52,7 @@ add_executable(uir_bench_frame
     ${SOURCE_DIR}/uirender/uir_path.c
     ${SOURCE_DIR}/uirender/uir_svg.c
     ${SOURCE_DIR}/uirender/uir_draw2d.c
+    ${SOURCE_DIR}/uirender/uir_debug.c
     ${SOURCE_DIR}/uirender/uir_meshcache.c
     ${SOURCE_DIR}/uirender/uir_batch.c
     ${SOURCE_DIR}/uirender/uir_tess.c
