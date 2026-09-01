@@ -24,6 +24,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include "cg_local.h"
 #include "cg_radar.h"
+#include "cg_remotepredict.h" // Added in Omaha
 
 /*
 ==========================================================================
@@ -442,11 +443,14 @@ void BG_EvaluateTrajectory(const trajectory_t *tr, int atTime, const vec3_t base
 
 /*
 ===============
-CG_CalcEntityLerpPositions
+CG_CalcEntityNetLerpPositions
 
+Authoritative interpolation / extrapolation into lerpOrigin.
+Changed in Omaha: renamed from CG_CalcEntityLerpPositions so a wrapper can
+capture netLerpOrigin before remote prediction.
 ===============
 */
-void CG_CalcEntityLerpPositions(centity_t *cent)
+static void CG_CalcEntityNetLerpPositions(centity_t *cent)
 {
     int   i;
     float f;
@@ -520,6 +524,20 @@ void CG_CalcEntityLerpPositions(centity_t *cent)
         BG_EvaluateTrajectory(&cent->currentState.pos, cg.time, cent->currentState.origin, cent->lerpOrigin);
         VectorCopy(cent->currentState.angles, cent->lerpAngles);
     }
+}
+
+/*
+===============
+CG_CalcEntityLerpPositions
+
+===============
+*/
+void CG_CalcEntityLerpPositions(centity_t *cent)
+{
+    CG_CalcEntityNetLerpPositions(cent);
+    // Added in Omaha: keep the authoritative pose for collision, then optionally predict for display
+    VectorCopy(cent->lerpOrigin, cent->netLerpOrigin);
+    CG_RP_UpdateEntity(cent);
 }
 
 /*

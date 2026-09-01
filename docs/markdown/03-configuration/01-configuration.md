@@ -168,3 +168,26 @@ set sv_numbots 4 // Spawn 4 bots
 - Bots won't complete objectives. They only navigate the map and attack other players.
 - Minefields may fully block bot paths. For example, on Omaha Beach, bots spawning at the West axis spawn may get stuck in the spawn area.
 - Some obstacles might completely block bot paths.
+
+## Project: Omaha client — remote player prediction
+
+Client-only display prediction for other players. Stock MOHAA servers do **not** lag-compensate (no antilag / rewind); bullet traces use remotes at their current server positions when your usercmd is executed. Leading remotes by approximately `ping + interpolation delay` therefore shows the geometrically correct aim point. Nothing is sent to the server; no custom `game.so` is required.
+
+Default is off (`0`) so vanilla behavior is unchanged. Mode `2` is opt-in.
+
+| Cvar | Default | Description |
+|------|---------|-------------|
+| `cg_remotePrediction` | `0` | `0` off (vanilla). `1` safe: collision-aware coast only when the render clock overshoots the newest snapshot. `2` lead: lag-compensating visual lead (scaled by `cg_remotePredictionScale`) so you can aim at models. |
+| `cg_remotePredictionScale` | `0.7` | Multiplies computed lead (0–1.5). Default under-leads; raise toward `1.0` for aggressive full lead. |
+| `cg_remotePredictionInterpWeight` | `0` | How much snapshot interpolation delay to add into mode `2` lead (0–1). Default `0` (ping-only); `1` restores ping+full interp. |
+| `cg_remotePredictionLeadKnee` | `100` | Soft-cap: base lead above this many ms is compressed before Scale (`0` disables). |
+| `cg_remotePredictionLeadKneeFrac` | `0.5` | Fraction of lead kept above `LeadKnee` (0–1). |
+| `cg_remotePredictionMaxLead` | `200` | Hard ceiling on lead in milliseconds (0–500). |
+| `cg_remotePredictionStepMsec` | `16` | Simulation step size in ms (4–50). |
+| `cg_remotePredictionSmooth` | `50` | Output smoothing time constant in ms; `0` disables. |
+| `cg_remotePredictionSnapDist` | `128` | Hard-snap instead of smoothing when error exceeds this distance. |
+| `cg_remotePredictionMaxDist` | `512` | Absolute cap on predicted displacement from the authoritative origin. |
+| `cg_remotePredictionMinSpeed` | `16` | Skip prediction below this speed (avoids idle jitter). |
+| `cg_remotePredictionDebug` | `0` | `1` draw white (authoritative) vs cyan (predicted) boxes. `2` also prints throttled console stats. |
+
+**Limits:** a jump or strafe juke that has not yet appeared in a snapshot cannot be predicted. Water / ladder / noclip remotes fall back to vanilla. Mode `2` is display-only and derived from data the client already received, but some communities may still consider lead compensation contentious.

@@ -29,6 +29,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "cg_parsemsg.h"
 #include "cg_archive.h"
 #include "cg_radar.h"
+#include "cg_remotepredict.h" // Added in Omaha
 
 #ifdef _WIN32
 #    include <windows.h>
@@ -186,6 +187,7 @@ void CG_RegisterCvars(void)
     CG_Crosshair_SyncClAliases();
     CG_Hitmarker_RegisterCvars(); /* Added in Omaha */
     CG_SpectateFP_RegisterCvars();
+    CG_RP_RegisterCvars(); // Added in Omaha
 
     ui_legacy                     = cgi.Cvar_Get("ui_legacy", "0", CVAR_INIT);
     ui_om_hud                     = cgi.Cvar_Get("ui_om_hud", "classic", CVAR_ARCHIVE);
@@ -745,6 +747,7 @@ void CG_Init(clientGameImport_t *imported, int serverMessageNum, int serverComma
     cgs.serverCommandSequence = serverCommandSequence;
 
     CG_RegisterCvars();
+    CG_RP_Init(); // Added in Omaha: clear remote-prediction state on map load
 
     L_InitEvents();
 

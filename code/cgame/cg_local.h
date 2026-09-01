@@ -109,6 +109,8 @@ extern "C" {
         // exact interpolated position of entity on this frame
         vec3_t lerpOrigin;
         vec3_t lerpAngles;
+        // Added in Omaha: authoritative interpolated origin, before remote prediction
+        vec3_t netLerpOrigin;
 
         sfxHandle_t tikiLoopSound;
         float       tikiLoopSoundVolume;

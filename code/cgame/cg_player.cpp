@@ -48,6 +48,8 @@ void CG_ResetPlayerEntity(centity_t *cent)
     cent->extrapolated = qfalse;
 
     VectorCopy(cent->currentState.origin, cent->lerpOrigin);
+    // Added in Omaha: keep collision pose in sync on player reset
+    VectorCopy(cent->currentState.origin, cent->netLerpOrigin);
     VectorCopy(cent->lerpOrigin, cent->rawOrigin);
 
     VectorCopy(cent->currentState.angles, cent->lerpAngles);
