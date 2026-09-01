@@ -277,6 +277,12 @@
 								<use template="settings-on-off-row" label="Always run" bind="cvar:cl_run" commit="change"/>
 								<use template="settings-on-off-row" label="Blood" bind="cvar:com_blood" commit="change"/>
 								<use template="settings-on-off-row" label="Auto-switch Weapons" bind="cvar:cg_autoswitch" commit="change"/>
+								<use template="settings-section-header" label="HITMARKER"/>
+								<use template="settings-on-off-row" label="Hitmarker" bind="cvar:cg_hitmarker" commit="change"/>
+								<use template="settings-cyclic-row" label="Hitmarker mode" bind="cvar:cg_hitmarker_mode"
+								     source="hitmarker-mode" commit="change" visible="{cvar.cg_hitmarker != 0}"/>
+								<use template="settings-cyclic-row" label="Hitmarker sound" bind="cvar:cg_hitmarker_sound"
+								     source="hitmarker-sounds" commit="change" visible="{cvar.cg_hitmarker != 0}"/>
 								<use template="settings-on-off-row" label="Draw FPS" bind="cvar:fps" commit="change"/>
 								<use template="settings-on-off-row" label="Scoreboard cursor" bind="cvar:ui_om_scoreboard_disable_cursor" commit="change" off-value="1" on-value="0"/>
 						</container>

@@ -26,6 +26,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include "cg_commands.h"
 #include "cg_crosshair_spread.h"
+#include "cg_hitmarker.h"
 #include "cg_specialfx.h"
 #include "scriptexception.h"
 #include "../corepp/tiki.h"
@@ -5898,6 +5899,9 @@ void ClientGameCommandManager::EventViewKick(Event *ev)
     } else {
         cg.viewkickMaxDecay = 25.0;
     }
+
+    /* Added in Omaha: approx before viewkick mutates aim feedback for this shot. */
+    CG_Hitmarker_OnLocalFire();
 
     cg.viewkick[0] += vkmin[0] + random() * (vkmax[0] - vkmin[0]);
     if (sPattern == "T") {

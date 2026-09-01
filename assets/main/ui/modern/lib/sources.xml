@@ -151,6 +151,12 @@
 			<item value="2" label="Weapon and hands"/>
 		</source>
 
+		<!-- Added in Omaha: hitmarker validation mode (server notify vs client approx). -->
+		<source id="hitmarker-mode" default="server">
+			<item value="server" label="Server"/>
+			<item value="client" label="Client"/>
+		</source>
+
 		<source id="weapons-bar" default="1">
 			<item value="0" label="Off"/>
 			<item value="1" label="On"/>

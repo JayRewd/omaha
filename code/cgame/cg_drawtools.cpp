@@ -25,6 +25,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include "cg_local.h"
 #include "cg_crosshair.h"
+#include "cg_hitmarker.h"
 
 #include <cstring>
 
@@ -2004,6 +2005,7 @@ void CG_Draw2D(void)
          */
         CG_HudDrawElements();
         CG_DrawLagometer();
+        CG_DrawHitmarker(); /* Added in Omaha: under crosshair layer */
         CG_DrawCrosshair();
         return;
     }
@@ -2021,5 +2023,6 @@ void CG_Draw2D(void)
     CG_UpdateAttackerDisplay();
     CG_DrawVote();
     CG_DrawInstantMessageMenu();
+    CG_DrawHitmarker(); /* Added in Omaha: under crosshair layer */
     CG_DrawCrosshair();
 }

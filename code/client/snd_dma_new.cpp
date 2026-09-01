@@ -25,6 +25,9 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "client.h"
 #include "cl_ui.h"
 
+#include <stdio.h>
+#include <string.h>
+
 typedef struct {
     vec3_t origin;
     vec3_t velocity;

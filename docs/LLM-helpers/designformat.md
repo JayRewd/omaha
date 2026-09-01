@@ -508,6 +508,7 @@ Notable sources:
 | `player-models-allies` / `axis` | Profile model picker |
 | `screen-catalog` | Compare / lab screen picker |
 | `hud-packs` | Host-backed HUD picker (`queryCollectionItems`; not in XML `<sources>`) |
+| `hitmarker-sounds` | Host-backed `sound/prom/hitmarkers/*.wav` picker for `cg_hitmarker_sound` |
 | `display-refresh` | Host-backed unique SDL refresh rates + Default(0) for `r_displayRefresh` |
 | `hud-objectives` | Host-backed classic objectives stack |
 | `vote-options` | Host-backed pause vote rows |

@@ -930,6 +930,7 @@ bool IsHostCollectionSource(const char *sourceId)
 	return std::strcmp(sourceId, "servers") == 0 || std::strcmp(sourceId, "video-modes") == 0 ||
 		std::strcmp(sourceId, "display-refresh") == 0 || /* Added in Omaha: SDL refresh rates. */
 		std::strcmp(sourceId, "scoreboard") == 0 || std::strcmp(sourceId, "hud-packs") == 0 ||
+		std::strcmp(sourceId, "hitmarker-sounds") == 0 || /* Added in Omaha: hitmarker wav picker. */
 		std::strcmp(sourceId, "hud-objectives") == 0 || std::strcmp(sourceId, "hud-messages") == 0 ||
 		std::strcmp(sourceId, "hud-game-messages") == 0 ||
 		std::strcmp(sourceId, "hud-chat") == 0 || std::strcmp(sourceId, "hud-kill-feed") == 0 ||

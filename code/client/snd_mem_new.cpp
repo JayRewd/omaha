@@ -22,6 +22,10 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include "snd_local.h"
 #include "cl_ui.h"
+#include "client.h"
+
+#include <stdio.h>
+#include <string.h>
 
 byte *data_p;
 byte *iff_end;
@@ -299,8 +303,9 @@ wavinfo_t GetWavinfo(const char *name, byte *wav, int wavlength)
             Com_Error(ERR_DROP, "Sound %s has a bad loop length", name);
         }
 
-        info.dataofs   = data_p - wav;
-        info.datasize  = iff_chunk_len;
+        info.dataofs = data_p - wav;
+        /* Fixed in Omaha: datasize must be absolute end offset (OpenAL uses datasize - dataofs). */
+        info.datasize  = info.dataofs + iff_chunk_len;
         info.dataalign = (bytealign / info.channels - 4) / 4 * 8 + 1;
         // dataalign should always be 1
         assert(info.dataalign == 1);

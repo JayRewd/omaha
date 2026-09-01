@@ -2297,6 +2297,9 @@ static const char *const g_uidSettingsDraftCvars[] = {
 	"cg_drawviewmodel",
 	"cg_hud",
 	"cg_autoswitch",
+	"cg_hitmarker",
+	"cg_hitmarker_mode",
+	"cg_hitmarker_sound",
 	"cg_rain",
 	"cg_marks_add",
 	"cg_shadows",
@@ -2853,6 +2856,130 @@ static int uid_query_collection_hud_packs(
 	return written;
 }
 
+/* Added in Omaha: cyclic picker for sound/prom/hitmarkers/*.wav */
+static int uid_hitmarker_sound_name_cmp(const void *a, const void *b)
+{
+	const char *const *sa = (const char *const *)a;
+	const char *const *sb = (const char *const *)b;
+	return Q_stricmp(*sa, *sb);
+}
+
+static void uid_hitmarker_sound_strip_wav(char *name, size_t nameSize)
+{
+	size_t len;
+
+	if (!name || nameSize == 0) {
+		return;
+	}
+	len = strlen(name);
+	if (len > 4 && !Q_stricmp(name + len - 4, ".wav")) {
+		name[len - 4] = '\0';
+	}
+}
+
+static int uid_query_collection_hitmarker_sounds(
+	int offset,
+	int limit,
+	int *outTotal,
+	uint64_t *outRevision,
+	uid_collection_item_t *out,
+	int max
+)
+{
+	static char valueBuf[64][96];
+	static char labelBuf[64][96];
+	static char keyBuf[64][16];
+	static char sortedNames[64][96];
+	static const char *sortedPtrs[64];
+	char  **fileList;
+	int     numFiles;
+	int     count;
+	int     i;
+	int     written;
+	uint64_t rev;
+
+	fileList = FS_ListFiles("sound/prom/hitmarkers", ".wav", qfalse, &numFiles);
+	count = 0;
+	rev = 0;
+	if (fileList) {
+		for (i = 0; i < numFiles && count < 64; i++) {
+			const char *fileName = fileList[i];
+			char        base[96];
+
+			if (!fileName || !fileName[0]) {
+				continue;
+			}
+			/* Skip nested paths; only flat folder entries. */
+			if (strchr(fileName, '/') || strchr(fileName, '\\')) {
+				continue;
+			}
+			Q_strncpyz(base, fileName, sizeof(base));
+			uid_hitmarker_sound_strip_wav(base, sizeof(base));
+			if (!base[0]) {
+				continue;
+			}
+			/* Reserved: first cyclic option is "none" (disable). */
+			if (!Q_stricmp(base, "none")) {
+				continue;
+			}
+			Q_strncpyz(sortedNames[count], base, sizeof(sortedNames[count]));
+			sortedPtrs[count] = sortedNames[count];
+			rev = rev * 131u + (uint64_t)(unsigned char)base[0] + (uint64_t)strlen(base);
+			count++;
+		}
+		FS_FreeFileList(fileList);
+	}
+
+	if (count > 1) {
+		qsort(sortedPtrs, (size_t)count, sizeof(sortedPtrs[0]), uid_hitmarker_sound_name_cmp);
+	}
+
+	/* Changed in Omaha: first option disables hitmarker sound ("None"). */
+	{
+		const int total = count + 1;
+
+		if (outTotal) {
+			*outTotal = total;
+		}
+		if (outRevision) {
+			*outRevision = rev ^ (uint64_t)total ^ 0x4e4fu; /* include None sentinel */
+		}
+		if (!out || max <= 0) {
+			return 0;
+		}
+		if (offset < 0) {
+			offset = 0;
+		}
+		if (limit <= 0) {
+			limit = max;
+		}
+
+		written = 0;
+		for (i = offset; i < total && written < max && written < limit; i++) {
+			if (i == 0) {
+				Q_strncpyz(valueBuf[written], "none", sizeof(valueBuf[written]));
+				Q_strncpyz(labelBuf[written], "None", sizeof(labelBuf[written]));
+			} else {
+				Q_strncpyz(valueBuf[written], sortedPtrs[i - 1], sizeof(valueBuf[written]));
+				Q_strncpyz(labelBuf[written], sortedPtrs[i - 1], sizeof(labelBuf[written]));
+				if (labelBuf[written][0] >= 'a' && labelBuf[written][0] <= 'z') {
+					labelBuf[written][0] = (char)(labelBuf[written][0] - 'a' + 'A');
+				}
+			}
+			Com_sprintf(keyBuf[written], sizeof(keyBuf[written]), "%d", i);
+			out[written].key = keyBuf[written];
+			out[written].value = valueBuf[written];
+			out[written].label = labelBuf[written];
+			out[written].nfields = 0;
+			out[written].fieldNames = NULL;
+			out[written].fieldValues = NULL;
+			out[written].flags = 0;
+			written++;
+		}
+		return written;
+	}
+}
+
 typedef struct {
 	char key[16];
 	char text[256];
@@ -3245,6 +3372,11 @@ static int uid_query_collection_items(const uid_collection_query_t *query, uid_c
 	}
 	if (!Q_stricmp(query->source, "hud-packs")) {
 		return uid_query_collection_hud_packs(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max
+		);
+	}
+	if (!Q_stricmp(query->source, "hitmarker-sounds")) {
+		return uid_query_collection_hitmarker_sounds(
 			query->offset, query->limit, query->outTotal, query->outRevision, out, max
 		);
 	}
@@ -5376,6 +5508,10 @@ static void CL_UIR_RegisterSettingsCvars(void)
 	Cvar_Get("cg_crosshair_sniper_modern", "1", CVAR_ARCHIVE);
 	Cvar_Get("cg_drawviewmodel", "2", CVAR_ARCHIVE);
 	Cvar_Get("cg_hud", "1", CVAR_ARCHIVE);
+	/* Added in Omaha: hitmarker enable + server/client validation mode + sound pick. */
+	Cvar_Get("cg_hitmarker", "0", CVAR_ARCHIVE);
+	Cvar_Get("cg_hitmarker_mode", "server", CVAR_ARCHIVE);
+	Cvar_Get("cg_hitmarker_sound", "hitmarker", CVAR_ARCHIVE);
 	Cvar_Get("cg_rain", "1", CVAR_ARCHIVE);
 	Cvar_Get("cg_marks_add", "1", CVAR_ARCHIVE);
 	Cvar_Get("cg_shadows", "0", CVAR_ARCHIVE);
