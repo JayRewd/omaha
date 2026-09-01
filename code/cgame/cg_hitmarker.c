@@ -37,6 +37,9 @@ source tree, or write to the Free Software Foundation, Inc.,
 #define HITMARKER_THICKNESS    2.0f
 #define HITMARKER_TRACE_DIST   8192.0f
 
+/* Changed in Omaha: client approx mode kept in source but not selectable yet. */
+#define HITMARKER_CLIENT_MODE_ENABLED 0
+
 static cvar_t *cg_hitmarker;
 static cvar_t *cg_hitmarker_mode;
 static cvar_t *cg_hitmarker_sound;
@@ -50,6 +53,12 @@ void CG_Hitmarker_RegisterCvars(void)
 	cg_hitmarker = cgi.Cvar_Get("cg_hitmarker", "0", flags);
 	cg_hitmarker_mode = cgi.Cvar_Get("cg_hitmarker_mode", "server", flags);
 	cg_hitmarker_sound = cgi.Cvar_Get("cg_hitmarker_sound", "hitmarker", flags);
+
+#if !HITMARKER_CLIENT_MODE_ENABLED
+	if (cg_hitmarker_mode && !Q_stricmp(cg_hitmarker_mode->string, "client")) {
+		cgi.Cvar_Set("cg_hitmarker_mode", "server");
+	}
+#endif
 }
 
 qboolean CG_Hitmarker_Enabled(void)
@@ -59,10 +68,14 @@ qboolean CG_Hitmarker_Enabled(void)
 
 qboolean CG_Hitmarker_IsServerMode(void)
 {
+#if !HITMARKER_CLIENT_MODE_ENABLED
+	return qtrue;
+#else
 	if (!cg_hitmarker_mode || !cg_hitmarker_mode->string[0]) {
 		return qtrue;
 	}
 	return Q_stricmp(cg_hitmarker_mode->string, "client") ? qtrue : qfalse;
+#endif
 }
 
 qboolean CG_Hitmarker_SuppressRetailNotify(void)
