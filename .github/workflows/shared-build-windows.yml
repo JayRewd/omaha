@@ -104,8 +104,12 @@ jobs:
         $env:PATH += ";C:\Packages\ninja;C:\Packages\jom;"
         echo "PATH=$($env:PATH)" >> $env:GITHUB_ENV
         if ("${{ matrix.architecture.config }}" -ieq "ARM64") {
-            # Workaround against linking errors related to interlocked functions
+            # ARM Windows is Win10+; keep Interlocked* workaround, do not force Win7 API floor.
             echo "CFLAGS=/forceInterlockedFunctions-" >> $env:GITHUB_ENV
+            echo "DEP_API_FLAGS=/forceInterlockedFunctions-" >> $env:GITHUB_ENV
+        } else {
+            # Changed in Omaha: Win7 API floor for x86/x64 deps (avoid CreateFile2 etc.)
+            echo "DEP_API_FLAGS=${{ env.WIN7_API_FLAGS }}" >> $env:GITHUB_ENV
         }
 
     ###
@@ -118,7 +122,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: 'thirdparties/SDL2/install'
-        key: ${{ runner.os }}-${{ matrix.architecture.name }}-sdl2-${{ env.sdl2-branch }}-v2-win7
+        key: ${{ runner.os }}-${{ matrix.architecture.name }}-sdl2-${{ env.sdl2-branch }}-v3-win7
 
     # SDL2 setup
     - name: Checkout SDL2
@@ -135,9 +139,10 @@ jobs:
       run: |
         cmake -B ./build `
         -DCMAKE_INSTALL_PREFIX='${{github.workspace}}/thirdparties/SDL2/install' `
-        -DCMAKE_C_FLAGS="${{ env.WIN7_API_FLAGS }}" `
-        -DCMAKE_CXX_FLAGS="${{ env.WIN7_API_FLAGS }}"
+        -DCMAKE_C_FLAGS="${{ env.DEP_API_FLAGS }}" `
+        -DCMAKE_CXX_FLAGS="${{ env.DEP_API_FLAGS }}"
         cmake --build ./build --config Release --parallel
+        if ($LASTEXITCODE -ne 0) { throw "SDL2 build failed with exit code $LASTEXITCODE" }
         cmake --install ./build --config Release
 
     ###
@@ -148,7 +153,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: 'thirdparties/soft-oal/install'
-        key: ${{ runner.os }}-${{ matrix.architecture.name }}-openal-soft-${{ env.openal-soft-branch }}-v2-win7
+        key: ${{ runner.os }}-${{ matrix.architecture.name }}-openal-soft-${{ env.openal-soft-branch }}-v3-win7
 
     # soft-oal setup
     - name: Checkout soft-oal
@@ -171,15 +176,16 @@ jobs:
         -DALSOFT_REQUIRE_WINMM=ON `
         -DALSOFT_REQUIRE_DSOUND=ON `
         -DALSOFT_REQUIRE_WASAPI=ON `
-        -DCMAKE_C_FLAGS="${{ env.WIN7_API_FLAGS }}" `
-        -DCMAKE_CXX_FLAGS="${{ env.WIN7_API_FLAGS }}" `
-        -DCMAKE_C_FLAGS_RELEASE="/MT /O2 /Ob2 /DNDEBUG ${{ env.WIN7_API_FLAGS }}" `
-        -DCMAKE_CXX_FLAGS_RELEASE="/MT /O2 /Ob2 /DNDEBUG ${{ env.WIN7_API_FLAGS }}" `
-        -DCMAKE_C_FLAGS_MINSIZEREL="/MT /O2 /Ob2 /DNDEBUG ${{ env.WIN7_API_FLAGS }}" `
-        -DCMAKE_CXX_FLAGS_MINSIZEREL="/MT /O1 /Ob1 /DNDEBUG ${{ env.WIN7_API_FLAGS }}" `
-        -DCMAKE_C_FLAGS_RELWITHDEBINFO="/MT /Zi /O2 /Ob1 /DNDEBUG ${{ env.WIN7_API_FLAGS }}" `
-        -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="/MT /Zi /O2 /Ob1 /DNDEBUG ${{ env.WIN7_API_FLAGS }}"
+        -DCMAKE_C_FLAGS="${{ env.DEP_API_FLAGS }}" `
+        -DCMAKE_CXX_FLAGS="${{ env.DEP_API_FLAGS }}" `
+        -DCMAKE_C_FLAGS_RELEASE="/MT /O2 /Ob2 /DNDEBUG ${{ env.DEP_API_FLAGS }}" `
+        -DCMAKE_CXX_FLAGS_RELEASE="/MT /O2 /Ob2 /DNDEBUG ${{ env.DEP_API_FLAGS }}" `
+        -DCMAKE_C_FLAGS_MINSIZEREL="/MT /O2 /Ob2 /DNDEBUG ${{ env.DEP_API_FLAGS }}" `
+        -DCMAKE_CXX_FLAGS_MINSIZEREL="/MT /O1 /Ob1 /DNDEBUG ${{ env.DEP_API_FLAGS }}" `
+        -DCMAKE_C_FLAGS_RELWITHDEBINFO="/MT /Zi /O2 /Ob1 /DNDEBUG ${{ env.DEP_API_FLAGS }}" `
+        -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="/MT /Zi /O2 /Ob1 /DNDEBUG ${{ env.DEP_API_FLAGS }}"
         cmake --build ./build --config Release --parallel
+        if ($LASTEXITCODE -ne 0) { throw "OpenAL Soft build failed with exit code $LASTEXITCODE" }
         cmake --install ./build --config Release
         # Unfortunately soft-oal produces a binary called OpenAL32 even in 64-bit
         if (("x64", "ARM64") -icontains "${{ matrix.architecture.config }}") { Rename-Item -Path '.\install\bin\OpenAL32.dll' -NewName 'OpenAL64.dll' }
@@ -194,7 +200,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: 'thirdparties/curl/install'
-        key: ${{ runner.os }}-${{ matrix.architecture.name }}-curl-${{ env.curl-version }}-v2-win7
+        key: ${{ runner.os }}-${{ matrix.architecture.name }}-curl-${{ env.curl-version }}-v3-win7
 
     # cURL setup
     - name: Checkout cURL
@@ -214,9 +220,10 @@ jobs:
             -DCMAKE_INSTALL_PREFIX='${{github.workspace}}/thirdparties/curl/install' `
             -DCURL_USE_LIBPSL=OFF `
             -DCURL_USE_SCHANNEL=ON `
-            -DCMAKE_C_FLAGS="${{ env.WIN7_API_FLAGS }}" `
-            -DCMAKE_CXX_FLAGS="${{ env.WIN7_API_FLAGS }}"
+            -DCMAKE_C_FLAGS="${{ env.DEP_API_FLAGS }}" `
+            -DCMAKE_CXX_FLAGS="${{ env.DEP_API_FLAGS }}"
         cmake --build ./build --config Release --parallel
+        if ($LASTEXITCODE -ne 0) { throw "curl build failed with exit code $LASTEXITCODE" }
         cmake --install ./build --config Release
 
     ###

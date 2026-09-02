@@ -4,20 +4,33 @@ if(NOT WIN32)
     return()
 endif()
 
-# Changed in Omaha: Windows 7 (0x0601) is the Win32 API floor so MSVC/Windows SDK
-# builds do not hard-import Win8+ entry points (e.g. CreateFile2 from KERNEL32).
+# Changed in Omaha: on x86/x64, Windows 7 (0x0601) is the Win32 API floor so
+# MSVC/Windows SDK builds do not hard-import Win8+ entry points (e.g. CreateFile2).
+# Windows on ARM is Win10+ only — do not force the Win7 floor there (breaks MSVC
+# ARM64 Interlocked* linking in deps like SDL2).
 # Override with -DWIN32_WINNT_HEX=0x0A00 (etc.) only if intentionally raising the floor.
-if(NOT DEFINED WIN32_WINNT_HEX)
-    set(WIN32_WINNT_HEX "0x0601")
+set(_omaha_win_is_arm64 FALSE)
+if(CMAKE_GENERATOR_PLATFORM MATCHES "[Aa][Rr][Mm]64")
+    set(_omaha_win_is_arm64 TRUE)
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "ARM64|aarch64|arm64")
+    set(_omaha_win_is_arm64 TRUE)
+elseif(DEFINED ARCH AND ARCH MATCHES "arm64")
+    set(_omaha_win_is_arm64 TRUE)
 endif()
-if(NOT DEFINED NTDDI_VERSION_HEX)
-    set(NTDDI_VERSION_HEX "0x06010000") # Win7 SP1
+if(NOT _omaha_win_is_arm64)
+    if(NOT DEFINED WIN32_WINNT_HEX)
+        set(WIN32_WINNT_HEX "0x0601")
+    endif()
+    if(NOT DEFINED NTDDI_VERSION_HEX)
+        set(NTDDI_VERSION_HEX "0x06010000") # Win7 SP1
+    endif()
+    add_compile_definitions(
+        WINVER=${WIN32_WINNT_HEX}
+        _WIN32_WINNT=${WIN32_WINNT_HEX}
+        NTDDI_VERSION=${NTDDI_VERSION_HEX}
+    )
 endif()
-add_compile_definitions(
-    WINVER=${WIN32_WINNT_HEX}
-    _WIN32_WINNT=${WIN32_WINNT_HEX}
-    NTDDI_VERSION=${NTDDI_VERSION_HEX}
-)
+unset(_omaha_win_is_arm64)
 
 list(APPEND SYSTEM_PLATFORM_SOURCES
     ${SOURCE_DIR}/sys/sys_win32.c
