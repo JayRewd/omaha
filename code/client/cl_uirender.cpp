@@ -3909,6 +3909,34 @@ static const char *CL_UIR_HudChatLabelForMode(int iMode)
 	return "Chat: ";
 }
 
+/*
+ * Fixed in Omaha: template <use id> prefixes local ids (modern_chat.hud_chat_input).
+ * Accept bare hud_chat_input or any *.hud_chat_input suffix.
+ */
+static uid_node_id_t CL_UIR_FindHudChatInputNode(const uid_document_t *doc)
+{
+	static const char kId[] = "hud_chat_input";
+	static const size_t kIdLen = sizeof(kId) - 1;
+
+	if (!doc) {
+		return UID_INVALID_NODE_ID;
+	}
+	{
+		auto it = doc->idIndex.find(kId);
+		if (it != doc->idIndex.end()) {
+			return it->second;
+		}
+	}
+	for (const auto &kv : doc->idIndex) {
+		const std::string &id = kv.first;
+		if (id.size() > kIdLen + 1 && id.compare(id.size() - kIdLen, kIdLen, kId) == 0
+			&& id[id.size() - kIdLen - 1] == '.') {
+			return kv.second;
+		}
+	}
+	return UID_INVALID_NODE_ID;
+}
+
 static void CL_UIR_FocusHudChatInput(void)
 {
 	uid_runtime_t  *runtime = CL_UIR_ActiveHudRuntime();
@@ -3922,12 +3950,9 @@ static void CL_UIR_FocusHudChatInput(void)
 	if (!doc) {
 		return;
 	}
-	{
-		auto it = doc->idIndex.find("hud_chat_input");
-		if (it == doc->idIndex.end()) {
-			return;
-		}
-		nodeId = it->second;
+	nodeId = CL_UIR_FindHudChatInputNode(doc);
+	if (nodeId == UID_INVALID_NODE_ID) {
+		return;
 	}
 	UID_SyncBindings(doc, &g_uidBackend);
 	UID_SetFocus(doc, nodeId, &g_uidBackend);
@@ -3946,7 +3971,7 @@ qboolean CL_UIR_HudChatHasInput(void)
 		return qfalse;
 	}
 	doc = UID_GetDocument(runtime);
-	return (doc && UID_GetNodeById(doc, "hud_chat_input")) ? qtrue : qfalse;
+	return (CL_UIR_FindHudChatInputNode(doc) != UID_INVALID_NODE_ID) ? qtrue : qfalse;
 }
 
 qboolean CL_UIR_HudChatIsOpen(void)

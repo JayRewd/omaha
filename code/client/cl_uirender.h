@@ -57,8 +57,8 @@ qboolean    CL_UIR_UseLegacyHud(void);
 qboolean    CL_UIR_UseModernHudPack(void);
 
 /*
- * Added in OPM: in-HUD chat compose (messagemode) when the active pack has
- * hud_chat_input — replaces the legacy floating dm_console for that pack.
+ * Added in OPM: in-HUD chat compose (messagemode) for modern HUD packs.
+ * FAKK floating dm_console is legacy-HUD only — never a modern-pack fallback.
  */
 qboolean CL_UIR_HudChatHasInput(void);
 qboolean CL_UIR_HudChatIsOpen(void);

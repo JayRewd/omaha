@@ -554,7 +554,7 @@ Full sync lives in `cl_hud_host.cpp`, `cl_scoreboard_host.cpp`, `cl_messages_hos
 | Score strip | `ui_om_hud_allied_score`, `ui_om_hud_axis_score`, `ui_om_hud_score_self`, `ui_om_hud_score_leader`, `ui_om_hud_time_seconds`, `ui_om_hud_time_message` |
 | Scoreboard meta | `ui_om_scoreboard_team_mode`, `ui_om_scoreboard_deaths_label`, `ui_om_scoreboard_gametype`, `ui_om_scoreboard_cursor`, `ui_om_scoreboard_sort`, `ui_om_scoreboard_sort_asc`, `ui_om_scoreboard_server_name`, `ui_om_scoreboard_gamemode`, `ui_om_scoreboard_spectator_count`, TOW/Liberation `ui_om_scoreboard_tow_*` / `ui_om_scoreboard_lib_toggle*` |
 | Pause / vote | `ui_om_pause_panel` (`root` \| `team` \| `weapon` \| `vote_*`), `ui_om_cbuf`, `ui_om_vote_*` |
-| Chat compose | `ui_om_hud_chat_open`, `ui_om_hud_chat_label`, `ui_om_hud_chat_text`, `ui_om_hud_chat_mode` |
+| Chat compose | `ui_om_hud_chat_open`, `ui_om_hud_chat_label`, `ui_om_hud_chat_text`, `ui_om_hud_chat_mode`. Modern packs: in-HUD `hud_chat_input` (bare or `*.hud_chat_input`). FAKK `dm_console` only when legacy HUD is active. |
 | Modern weapons | `ui_om_hud_weap_*_state`, `ui_om_hud_item{N}_image` / `_state` / `_name`, `ui_om_hud_primary_name`, `ui_om_hud_sidearm_name`, `ui_om_hud_grenade_count`, `ui_om_hud_active_weapon` |
 | Classic compass / obj | `ui_om_hud_compass_angle`, `ui_om_hud_compass_heading`, `ui_om_hud_obj_*`, `ui_om_hud_objectives_visible` |
 | Spectate / notices | `ui_om_hud_following_name`, `ui_om_hud_following_team`, `ui_om_hud_centerprint`, `ui_om_hud_show` |

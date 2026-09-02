@@ -1661,8 +1661,15 @@ UI_OpenDMConsole
 */
 void UI_OpenDMConsole(int iMode)
 {
-    /* Added in OPM: modern HUD with hud_chat_input uses in-HUD compose instead. */
-    if (CL_UIR_HudChatHasInput()) {
+    /*
+     * Changed in Omaha: FAKK floating dm_console is legacy-HUD only.
+     * Modern packs use in-HUD compose when the pack defines hud_chat_input;
+     * never fall back to FAKK if the designer omitted it.
+     */
+    if (!CL_UIR_UseLegacyHud()) {
+        if (dm_console && dm_console->getShow()) {
+            dm_console->setShow(false);
+        }
         CL_UIR_OpenHudChat(iMode);
         return;
     }
@@ -1700,8 +1707,11 @@ UI_ToggleDMConsole
 */
 void UI_ToggleDMConsole(int iMode)
 {
-    /* Added in OPM: modern HUD with hud_chat_input uses in-HUD compose instead. */
-    if (CL_UIR_HudChatHasInput()) {
+    /* Changed in Omaha: modern HUD never opens FAKK dm_console. */
+    if (!CL_UIR_UseLegacyHud()) {
+        if (dm_console && dm_console->getShow()) {
+            dm_console->setShow(false);
+        }
         CL_UIR_ToggleHudChat(iMode);
         return;
     }
