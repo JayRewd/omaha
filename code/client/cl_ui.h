@@ -73,6 +73,8 @@ void     UI_HideMenu(const char *name, qboolean bForce);
 void     UI_ForceMenuOff(bool force);
 void     UI_GetPlayerModel_f(void);
 void     UI_ApplyPlayerModel_f(void);
+/* Added in Omaha: push ui_dm_*_set into dm_* userinfo without touching name. */
+void     UI_ApplyPlayerModelsFromUi(void);
 void     UI_PushMenu(const char *name);
 void     UI_ForceMenu(const char *name);
 qboolean UI_BindActive(void);

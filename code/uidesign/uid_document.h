@@ -117,7 +117,7 @@ struct uid_node_def_t {
 	std::string                    openModal; /* Added in OPM: modal= id opens relative/fullscreen modal instead of procedural overlay */
 
 	/* Added in OPM: bind value transforms / visibility / two-button set-value */
-	std::string                    valueType;  /* percent|invert-mouse|cm360|display-mode */
+	std::string                    valueType;  /* percent|invert-mouse|pitch-magnitude|cm360|display-mode */
 	std::string                    visibleIf;  /* cvar:name=value (legacy) */
 	std::string                    enabledIf;   /* cvar:name=value (legacy) */
 	std::string                    visibleExpr; /* {bool expr} inner text */

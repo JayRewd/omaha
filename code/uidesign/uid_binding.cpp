@@ -374,6 +374,19 @@ std::string TransformCvarToUi(
 		}
 		return (v < 0.0) ? "1" : "0";
 	}
+	/*
+	 * Added in Omaha: pitch slider edits |m_pitch| while invert-mouse owns the sign.
+	 */
+	if (node.valueType == "pitch-magnitude") {
+		char *end = nullptr;
+		const double v = std::strtod(cvarValue.c_str(), &end);
+		if (end == cvarValue.c_str()) {
+			return "0.022";
+		}
+		char buf[64];
+		std::snprintf(buf, sizeof(buf), "%.6g", std::fabs(v));
+		return buf;
+	}
 	if (node.valueType == "cm360") {
 		const double sens = std::strtod(cvarValue.c_str(), nullptr);
 		const double dpi = ReadCvarNumber(backend, "ui_modernsettings_dpi", 800.0);
@@ -469,6 +482,25 @@ bool TransformUiToCvar(
 		}
 		char buf[64];
 		std::snprintf(buf, sizeof(buf), "%.6g", on ? -mag : mag);
+		*outPrimary = buf;
+		return true;
+	}
+	/* Added in Omaha: write |m_pitch| while preserving invert-mouse sign. */
+	if (node.valueType == "pitch-magnitude") {
+		char *end = nullptr;
+		const double magIn = std::strtod(uiValue.c_str(), &end);
+		if (end == uiValue.c_str() || !(magIn > 0.0)) {
+			return false;
+		}
+		const double mag = std::fabs(magIn);
+		bool inverted = false;
+		std::string cur;
+		if (ReadCvarString(backend, "m_pitch", &cur)) {
+			const double v = std::strtod(cur.c_str(), nullptr);
+			inverted = (v < 0.0);
+		}
+		char buf[64];
+		std::snprintf(buf, sizeof(buf), "%.6g", inverted ? -mag : mag);
 		*outPrimary = buf;
 		return true;
 	}

@@ -5078,6 +5078,7 @@ void TestValueTypeTransforms(void)
     <container type="vertical" width="100%" height="100%">
       <slider id="vol" bind="cvar:s_volume" value-type="percent" min="0" max="100" step="1" commit="change"/>
       <button id="inv" bind="cvar:m_pitch" value-type="invert-mouse" set-value="1" commit="change">On</button>
+      <slider id="pitch" bind="cvar:m_pitch" value-type="pitch-magnitude" min="0.001" max="1" step="0.001" commit="change"/>
       <slider id="cm" bind="cvar:sensitivity" value-type="cm360" min="1" max="200" step="0.1" commit="change"/>
     </container>
   </canvas>
@@ -5103,9 +5104,11 @@ void TestValueTypeTransforms(void)
 
 	uid_node_id_t vol = doc->idIndex["vol"];
 	uid_node_id_t inv = doc->idIndex["inv"];
+	uid_node_id_t pitch = doc->idIndex["pitch"];
 	uid_node_id_t cm = doc->idIndex["cm"];
 	CHECK(doc->states[(size_t)vol].runtimeValue.stringValue == "50");
 	CHECK(doc->states[(size_t)inv].runtimeValue.stringValue == "0");
+	CHECK(doc->states[(size_t)pitch].runtimeValue.stringValue == "0.022");
 
 	doc->states[(size_t)vol].runtimeValue.stringValue = "80";
 	CHECK(UID_WriteBinding(doc, vol, &be) == UID_OK);
@@ -5114,6 +5117,14 @@ void TestValueTypeTransforms(void)
 	doc->states[(size_t)inv].runtimeValue.stringValue = "1";
 	CHECK(UID_WriteBinding(doc, inv, &be) == UID_OK);
 	CHECK(st.cvars["m_pitch"].value[0] == '-');
+
+	/* Fixed in Omaha: pitch-magnitude shows abs and preserves invert on write. */
+	UID_SyncBindings(doc, &be);
+	CHECK(doc->states[(size_t)pitch].runtimeValue.stringValue == "0.022");
+	doc->states[(size_t)pitch].runtimeValue.stringValue = "0.05";
+	CHECK(UID_WriteBinding(doc, pitch, &be) == UID_OK);
+	CHECK(st.cvars["m_pitch"].value[0] == '-');
+	CHECK(std::fabs(std::strtod(st.cvars["m_pitch"].value.c_str(), nullptr) + 0.05) < 1e-6);
 
 	/* cm360 round-trip: write UI cm, read back sens. */
 	const double cmVal = 360.0 * 2.54 / (800.0 * 5.0 * 0.022);
@@ -5126,6 +5137,59 @@ void TestValueTypeTransforms(void)
 	CHECK_EQ_F(sens, expect, 1e-4);
 
 	(void)cmVal;
+	UID_DestroyDocument(doc);
+}
+
+/* Added in Omaha: invert-mouse Off/On bind.selected uses transformed 0/1. */
+void TestInvertMouseBindSelected(void)
+{
+	static const char *kDoc = R"(
+<ui version="1">
+  <definitions>
+    <defaults type="vertical" width="100%" height="100%"/>
+    <fonts><font id="control" src="fonts/x.ttf" weight="600"/></fonts>
+  </definitions>
+  <canvas>
+    <container type="horizontal" width="100%" height="40px" gap="8px">
+      <button id="off" bind="cvar:m_pitch" value-type="invert-mouse" set-value="0" commit="change"
+              fill="{bind.selected ? #1A6FD4FF : #00000073}" color="#FFFFFFFF">Off</button>
+      <button id="on" bind="cvar:m_pitch" value-type="invert-mouse" set-value="1" commit="change"
+              fill="{bind.selected ? #1A6FD4FF : #00000073}" color="#FFFFFFFF">On</button>
+    </container>
+  </canvas>
+</ui>
+)";
+	uid_limits_t lim;
+	UID_DefaultLimits(&lim);
+	uid_document_t *doc = UID_CreateDocument();
+	uid_diag_list_t diags(lim.maxDiagnostics);
+	FakeBackendState st;
+	st.cvars["m_pitch"] = FakeCvar{"-0.022", 0};
+	uid_backend_t be = MakeFakeBackend(&st);
+
+	CHECK(UID_ParseXml("inv_sel.xml", kDoc, std::strlen(kDoc), &lim, nullptr, doc, &diags) == UID_OK);
+	CHECK(UID_ExpandDocument(doc, &diags) == UID_OK);
+	CHECK(UID_CompileDocument(doc, &diags) == UID_OK);
+	CHECK(UID_LayoutDocument(doc, 320, 80, 1.0f, 1.0f, &be, &diags) == UID_OK);
+	UID_SyncBindings(doc, &be);
+
+	uid_node_id_t offId = doc->idIndex["off"];
+	uid_node_id_t onId = doc->idIndex["on"];
+	uid_color_t   fillOn{};
+	uid_color_t   fillOff{};
+	CHECK(UID_ResolveFillColor(doc, onId, &fillOn));
+	CHECK(UID_ResolveFillColor(doc, offId, &fillOff));
+	CHECK(fillOn.b > 0.5f);
+	CHECK(fillOff.b < 0.5f);
+
+	UID_SetFocus(doc, offId, &be);
+	CHECK(UID_HandleKey(doc, UID_KEY_ENTER, true, 0, &be));
+	CHECK(st.cvars["m_pitch"].value[0] != '-');
+	CHECK(UID_ResolveFillColor(doc, offId, &fillOff));
+	CHECK(UID_ResolveFillColor(doc, onId, &fillOn));
+	CHECK(fillOff.b > 0.5f);
+	CHECK(fillOn.b < 0.5f);
+
 	UID_DestroyDocument(doc);
 }
 
@@ -11122,6 +11186,7 @@ int main(void)
 	TestMainXmlRuntime();
 	TestSettingsOnOffButtons();
 	TestBindSelectedNumericMatch();
+	TestInvertMouseBindSelected();
 	TestUseVisibleAndSearchOrPrecedence();
 	TestValueTypeTransforms();
 	TestSteppedNumberDisplay();

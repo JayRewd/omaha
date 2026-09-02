@@ -75,7 +75,7 @@
 							<container type="horizontal" width="100%" height="auto" gap="4px" valign="center">
 								<input id="field_player_name" type="text" width="fill" height="auto" padding="8px 8px 8px 8px"
 								       shape="skew-rect" skewl="0" skewr="12px"
-								       bind="cvar:name" commit="change" max-length="32"
+								       bind="cvar:ui_name" commit="apply" max-length="32"
 								       fill="{var.fill-input}" color="{var.color-white}" font="body" font-size="{var.text-control}" letter-spacing="1px"
 								       halign="start" valign="center"/>
 								<button id="btn_profile_apply" width="auto" height="auto" padding="8px 20px 8px 26px"
@@ -199,7 +199,8 @@
 									<use template="settings-on-off-row" label="Mouse Acceleration" bind="cvar:cl_mouseAccel" commit="change"/>
 									<use template="settings-on-off-row" label="Raw Input" bind="cvar:in_mouse" commit="change" off-label="DirectInput" on-label="Raw Input" off-value="1" on-value="-1"/>
 									<use template="settings-slider-row" label="m_yaw" bind="cvar:m_yaw" min="0.001" max="1" step="0.001" commit="change"/>
-									<use template="settings-slider-row" label="m_pitch" bind="cvar:m_pitch" min="-1" max="1" step="0.001" commit="change"/>
+									<use template="settings-slider-row" label="m_pitch" bind="cvar:m_pitch" min="0.001" max="1" step="0.001" commit="change"
+									     value-type="pitch-magnitude"/>
 								</container>
 							</container>
 						</container>
@@ -217,6 +218,7 @@
 									<use template="settings-cyclic-row" label="Refresh Rate" bind="cvar:r_displayRefresh" source="display-refresh" commit="apply"/>
 									<use template="settings-on-off-row" label="Vertical sync" bind="cvar:r_swapInterval" commit="apply"/>
 									<use template="settings-cyclic-row" label="Max FPS" bind="cvar:com_maxfps" source="max-fps" commit="change"/>
+									<use template="settings-on-off-row" label="Draw FPS" bind="cvar:fps" commit="change"/>
 									<use template="settings-slider-row" label="Gamma" bind="cvar:r_gamma" min="0.5" max="3" step="0.05" commit="change"/>
 									<use template="settings-on-off-row" label="Color Depth" bind="cvar:r_colorbits" commit="apply"
 									     off-label="16-bit" on-label="32-bit" off-value="16" on-value="32"/>
@@ -240,6 +242,7 @@
 									<use template="settings-on-off-row" label="Weather Effects" bind="cvar:cg_rain" commit="change"/>
 									<use template="settings-on-off-row" label="Wall Decals" bind="cvar:cg_marks_add" commit="change"/>
 									<use template="settings-on-off-row" label="Static Decals" bind="cvar:r_drawstaticdecals" commit="change"/>
+									<use template="settings-on-off-row" label="Blood" bind="cvar:com_blood" commit="change"/>
 								</container>
 							</container>
 						</container>
@@ -262,27 +265,31 @@
 						</container>
 
 						<!-- GAMEPLAY -->
-						<container id="settings_page_gameplay" type="vertical" width="100%" height="100%" overflow="scroll" scrollbar="scrollbar-default" scrollbar-edge="border" padding="8px 12px 12px 12px" gap="8px" visible="{cvar.ui_om_settings_tab == gameplay}">
-								<use template="settings-on-off-row" label="Show HUD" bind="cvar:cg_hud" commit="change"/>
-								<use template="settings-cyclic-row" label="HUD" bind="cvar:ui_om_hud" source="hud-packs" commit="change"
+						<container id="settings_page_gameplay" type="horizontal" width="100%" height="100%" overflow="scroll" scrollbar="scrollbar-default" scrollbar-edge="border" padding="8px 12px 12px 12px" gap="8px" visible="{cvar.ui_om_settings_tab == gameplay}">
+							<container id="settings_page_hud" type="vertical" width="fill" height="auto" gap="8px">
+								<use template="settings-section-header" label="HUD"/>
+								<use template="settings-cyclic-row" label="HUD style" bind="cvar:ui_om_hud" source="hud-packs" commit="change"
 								     visible="{cvar.cg_hud != 0 and !cvar.ui_legacy}"/>
+								<use template="settings-cyclic-row" label="Draw weapon" bind="cvar:cg_drawviewmodel" source="draw-viewmodel" commit="change"/>
 								<use template="settings-cyclic-row" label="Weapons Bar" bind="cvar:ui_weaponsbar" source="weapons-bar" commit="change"
 								     visible="{cvar.cg_hud != 0}"/>
+								<use template="settings-on-off-row" label="Enable scoreboard cursor" bind="cvar:ui_om_scoreboard_disable_cursor" commit="change" off-value="1" on-value="0"/>
+								<use template="settings-on-off-row" label="Show HUD" bind="cvar:cg_hud" commit="change"/>
+								<use template="settings-section-header" label="GAMEPLAY"/>
 								<use template="settings-slider-row" label="Field of View" bind="cvar:cg_fov" min="65" max="120" step="1" commit="change"/>
-								<use template="settings-section-header" label="CROSSHAIR"/>
-								<use template="settings-crosshair-panel"/>
-								<use template="settings-section-header" label="SNIPER SCOPE"/>
-								<use template="settings-sniper-panel"/>
-								<use template="settings-cyclic-row" label="Draw weapon" bind="cvar:cg_drawviewmodel" source="draw-viewmodel" commit="change"/>
 								<use template="settings-on-off-row" label="Always run" bind="cvar:cl_run" commit="change"/>
-								<use template="settings-on-off-row" label="Blood" bind="cvar:com_blood" commit="change"/>
 								<use template="settings-on-off-row" label="Auto-switch Weapons" bind="cvar:cg_autoswitch" commit="change"/>
+							</container>
+							<container id="settings_page_crosshair" type="vertical" width="fill" height="auto" gap="8px">
 								<use template="settings-section-header" label="HITMARKER"/>
 								<use template="settings-on-off-row" label="Hitmarker" bind="cvar:cg_hitmarker" commit="change"/>
 								<use template="settings-cyclic-row" label="Hitmarker sound" bind="cvar:cg_hitmarker_sound"
 								     source="hitmarker-sounds" commit="change" visible="{cvar.cg_hitmarker != 0}"/>
-								<use template="settings-on-off-row" label="Draw FPS" bind="cvar:fps" commit="change"/>
-								<use template="settings-on-off-row" label="Scoreboard cursor" bind="cvar:ui_om_scoreboard_disable_cursor" commit="change" off-value="1" on-value="0"/>
+								<use template="settings-section-header" label="SNIPER SCOPE"/>
+								<use template="settings-sniper-panel"/>
+								<use template="settings-section-header" label="CROSSHAIR" margin="8.5px 0 0 0"/>
+								<use template="settings-crosshair-panel"/>
+							</container>
 						</container>
 					</container>
 

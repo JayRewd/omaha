@@ -405,7 +405,7 @@
 							     visible="{cvar.cg_crosshair_mode != none}"/>
 							<use template="settings-on-off-compact-row" label="Movement inaccuracy" bind="cvar:cg_crosshair_dynamic_movement" commit="change"
 							     visible="{cvar.cg_crosshair_mode != none and cvar.cg_crosshair_dynamic != 0}"/>
-							<use template="settings-slider-compact-row" label="Dynamic scale" bind="cvar:cg_crosshair_dynamic_scale" min="0" max="1" step="0.05" commit="change"
+							<use template="settings-slider-compact-row" label="Dynamic scale" bind="cvar:cg_crosshair_dynamic_scale" min="0.000" max="1.000" step="0.025" commit="change"
 							     visible="{cvar.cg_crosshair_mode != none and cvar.cg_crosshair_dynamic != 0}"/>
 							<use template="settings-on-off-compact-row" label="Dot" bind="cvar:cg_crosshairdot" commit="change"
 							     visible="{cvar.cg_crosshair_mode == open}"/>

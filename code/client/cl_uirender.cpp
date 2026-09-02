@@ -952,6 +952,13 @@ static bool uid_cvar_write(const char *name, const char *value)
 		/* Added in OPM: server gates spectate HUD copy on userinfo om_hud. */
 		Cvar_Set("om_hud", CL_UIR_UseModernHudPack() ? "1" : "0");
 	}
+	/*
+	 * Added in Omaha: profile model dropdowns bind ui_dm_*_set with commit=change.
+	 * Push into dm_* userinfo immediately — APPLY next to the name is name-only.
+	 */
+	if (!Q_stricmp(name, "ui_dm_playermodel_set") || !Q_stricmp(name, "ui_dm_playergermanmodel_set")) {
+		UI_ApplyPlayerModelsFromUi();
+	}
 	return true;
 }
 
@@ -3679,12 +3686,16 @@ static bool invoke_apply_profile(void *userdata)
 	const char *playerName;
 
 	(void)userdata;
+	/*
+	 * Fixed in Omaha: profile APPLY is name-only. The field drafts on ui_name
+	 * (commit=apply); do not call ui_applyplayermodel — that overwrote name from
+	 * a stale ui_name and also pushed models that already apply on dropdown change.
+	 */
 	uid_write_all_doc_bindings();
-	playerName = Cvar_VariableString("name");
+	playerName = Cvar_VariableString("ui_name");
 	if (playerName && playerName[0]) {
 		Cvar_Set("name", playerName);
 	}
-	Cbuf_AddText("ui_applyplayermodel\n");
 	return true;
 }
 

@@ -457,7 +457,7 @@ XML `<invoke name="…"/>` maps to **registered C++ handlers only** — never ar
 | `sort-scoreboard` | Apply `ui_om_scoreboard_sort` / `ui_om_scoreboard_sort_asc` |
 | `toggle-server-favorite` | Toggle `ui_browser_favorite_target` in `ui_om_favorite_servers` |
 | `join-selected` | Resolve selected server IP, deactivate modern UI, `connect` |
-| `apply-profile` | Commit name + `ui_applyplayermodel` |
+| `apply-profile` | Commit `ui_name` → `name` (models apply on dropdown change) |
 | `settings-defaults` | Reset draft settings cvars |
 | `settings-apply` | Commit + `vid_restart` / `snd_restart` when needed |
 | `modal-commit-keybind` | Commit keybind from modal cvars |
@@ -621,7 +621,7 @@ Legacy `<server-list>` still parses (and still uses `role="server-list"` host pa
 | Exactly 2 values | `settings-on-off` / `settings-on-off-row` (not `<toggle>`) |
 | Scalar numeric | `settings-slider` / `settings-slider-row` |
 
-**`value-type` transforms** (sync/write): `percent`, `invert-mouse`, `cm360`, `display-mode`. `value-type="none"` clears a transform. May be set on a collection scope container as well as on controls.
+**`value-type` transforms** (sync/write): `percent`, `invert-mouse`, `pitch-magnitude`, `cm360`, `display-mode`. `value-type="none"` clears a transform. May be set on a collection scope container as well as on controls. `invert-mouse` maps ±`m_pitch` ↔ Off/On; `pitch-magnitude` edits `|m_pitch|` while preserving invert sign.
 
 **`set-value`** on a bound button writes that string on click. Active option styling uses `fill="{bind.selected ? #active : #idle}"` (not `pressed-fill`). Pointer `pressed-fill` / `hoverfill` remain for real mouse press/hover.
 

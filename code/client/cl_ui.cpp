@@ -3740,10 +3740,10 @@ void UI_PlayerModel_f(void)
 
 /*
 ====================
-UI_ApplyPlayerModel_f
+UI_ApplyPlayerModelsFromUi
 ====================
 */
-void UI_ApplyPlayerModel_f(void)
+void UI_ApplyPlayerModelsFromUi(void)
 {
     const char *pszUIPlayerModel;
     char        donotshowssindeorfr[64];
@@ -3759,7 +3759,17 @@ void UI_ApplyPlayerModel_f(void)
     } else {
         Cvar_Set("dm_playergermanmodel", pszUIPlayerModel);
     }
+}
 
+/*
+====================
+UI_ApplyPlayerModel_f
+====================
+*/
+void UI_ApplyPlayerModel_f(void)
+{
+    /* Changed in Omaha: models and name are separate modern-UI commit paths. */
+    UI_ApplyPlayerModelsFromUi();
     Cvar_Set("name", CvarGetForUI("ui_name", "UnnamedSoldier"));
 }
 

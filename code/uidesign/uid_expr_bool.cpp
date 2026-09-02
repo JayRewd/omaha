@@ -304,6 +304,11 @@ bool BoolLookupPath(const uid_bool_lookup_ctx_t *ctx, const std::string &path, u
 				}
 				std::string have;
 				if (UID_ReadCvarString(ctx->backend, cvarName.c_str(), &have)) {
+					/*
+					 * Fixed in Omaha: compare UI-space value after value-type
+					 * transforms (e.g. invert-mouse maps ±m_pitch → 0/1).
+					 */
+					have = UID_TransformCvarToUi(node, have, ctx->backend);
 					if (have == node.setValue) {
 						out->b = true;
 					} else {
