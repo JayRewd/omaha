@@ -1554,7 +1554,7 @@ void R_DebugCircle(const vec3_t org, float radius, float r, float g, float b, fl
 	vec3_t			forward, right;
 	vec3_t			pos, lastpos;
 
-	if (!ri.DebugLines || !ri.numDebugLines) {
+	if (!ri.DebugLines || !ri.numDebugLines || !*ri.DebugLines) {
 		return;
 	}
 
@@ -1615,6 +1615,31 @@ void R_DebugLine(const vec3_t start, const vec3_t end, float r, float g, float b
 		return;
 	}
 
+	// Added in Omaha: pointer-to-pointer was non-null while buffer was NULL → crash on
+	// cg_remotePredictionDebug / any cgi.R_DebugLine when fgame never allocated.
+	if (!*ri.DebugLines) {
+		// #region agent log
+		{
+			static int loggedNull;
+			FILE      *f;
+			if (!loggedNull) {
+				loggedNull = 1;
+				f          = fopen("/home/notuern/Projects/Code/openmohaa/.cursor/debug-107b7d.log", "a");
+				if (f) {
+					fprintf(
+						f,
+						"{\"sessionId\":\"107b7d\",\"runId\":\"debug-crash-v1\",\"hypothesisId\":\"A\","
+						"\"location\":\"tr_main.c:R_DebugLine\",\"message\":\"debug_lines_null_guard\","
+						"\"data\":{\"blocked\":1},\"timestamp\":0}\n"
+					);
+					fclose(f);
+				}
+			}
+		}
+		// #endregion
+		return;
+	}
+
 	if (*ri.numDebugLines >= r_numdebuglines->integer) {
 		ri.Printf(PRINT_ALL, "R_DebugLine: Exceeded MAX_DEBUG_LINES\n");
 		return;
@@ -1643,7 +1668,7 @@ void R_DrawDebugLines(void) {
 	int factor;
 	unsigned short pattern;
 
-	if (!ri.DebugLines || !ri.numDebugLines) {
+	if (!ri.DebugLines || !ri.numDebugLines || !*ri.DebugLines) {
 		return;
 	}
 

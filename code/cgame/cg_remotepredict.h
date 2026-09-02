@@ -38,6 +38,7 @@ void     CG_RP_BeginFrame(void);
 void     CG_RP_UpdateEntity(struct centity_s *cent);
 qboolean CG_RP_GetPredictedBounds(int entityNum, vec3_t origin, vec3_t mins, vec3_t maxs);
 int      CG_RP_GetLeadMsec(void);
+// No-op unless CG_RP_DEBUG_DRAW is built (see cg_remotepredict.cpp).
 void     CG_RP_DebugDraw(void);
 
 #ifdef __cplusplus

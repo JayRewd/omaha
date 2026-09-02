@@ -1919,7 +1919,7 @@ R_DebugLine
 void R_DebugLine(const vec3_t start, const vec3_t end, float r, float g, float b, float alpha) {
 	debugline_t* line;
 
-	if (!ri.DebugLines || !ri.numDebugLines) {
+	if (!ri.DebugLines || !ri.numDebugLines || !*ri.DebugLines) {
 		return;
 	}
 

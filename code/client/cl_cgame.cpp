@@ -1031,6 +1031,9 @@ void CL_CGameRendering( stereoFrame_t stereo ) {
 		cl.oldServerTime = cl.serverStartTime;
 	}
 
+	// Added in Omaha: fgame normally resets the line buffer each frame; pure clients don't.
+	CL_ClearDebugLines();
+
 	cge->CG_DrawActiveFrame( cl.serverTime, cl.serverTime - cl.oldServerTime, stereo, clc.demoplaying );
 
 	cl.oldServerTime = cl.serverTime;
