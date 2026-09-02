@@ -4,6 +4,21 @@ if(NOT WIN32)
     return()
 endif()
 
+# Changed in Omaha: Windows 7 (0x0601) is the Win32 API floor so MSVC/Windows SDK
+# builds do not hard-import Win8+ entry points (e.g. CreateFile2 from KERNEL32).
+# Override with -DWIN32_WINNT_HEX=0x0A00 (etc.) only if intentionally raising the floor.
+if(NOT DEFINED WIN32_WINNT_HEX)
+    set(WIN32_WINNT_HEX "0x0601")
+endif()
+if(NOT DEFINED NTDDI_VERSION_HEX)
+    set(NTDDI_VERSION_HEX "0x06010000") # Win7 SP1
+endif()
+add_compile_definitions(
+    WINVER=${WIN32_WINNT_HEX}
+    _WIN32_WINNT=${WIN32_WINNT_HEX}
+    NTDDI_VERSION=${NTDDI_VERSION_HEX}
+)
+
 list(APPEND SYSTEM_PLATFORM_SOURCES
     ${SOURCE_DIR}/sys/sys_win32.c
     ${SOURCE_DIR}/sys/win_resource.rc

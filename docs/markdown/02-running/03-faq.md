@@ -142,6 +142,19 @@ As you see the default variable above, you can add multiple keys (between the qu
 > bind ` "toggleconsole" is not to be used anymore.
 </details>
 
+---
+
+<details>
+<summary>What is player / remote prediction?</summary>
+
+Project: Omaha can show other players slightly ahead on your screen so online
+aiming feels closer to what you see. Modes are **Off**, **Safe** (default), and
+**Lead**. It is display-only and works on stock servers.
+
+Full overview and accuracy numbers:
+[Player prediction](05-player-prediction.md).
+</details>
+
 
 ---
 

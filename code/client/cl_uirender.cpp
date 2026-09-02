@@ -2307,6 +2307,8 @@ static const char *const g_uidSettingsDraftCvars[] = {
 	"cg_hitmarker",
 	"cg_hitmarker_mode",
 	"cg_hitmarker_sound",
+	"cg_remotePrediction",
+	"cg_remotePredictionMaxLead",
 	"cg_rain",
 	"cg_marks_add",
 	"cg_shadows",
@@ -5548,6 +5550,14 @@ static void CL_UIR_RegisterSettingsCvars(void)
 	Cvar_Get("cg_hitmarker", "0", CVAR_ARCHIVE);
 	Cvar_Get("cg_hitmarker_mode", "server", CVAR_ARCHIVE);
 	Cvar_Get("cg_hitmarker_sound", "hitmarker", CVAR_ARCHIVE);
+	/* Added in Omaha: remote prediction enable (0/2) + MaxLead ceiling. */
+	{
+		cvar_t *rpLead;
+
+		Cvar_Get("cg_remotePrediction", "1", CVAR_ARCHIVE);
+		rpLead = Cvar_Get("cg_remotePredictionMaxLead", "100", CVAR_ARCHIVE);
+		Cvar_CheckRange(rpLead, 0, 150, qtrue);
+	}
 	Cvar_Get("cg_rain", "1", CVAR_ARCHIVE);
 	Cvar_Get("cg_marks_add", "1", CVAR_ARCHIVE);
 	Cvar_Get("cg_shadows", "0", CVAR_ARCHIVE);

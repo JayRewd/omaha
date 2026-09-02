@@ -279,6 +279,11 @@
 								<use template="settings-slider-row" label="Field of View" bind="cvar:cg_fov" min="65" max="120" step="1" commit="change"/>
 								<use template="settings-on-off-row" label="Always run" bind="cvar:cl_run" commit="change"/>
 								<use template="settings-on-off-row" label="Auto-switch Weapons" bind="cvar:cg_autoswitch" commit="change"/>
+								<use template="settings-cyclic-row" label="Remote prediction" bind="cvar:cg_remotePrediction"
+								     source="remote-prediction" commit="change"/>
+								<use template="settings-slider-row" label="Prediction max lead" bind="cvar:cg_remotePredictionMaxLead"
+								     min="0" max="150" step="1" commit="change"
+								     visible="{cvar.cg_remotePrediction == 2}"/>
 							</container>
 							<container id="settings_page_crosshair" type="vertical" width="fill" height="auto" gap="8px">
 								<use template="settings-section-header" label="HITMARKER"/>

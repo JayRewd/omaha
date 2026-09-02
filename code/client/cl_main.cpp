@@ -3851,6 +3851,10 @@ void CL_Init( void ) {
 
 	Cbuf_Execute (0);
 
+	// Added in Omaha: archived calibration knobs may still be seta'd in omconfig;
+	// drop them so only enable + MaxLead remain console-visible.
+	CL_PurgeObsoleteRemotePredictionCvars();
+
 	Cvar_Set( "cl_running", "1" );
 
 #if defined(NO_MODERN_DMA) && NO_MODERN_DMA
@@ -5060,4 +5064,52 @@ void CL_ApplyOriginalConfigTweaks()
 
 	Cvar_Set("snaps", snaps->resetString);
 	Cvar_Set("cl_maxpackets", cl_maxpackets->resetString);
+}
+
+/*
+=================
+CL_PurgeObsoleteRemotePredictionCvars
+
+Remote prediction locked soft-mix/schedule knobs to compile-time defines.
+Old CVAR_ARCHIVE names can linger from calibration configs and still tab-complete
+even though cgame no longer registers them. Remove everything except the two
+player-facing cvars.
+=================
+*/
+void CL_PurgeObsoleteRemotePredictionCvars(void)
+{
+	static const char *const obsolete[] = {
+		"cg_remotePredictionMinSpeed",
+		"cg_remotePredictionMaxDist",
+		"cg_remotePredictionSnapDist",
+		"cg_remotePredictionSmooth",
+		"cg_remotePredictionStepMsec",
+		"cg_remotePredictionLeadKneeFrac",
+		"cg_remotePredictionLeadKnee",
+		"cg_remotePredictionInterpWeight",
+		"cg_remotePredictionScale",
+		"cg_remotePredictionPingSmooth",
+		"cg_remotePredictionBlendPingLow",
+		"cg_remotePredictionBlendPingMid",
+		"cg_remotePredictionBlendPingHigh",
+		"cg_remotePredictionCurveWLow",
+		"cg_remotePredictionCurveWMid",
+		"cg_remotePredictionCurveWHigh",
+		"cg_remotePredictionDecelWLow",
+		"cg_remotePredictionDecelWMid",
+		"cg_remotePredictionDecelWHigh",
+		"cg_remotePredictionMaxYawRate",
+		"cg_remotePredictionDecelRate",
+		"cg_remotePredictionCurveStabilityMin",
+		"cg_remotePredictionDecelTrendMin",
+		"cg_remotePredictionDebug",
+	};
+	int i;
+
+	for (i = 0; i < (int)ARRAY_LEN(obsolete); i++) {
+		cvar_t *cv = Cvar_FindVar(obsolete[i]);
+		if (cv) {
+			Cvar_Unset(cv);
+		}
+	}
 }

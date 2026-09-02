@@ -1,7 +1,8 @@
 ##########################
 #
 # Microsoft Windows
-# Windows Server 2025
+# x64/x86: Windows Server 2022 (VS 2022) for Windows 7-compatible CRT/toolset
+# arm64: Windows 11 Arm (Win10+ only)
 #
 ##########################
 name: "Windows Builds"
@@ -17,14 +18,16 @@ env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
   BUILD_TYPE: RelWithDebInfo
   RELEASE_STAGE: ${{ vars.RELEASE_STAGE || 'unstable' }}
+  # Changed in Omaha: Win7 API floor for engine + third-party deps (avoid CreateFile2 etc.)
+  WIN7_API_FLAGS: '/DWINVER=0x0601 /D_WIN32_WINNT=0x0601 /DNTDDI_VERSION=0x06010000'
 
 jobs:
   build:
     strategy:
       matrix:
         architecture: [
-          {name: 'x64',   os: 'windows-2025',   config: 'x64',    toolset: 'x64',        arch_option: 'VC-WIN64A'    },
-          {name: 'x86',   os: 'windows-2025',   config: 'Win32',  toolset: 'x64_x86',    arch_option: 'VC-WIN32'     },
+          {name: 'x64',   os: 'windows-2022',   config: 'x64',    toolset: 'x64',        arch_option: 'VC-WIN64A'    },
+          {name: 'x86',   os: 'windows-2022',   config: 'Win32',  toolset: 'x64_x86',    arch_option: 'VC-WIN32'     },
           {name: 'arm64', os: 'windows-11-arm', config: 'ARM64',  toolset: 'x64_arm64',  arch_option: 'VC-WIN64-ARM' }
         ]
 
@@ -115,7 +118,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: 'thirdparties/SDL2/install'
-        key: ${{ runner.os }}-${{ matrix.architecture.name }}-sdl2-${{ env.sdl2-branch }}-v1
+        key: ${{ runner.os }}-${{ matrix.architecture.name }}-sdl2-${{ env.sdl2-branch }}-v2-win7
 
     # SDL2 setup
     - name: Checkout SDL2
@@ -131,7 +134,9 @@ jobs:
       working-directory: ${{github.workspace}}/thirdparties/SDL2
       run: |
         cmake -B ./build `
-        -DCMAKE_INSTALL_PREFIX='${{github.workspace}}/thirdparties/SDL2/install'
+        -DCMAKE_INSTALL_PREFIX='${{github.workspace}}/thirdparties/SDL2/install' `
+        -DCMAKE_C_FLAGS="${{ env.WIN7_API_FLAGS }}" `
+        -DCMAKE_CXX_FLAGS="${{ env.WIN7_API_FLAGS }}"
         cmake --build ./build --config Release --parallel
         cmake --install ./build --config Release
 
@@ -143,7 +148,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: 'thirdparties/soft-oal/install'
-        key: ${{ runner.os }}-${{ matrix.architecture.name }}-openal-soft-${{ env.openal-soft-branch }}-v1
+        key: ${{ runner.os }}-${{ matrix.architecture.name }}-openal-soft-${{ env.openal-soft-branch }}-v2-win7
 
     # soft-oal setup
     - name: Checkout soft-oal
@@ -166,12 +171,14 @@ jobs:
         -DALSOFT_REQUIRE_WINMM=ON `
         -DALSOFT_REQUIRE_DSOUND=ON `
         -DALSOFT_REQUIRE_WASAPI=ON `
-        -DCMAKE_C_FLAGS_RELEASE="/MT /O2 /Ob2 /DNDEBUG" `
-        -DCMAKE_CXX_FLAGS_RELEASE="/MT /O2 /Ob2 /DNDEBUG" `
-        -DCMAKE_C_FLAGS_MINSIZEREL="/MT /O2 /Ob2 /DNDEBUG" `
-        -DCMAKE_CXX_FLAGS_MINSIZEREL="/MT /O1 /Ob1 /DNDEBUG" `
-        -DCMAKE_C_FLAGS_RELWITHDEBINFO="/MT /Zi /O2 /Ob1 /DNDEBUG" `
-        -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="/MT /Zi /O2 /Ob1 /DNDEBUG"
+        -DCMAKE_C_FLAGS="${{ env.WIN7_API_FLAGS }}" `
+        -DCMAKE_CXX_FLAGS="${{ env.WIN7_API_FLAGS }}" `
+        -DCMAKE_C_FLAGS_RELEASE="/MT /O2 /Ob2 /DNDEBUG ${{ env.WIN7_API_FLAGS }}" `
+        -DCMAKE_CXX_FLAGS_RELEASE="/MT /O2 /Ob2 /DNDEBUG ${{ env.WIN7_API_FLAGS }}" `
+        -DCMAKE_C_FLAGS_MINSIZEREL="/MT /O2 /Ob2 /DNDEBUG ${{ env.WIN7_API_FLAGS }}" `
+        -DCMAKE_CXX_FLAGS_MINSIZEREL="/MT /O1 /Ob1 /DNDEBUG ${{ env.WIN7_API_FLAGS }}" `
+        -DCMAKE_C_FLAGS_RELWITHDEBINFO="/MT /Zi /O2 /Ob1 /DNDEBUG ${{ env.WIN7_API_FLAGS }}" `
+        -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="/MT /Zi /O2 /Ob1 /DNDEBUG ${{ env.WIN7_API_FLAGS }}"
         cmake --build ./build --config Release --parallel
         cmake --install ./build --config Release
         # Unfortunately soft-oal produces a binary called OpenAL32 even in 64-bit
@@ -187,7 +194,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: 'thirdparties/curl/install'
-        key: ${{ runner.os }}-${{ matrix.architecture.name }}-curl-${{ env.curl-version }}-v1
+        key: ${{ runner.os }}-${{ matrix.architecture.name }}-curl-${{ env.curl-version }}-v2-win7
 
     # cURL setup
     - name: Checkout cURL
@@ -206,7 +213,9 @@ jobs:
         cmake -B ./build `
             -DCMAKE_INSTALL_PREFIX='${{github.workspace}}/thirdparties/curl/install' `
             -DCURL_USE_LIBPSL=OFF `
-            -DCURL_USE_SCHANNEL=ON
+            -DCURL_USE_SCHANNEL=ON `
+            -DCMAKE_C_FLAGS="${{ env.WIN7_API_FLAGS }}" `
+            -DCMAKE_CXX_FLAGS="${{ env.WIN7_API_FLAGS }}"
         cmake --build ./build --config Release --parallel
         cmake --install ./build --config Release
 

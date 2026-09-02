@@ -19,6 +19,11 @@ but is planned—expansions still run through the OpenMoHAA/legacy paths today.
 - **Modern UI engine** — retained-mode XML UI (`uidesign` / `uirender`) with a
   linear flex layout engine, batched GPU drawing, and compositing of world and
   model views into the UI layer. More: [`docs/modern-ui/`](docs/modern-ui/README.md).
+- **Player prediction** — accurately shows other players up to about 100–120 ms ahead
+  so higher-ping players don’t have to lead shots as much. Modes: **Off**,
+  **Safe** (steadier motion, little lag help), **Lead** (full prediction).
+  Defaults to Safe. More:
+  [Player prediction](docs/markdown/02-running/05-player-prediction.md).
 - **HUD packs** — switch between Classic, Modern, or Competitive in settings,
   or drop in your own pack (mods can ship custom HUDs the same way).
 - **Dynamic crosshairs** — shape, size, gap, color, and outline in settings;
@@ -44,6 +49,7 @@ Install and run like OpenMoHAA (you still need the original game data):
 - [Installing](docs/markdown/01-intro/01-installation.md)
 - [Running](docs/markdown/02-running/01-running.md)
 - [FAQ](docs/markdown/02-running/03-faq.md)
+- [Player prediction](docs/markdown/02-running/05-player-prediction.md)
 - [Building from source](docs/markdown/04-coding/01-compiling.md)
 
 Primary targets: `openmohaa` (client) and `omohaaded` (dedicated).

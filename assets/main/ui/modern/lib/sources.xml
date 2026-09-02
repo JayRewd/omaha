@@ -33,7 +33,7 @@
 			<item value="0" label="Windowed"/>
 		</source>
 
-		<!-- display-refresh is host-backed (SDL modes); see docs/research/display-refresh-sources.md -->
+		<!-- display-refresh is host-backed (SDL modes); see artifacts/research/display-refresh-sources.md -->
 
 		<source id="max-fps" default="125">
 			<item value="125" label="125"/>
@@ -155,6 +155,13 @@
 		<source id="hitmarker-mode" default="server">
 			<item value="server" label="Server"/>
 			<item value="client" label="Client"/>
+		</source>
+
+		<!-- Added in Omaha: remote player display prediction modes. -->
+		<source id="remote-prediction" default="1">
+			<item value="0" label="Off"/>
+			<item value="1" label="Safe"/>
+			<item value="2" label="Lead"/>
 		</source>
 
 		<source id="weapons-bar" default="1">
