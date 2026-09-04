@@ -113,6 +113,8 @@ set(UIDESIGN_SOURCES
     ${SOURCE_DIR}/uidesign/uid_shape.cpp
     ${SOURCE_DIR}/uidesign/uid_layout.cpp
     ${SOURCE_DIR}/uidesign/uid_widget.cpp
+    ${SOURCE_DIR}/uidesign/uid_style.cpp
+    ${SOURCE_DIR}/uidesign/uid_paint.cpp
     ${SOURCE_DIR}/uidesign/uid_input.cpp
     ${SOURCE_DIR}/uidesign/uid_action.cpp
     ${SOURCE_DIR}/uidesign/uid_invoke.cpp
