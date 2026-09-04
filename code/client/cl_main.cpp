@@ -3216,38 +3216,11 @@ qboolean CL_IsRendererLoaded(void) {
 	return re.Shutdown != NULL;
 }
 
-/*
-============
-CL_InitRef
-============
-*/
-// #region agent log
-#define RP_DBG_CRASH_LOG_PATH "/home/notuern/Projects/Code/openmohaa/.cursor/debug-107b7d.log"
-static void CL_AgentLogDebugLines(const char *hypothesisId, const char *message, const char *dataJson)
-{
-	FILE *f = fopen(RP_DBG_CRASH_LOG_PATH, "a");
-	if (!f) {
-		return;
-	}
-	fprintf(
-		f,
-		"{\"sessionId\":\"107b7d\",\"runId\":\"debug-crash-v1\",\"hypothesisId\":\"%s\","
-		"\"location\":\"cl_main.cpp:DebugLines\",\"message\":\"%s\",\"data\":%s,\"timestamp\":%d}\n",
-		hypothesisId,
-		message,
-		dataJson ? dataJson : "{}",
-		Sys_Milliseconds()
-	);
-	fclose(f);
-}
-// #endregion
-
 // Added in Omaha: allocate engine debug-line buffer when fgame did not (remote client).
 void CL_EnsureDebugLines(void)
 {
 	cvar_t *cv;
 	int     n;
-	char    buf[128];
 
 	if (DebugLines) {
 		return;
@@ -3257,11 +3230,6 @@ void CL_EnsureDebugLines(void)
 	n  = (cv && cv->integer > 0) ? cv->integer : 4096;
 	DebugLines    = (debugline_t *)malloc((size_t)n * sizeof(debugline_t));
 	numDebugLines = 0;
-
-	// #region agent log
-	Com_sprintf(buf, sizeof(buf), "{\"allocated\":1,\"n\":%d,\"ptrNonNull\":%d}", n, DebugLines ? 1 : 0);
-	CL_AgentLogDebugLines("A", "debug_lines_alloc", buf);
-	// #endregion
 
 	if (!DebugLines) {
 		Com_Printf("CL_EnsureDebugLines: malloc failed for %d lines\n", n);
@@ -3274,6 +3242,11 @@ void CL_ClearDebugLines(void)
 	numDebugLines = 0;
 }
 
+/*
+============
+CL_InitRef
+============
+*/
 void CL_InitRef( void ) {
 	refimport_t	ri;
 	refexport_t	*ret;
