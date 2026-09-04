@@ -31,12 +31,18 @@ namespace {
 
 using prof_clock = std::chrono::steady_clock;
 
-static int              g_enabled;
+static int                    g_enabled;
 static prof_clock::time_point g_starts[UID_PROF_COUNT];
-static int              g_active[UID_PROF_COUNT];
+static int                    g_active[UID_PROF_COUNT];
 
 static uid_prof_timings_t g_load;
 static uid_prof_timings_t g_frame;
+
+/* Nested sample stack (ui_total → legacy_ui → hud_layer / disconnected_main). */
+static uid_prof_timings_t g_frameStack[4];
+static int                g_frameStackDepth;
+static int                g_counts[UID_PROF_CNT_COUNT];
+static int                g_countingNew;
 
 static void ClearTimings(uid_prof_timings_t *t)
 {
@@ -75,6 +81,35 @@ static void FinishFrameTotals(uid_prof_timings_t *t)
 static int IsLoadPhase(uid_prof_phase_t phase)
 {
 	return phase <= UID_PROF_LEGACY_LOAD;
+}
+
+static void SnapshotActiveIntoFrame(uid_prof_timings_t *dst)
+{
+	const prof_clock::time_point now = prof_clock::now();
+	int                          i;
+
+	if (!dst) {
+		return;
+	}
+	for (i = 0; i < UID_PROF_COUNT; ++i) {
+		if (!g_active[i] || IsLoadPhase(static_cast<uid_prof_phase_t>(i))) {
+			continue;
+		}
+		dst->us[i] += std::chrono::duration_cast<std::chrono::microseconds>(now - g_starts[i]).count();
+		g_starts[i] = now;
+	}
+}
+
+static void RestartActivePhases(void)
+{
+	const prof_clock::time_point now = prof_clock::now();
+	int                          i;
+
+	for (i = 0; i < UID_PROF_COUNT; ++i) {
+		if (g_active[i]) {
+			g_starts[i] = now;
+		}
+	}
 }
 
 } // namespace
@@ -141,6 +176,24 @@ const char *UID_ProfilePhaseName(uid_prof_phase_t phase)
 	}
 }
 
+const char *UID_ProfileCounterName(uid_prof_counter_t counter)
+{
+	switch (counter) {
+	case UID_PROF_CNT_NEW:
+		return "new";
+	case UID_PROF_CNT_CVAR_SET:
+		return "cvar_set";
+	case UID_PROF_CNT_CVAR_DESCRIBE:
+		return "cvar_describe";
+	case UID_PROF_CNT_STRTOD:
+		return "strtod";
+	case UID_PROF_CNT_SNPRINTF:
+		return "snprintf";
+	default:
+		return "unknown";
+	}
+}
+
 void UID_ProfileResetLoad(void)
 {
 	ClearTimings(&g_load);
@@ -149,6 +202,36 @@ void UID_ProfileResetLoad(void)
 void UID_ProfileResetFrame(void)
 {
 	ClearTimings(&g_frame);
+	g_frameStackDepth = 0;
+	std::memset(g_counts, 0, sizeof(g_counts));
+}
+
+void UID_ProfilePushFrame(void)
+{
+	if (!g_enabled) {
+		return;
+	}
+	SnapshotActiveIntoFrame(&g_frame);
+	if (g_frameStackDepth < static_cast<int>(sizeof(g_frameStack) / sizeof(g_frameStack[0]))) {
+		g_frameStack[g_frameStackDepth++] = g_frame;
+	}
+	ClearTimings(&g_frame);
+	std::memset(g_counts, 0, sizeof(g_counts));
+	RestartActivePhases();
+}
+
+void UID_ProfilePopFrame(void)
+{
+	if (!g_enabled) {
+		return;
+	}
+	if (g_frameStackDepth > 0) {
+		g_frame = g_frameStack[--g_frameStackDepth];
+	} else {
+		ClearTimings(&g_frame);
+	}
+	std::memset(g_counts, 0, sizeof(g_counts));
+	RestartActivePhases();
 }
 
 void UID_ProfileBegin(uid_prof_phase_t phase)
@@ -162,8 +245,8 @@ void UID_ProfileBegin(uid_prof_phase_t phase)
 
 void UID_ProfileEnd(uid_prof_phase_t phase)
 {
-	long long              us;
-	uid_prof_timings_t    *dst;
+	long long           us;
+	uid_prof_timings_t *dst;
 
 	if (!g_enabled || phase < 0 || phase >= UID_PROF_COUNT || !g_active[phase]) {
 		return;
@@ -207,6 +290,34 @@ void UID_ProfileSetFrameMeta(int layoutRan, int nodeCount)
 	g_frame.nodeCount += nodeCount;
 }
 
+void UID_ProfileCountReset(void)
+{
+	std::memset(g_counts, 0, sizeof(g_counts));
+}
+
+void UID_ProfileCountInc(uid_prof_counter_t counter)
+{
+	if (!g_enabled || counter < 0 || counter >= UID_PROF_CNT_COUNT) {
+		return;
+	}
+	g_counts[counter]++;
+}
+
+void UID_ProfileCountBeginNew(void)
+{
+	g_countingNew = g_enabled ? 1 : 0;
+}
+
+void UID_ProfileCountEndNew(void)
+{
+	g_countingNew = 0;
+}
+
+int UID_ProfileCountingNew(void)
+{
+	return g_countingNew;
+}
+
 void UID_ProfileCaptureLoad(uid_prof_timings_t *out)
 {
 	if (!out) {
@@ -218,9 +329,14 @@ void UID_ProfileCaptureLoad(uid_prof_timings_t *out)
 
 void UID_ProfileCaptureFrame(uid_prof_timings_t *out)
 {
+	int i;
+
 	if (!out) {
 		return;
 	}
 	FinishFrameTotals(&g_frame);
 	*out = g_frame;
+	for (i = 0; i < UID_PROF_CNT_COUNT; ++i) {
+		out->counts[i] = g_counts[i];
+	}
 }

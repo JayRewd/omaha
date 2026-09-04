@@ -606,7 +606,7 @@ uid_node_id_t CloneForeachSubtree(
 	uid_node_id_t tmplRoot,
 	uid_node_id_t scopeId,
 	int itemIndex,
-	const uid_collection_entry_t &item,
+	uid_collection_entry_t item,
 	int itemCount,
 	int selectedIndex,
 	const char *displayMode
@@ -616,6 +616,11 @@ uid_node_id_t CloneForeachSubtree(
 		return UID_INVALID_NODE_ID;
 	}
 
+	/*
+	 * Fixed in Omaha: take item by value. CloneForeachSubtree push_backs to
+	 * doc->states; a reference into scopeSt->collectionItems becomes dangling
+	 * after reallocation (Windows often shows as empty label on index 0 only).
+	 */
 	std::map<uid_node_id_t, uid_node_id_t> idMap;
 	std::vector<uid_node_id_t> stack;
 	stack.push_back(tmplRoot);
@@ -651,7 +656,6 @@ uid_node_id_t CloneForeachSubtree(
 	}
 	for (const auto &kv : idMap) {
 		uid_node_def_t &dst = doc->nodes[static_cast<size_t>(kv.second)];
-		const uid_node_def_t &src = tmpl[static_cast<size_t>(kv.first)];
 		ApplyItemContextToNode(&dst, item, itemIndex, itemCount, selectedIndex, displayMode);
 	}
 	for (const auto &kv : idMap) {
@@ -1482,16 +1486,24 @@ void ExpandForeach(uid_document_t *doc, uid_node_id_t foreachId, const uid_backe
 	fnSt->foreachExpandSig = sig;
 
 	for (int i : visibleIndices) {
+		/* Rebind after prior CloneForeachSubtree may have reallocated states. */
+		if (scopeId < 0 || static_cast<size_t>(scopeId) >= doc->states.size() ||
+			foreachId < 0 || static_cast<size_t>(foreachId) >= doc->nodes.size()) {
+			return;
+		}
+		scopeSt = &doc->states[static_cast<size_t>(scopeId)];
 		if (i < 0 || static_cast<size_t>(i) >= scopeSt->collectionItems.size()) {
 			continue;
 		}
+		/* Copy before clone — states push_back inside CloneForeachSubtree. */
+		const uid_collection_entry_t itemCopy = scopeSt->collectionItems[static_cast<size_t>(i)];
 		const uid_node_id_t root = CloneForeachSubtree(
 			doc,
 			tmplNodes,
 			tmplRoot,
 			scopeId,
 			i,
-			scopeSt->collectionItems[static_cast<size_t>(i)],
+			itemCopy,
 			count,
 			collectionSelectedIndex,
 			displayMode
@@ -1499,7 +1511,6 @@ void ExpandForeach(uid_document_t *doc, uid_node_id_t foreachId, const uid_backe
 		if (root != UID_INVALID_NODE_ID) {
 			doc->nodes[static_cast<size_t>(foreachId)].children.push_back(root);
 		}
-		scopeSt = &doc->states[static_cast<size_t>(scopeId)];
 	}
 	/*
 	 * Fixed in OPM: CloneForeachSubtree may reallocate nodes/states vectors.

@@ -69,6 +69,9 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "../uidesign/uid_invoke.h"
 #include "../uidesign/uid_menu_map_view.h"
 #include "../uidesign/uid_profile.h"
+
+#include <cstdio>
+#include <ctime>
 #include "../uidesign/uid_opt.h"
 #include "../uidesign/uid_widget.h"
 #include "../uilib/ui_public.h"
@@ -94,6 +97,7 @@ static cvar_t *ui_clip_dedup; /* Added in OPM: skip unchanged clip/scissor appli
 static cvar_t *ui_mesh_cache; /* Added in OPM: tessellated mesh cache for GPU fills/strokes */
 static cvar_t *ui_chrome_cache; /* Added in OPM: retained chrome RT (gl1; default off) */
 static int     g_uiProfileFrameCounter;
+static int     g_uiProfileSampleDepth;
 static qboolean g_useLegacyMain = qfalse;
 static qboolean g_legacyCached  = qfalse;
 static int       g_compareKeepConsolesClosedUntil = 0; /* cls.realtime deadline */
@@ -108,12 +112,17 @@ static void CL_UIR_ProfilePrint(const char *kind, const uid_prof_timings_t *t)
 		return;
 	}
 	Com_Printf(
-		"UIProfile %s '%s' total=%.3fms layout=%d nodes=%d\n",
+		"UIProfile %s '%s' total=%.3fms layout=%d nodes=%d new=%d cvar_set=%d cvar_desc=%d strtod=%d snprintf=%d\n",
 		kind,
 		t->label[0] ? t->label : "-",
 		(double)t->totalUs / 1000.0,
 		t->layoutRan,
-		t->nodeCount
+		t->nodeCount,
+		t->counts[UID_PROF_CNT_NEW],
+		t->counts[UID_PROF_CNT_CVAR_SET],
+		t->counts[UID_PROF_CNT_CVAR_DESCRIBE],
+		t->counts[UID_PROF_CNT_STRTOD],
+		t->counts[UID_PROF_CNT_SNPRINTF]
 	);
 	for (i = 0; i < UID_PROF_COUNT; ++i) {
 		if (t->us[i] <= 0) {
@@ -148,7 +157,7 @@ void CL_UIR_ProfileSyncFromCvar(void)
 	if (ui_mesh_cache) {
 		UIR_MeshCacheSetEnabled(ui_mesh_cache->integer != 0);
 	}
-	/* Added in OPM: retained chrome RT (idle blit). */
+	/* Added in OPM: retained chrome RT (idle blit); default off — enable only when idle. */
 	if (ui_chrome_cache) {
 		UIR_SetChromeCache(ui_chrome_cache->integer != 0);
 	}
@@ -160,7 +169,12 @@ void CL_UIR_ProfileBeginSample(const char *label)
 	if (!UID_ProfileEnabled()) {
 		return;
 	}
-	UID_ProfileResetFrame();
+	if (g_uiProfileSampleDepth > 0) {
+		UID_ProfilePushFrame();
+	} else {
+		UID_ProfileResetFrame();
+	}
+	g_uiProfileSampleDepth++;
 	if (label && label[0]) {
 		UID_ProfileSetFrameLabel(label);
 	}
@@ -175,10 +189,19 @@ void CL_UIR_ProfileEndSample(const char *kind)
 	if (!UID_ProfileEnabled()) {
 		return;
 	}
+	if (g_uiProfileSampleDepth <= 0) {
+		return;
+	}
 	UID_ProfileCaptureFrame(&t);
 	if (t.totalUs <= 0 && t.us[UID_PROF_FRAME_PAINT_CHROME] <= 0 && t.us[UID_PROF_FRAME_BIND] <= 0
 		&& t.us[UID_PROF_LEGACY_URC] <= 0 && t.us[UID_PROF_LEGACY_EVENTS] <= 0
 		&& t.us[UID_PROF_LEGACY_VIEW3D] <= 0 && t.us[UID_PROF_LEGACY_MISC] <= 0) {
+		g_uiProfileSampleDepth--;
+		if (g_uiProfileSampleDepth > 0) {
+			UID_ProfilePopFrame();
+		} else {
+			UID_ProfileResetFrame();
+		}
 		return;
 	}
 
@@ -189,6 +212,12 @@ void CL_UIR_ProfileEndSample(const char *kind)
 
 	if (shouldPrint) {
 		CL_UIR_ProfilePrint(kind ? kind : "frame", &t);
+	}
+	g_uiProfileSampleDepth--;
+	if (g_uiProfileSampleDepth > 0) {
+		UID_ProfilePopFrame();
+	} else {
+		UID_ProfileResetFrame();
 	}
 }
 
@@ -889,6 +918,7 @@ static bool uid_cvar_describe(const char *name, int *flags, char *valueBuf, size
 	if (!name || !name[0]) {
 		return false;
 	}
+	UID_ProfileCountInc(UID_PROF_CNT_CVAR_DESCRIBE);
 	var = Cvar_FindVar(name);
 	if (!var) {
 		return false;
@@ -916,6 +946,7 @@ static bool uid_cvar_write(const char *name, const char *value)
 	if (!name || !name[0] || !value) {
 		return false;
 	}
+	UID_ProfileCountInc(UID_PROF_CNT_CVAR_SET);
 	var = Cvar_FindVar(name);
 	if (var && (var->flags & (CVAR_ROM | CVAR_INIT | CVAR_PROTECTED))) {
 		return false;
@@ -5614,7 +5645,7 @@ void CL_UIR_RegisterCvars(void)
 	ui_clip_dedup = Cvar_Get("ui_clip_dedup", "1", CVAR_ARCHIVE);
 	/* Added in OPM: tessellated mesh cache for GPU path fills/strokes. */
 	ui_mesh_cache = Cvar_Get("ui_mesh_cache", "1", CVAR_ARCHIVE);
-	/* Added in OPM: retained chrome RT; default off (enable after measuring idle UI CPU). */
+	/* Added in OPM: retained chrome RT; default off (rebuilds every frame while HUD is live). */
 	ui_chrome_cache = Cvar_Get("ui_chrome_cache", "0", CVAR_ARCHIVE);
 	/* Added in OPM: batched GPU UI path; default on. */
 	ui_gpu_draw = Cvar_Get("ui_gpu_draw", "1", CVAR_ARCHIVE);
@@ -5867,6 +5898,7 @@ void CL_UIR_Init(void)
 	CL_ModernBrowser_Init();
 	g_browserDidFirstRefresh = qfalse;
 	g_uirStarted = qtrue;
+	CL_UIR_ProfileSyncFromCvar();
 }
 
 void CL_UIR_Shutdown(void)

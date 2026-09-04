@@ -57,26 +57,48 @@ typedef enum uid_prof_phase_e {
 	UID_PROF_COUNT
 } uid_prof_phase_t;
 
+/* Added in OPM: per-sample work counters (heap/format/parse churn). */
+typedef enum uid_prof_counter_e {
+	UID_PROF_CNT_NEW = 0, /* scoped operator-new observations during UID_Update */
+	UID_PROF_CNT_CVAR_SET,
+	UID_PROF_CNT_CVAR_DESCRIBE,
+	UID_PROF_CNT_STRTOD,
+	UID_PROF_CNT_SNPRINTF,
+	UID_PROF_CNT_COUNT
+} uid_prof_counter_t;
+
 typedef struct uid_prof_timings_s {
 	long long us[UID_PROF_COUNT];
 	long long totalUs;
 	int       layoutRan;
 	int       nodeCount;
+	int       counts[UID_PROF_CNT_COUNT];
 	char      label[128];
 } uid_prof_timings_t;
 
 void        UID_ProfileSetEnabled(int enabled);
 int         UID_ProfileEnabled(void);
 const char *UID_ProfilePhaseName(uid_prof_phase_t phase);
+const char *UID_ProfileCounterName(uid_prof_counter_t counter);
 
 void UID_ProfileResetLoad(void);
 void UID_ProfileResetFrame(void);
 void UID_ProfileBegin(uid_prof_phase_t phase);
 void UID_ProfileEnd(uid_prof_phase_t phase);
 
+/* Added in OPM: nested sample stack — pause parent phases across child samples. */
+void UID_ProfilePushFrame(void);
+void UID_ProfilePopFrame(void);
+
 void UID_ProfileSetLoadLabel(const char *label);
 void UID_ProfileSetFrameLabel(const char *label);
 void UID_ProfileSetFrameMeta(int layoutRan, int nodeCount);
+
+void UID_ProfileCountReset(void);
+void UID_ProfileCountInc(uid_prof_counter_t counter);
+void UID_ProfileCountBeginNew(void);
+void UID_ProfileCountEndNew(void);
+int  UID_ProfileCountingNew(void);
 
 void UID_ProfileCaptureLoad(uid_prof_timings_t *out);
 void UID_ProfileCaptureFrame(uid_prof_timings_t *out);

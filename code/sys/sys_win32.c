@@ -40,6 +40,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <time.h>
 #include <direct.h>
 #include <io.h>
 #include <conio.h>
@@ -472,6 +473,7 @@ DIRECTORY SCANNING
 
 #define MAX_FOUND_FILES 0x1000
 
+
 /*
 ==============
 Sys_ListFilteredFiles
@@ -514,10 +516,16 @@ void Sys_ListFilteredFiles(
 
         if ((findinfo.attrib & _A_SUBDIR) != 0 && wantsubs) {
             if (strlen(subdirs)) {
-                Com_sprintf(newsubdirs, sizeof(newsubdirs), "%s\\%s\\*", subdirs, findinfo.name);
+                /* Match Unix Sys_ListFilteredFiles: subdirs is a path only.
+                 * The trailing "*" belongs solely in the _findfirst search pattern
+                 * (see Com_sprintf(search, ...) above). Appending "\\*" here made
+                 * nested searches like basedir\\modern\\menus\\*\\* and silently
+                 * skipped ui/modern/menus/*.xml on Windows. */
+                Com_sprintf(newsubdirs, sizeof(newsubdirs), "%s\\%s", subdirs, findinfo.name);
             } else {
                 Com_sprintf(newsubdirs, sizeof(newsubdirs), "%s", findinfo.name);
             }
+
 
             // recursively iterate into subdirectory
             Sys_ListFilteredFiles(basedir, newsubdirs, filter, wantsubs, list, numfiles);

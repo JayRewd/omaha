@@ -214,6 +214,7 @@ bool ReadCvarString(const uid_backend_t *backend, const char *name, std::string 
 	*out = buf;
 	if (g_cvarMemoActive && UID_OptEnabled(UID_OPT_CVAR_MEMO)) {
 		g_cvarMemo[name] = *out;
+		UID_ProfileCountInc(UID_PROF_CNT_NEW); /* string key/value insert (alloc proxy) */
 	}
 	return true;
 }
@@ -234,6 +235,7 @@ double ReadCvarNumber(const uid_backend_t *backend, const char *name, double fal
 		return fallback;
 	}
 	char *end = nullptr;
+	UID_ProfileCountInc(UID_PROF_CNT_STRTOD);
 	const double v = std::strtod(s.c_str(), &end);
 	if (end == s.c_str()) {
 		return fallback;
@@ -625,6 +627,7 @@ static bool NumericLookupPath(void *userdata, const char *path, double *out)
 static std::string FormatEvaluatedNumber(double value)
 {
 	char buf[64];
+	UID_ProfileCountInc(UID_PROF_CNT_SNPRINTF);
 	if (std::fabs(value - std::floor(value)) < 1e-9) {
 		std::snprintf(buf, sizeof(buf), "%.0f", value);
 	} else {

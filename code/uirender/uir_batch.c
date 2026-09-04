@@ -25,6 +25,8 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "uir_batch.h"
 #include "uir_compositor.h"
 
+#include "../uidesign/uid_profile.h"
+
 #include <math.h>
 #include <string.h>
 
@@ -571,9 +573,12 @@ void UIR_BatchTargetEnd(void)
 		return;
 	}
 	UIR_BatchFlush();
+	/* Added in Omaha debug: time MSAA resolve / FBO blit (was outside profile). */
+	UID_ProfileBegin(UID_PROF_HOST_BATCH_FLUSH);
 	if (g_batchBackend.endTarget) {
 		g_batchBackend.endTarget();
 	}
+	UID_ProfileEnd(UID_PROF_HOST_BATCH_FLUSH);
 	g_targetActive = 0;
 	UIR_BatchSetFringe(1);
 	/* Added in OPM: leaving FBO may reset GL scissor. */

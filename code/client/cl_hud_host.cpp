@@ -29,6 +29,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "../uirender/uir_compositor.h"
 #include "../uirender/uir_image.h"
 #include "../fgame/bg_public.h"
+#include "../uidesign/uid_profile.h"
 
 #include <algorithm>
 #include <cmath>
@@ -92,12 +93,14 @@ static void UIR_Hud_SetCvar(const char *name, const char *value)
 	if (!name || !value) {
 		return;
 	}
+	UID_ProfileCountInc(UID_PROF_CNT_CVAR_SET);
 	Cvar_Set(name, value);
 }
 
 static void UIR_Hud_SetCvarInt(const char *name, int value)
 {
 	char buf[32];
+	UID_ProfileCountInc(UID_PROF_CNT_SNPRINTF);
 	Com_sprintf(buf, sizeof(buf), "%d", value);
 	UIR_Hud_SetCvar(name, buf);
 }
@@ -110,6 +113,7 @@ static void UIR_Hud_SetCvarFrac(const char *name, float value)
 	} else if (value > 1.0f) {
 		value = 1.0f;
 	}
+	UID_ProfileCountInc(UID_PROF_CNT_SNPRINTF);
 	Com_sprintf(buf, sizeof(buf), "%.3f", value);
 	UIR_Hud_SetCvar(name, buf);
 }
@@ -117,6 +121,7 @@ static void UIR_Hud_SetCvarFrac(const char *name, float value)
 static void UIR_Hud_SetCvarAngleDeg(const char *name, float deg)
 {
 	char buf[32];
+	UID_ProfileCountInc(UID_PROF_CNT_SNPRINTF);
 	Com_sprintf(buf, sizeof(buf), "%.1f", deg);
 	UIR_Hud_SetCvar(name, buf);
 }

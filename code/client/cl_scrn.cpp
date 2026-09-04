@@ -486,7 +486,10 @@ void UpdateStereoSide( stereoFrame_t s ) {
 	if( clc.state == CA_CINEMATIC ) {
 		SCR_DrawCinematic();
 	}
+	/* Added in OPM: whole-frame UI sample (HUD sync lives inside View3D / overlay). */
+	CL_UIR_ProfileBeginSample("ui_total");
 	UI_Update();
+	CL_UIR_ProfileEndSample("ui_total");
 }
 
 /*

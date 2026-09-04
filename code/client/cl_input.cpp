@@ -1026,7 +1026,7 @@ void CL_WritePacket( void ) {
 	count = cl.cmdNumber - cl.outPackets[ oldPacketNum ].p_cmdNumber;
 	if ( count > MAX_PACKET_USERCMDS ) {
 		count = MAX_PACKET_USERCMDS;
-		Com_Printf("MAX_PACKET_USERCMDS\n");
+		Com_DPrintf("MAX_PACKET_USERCMDS\n");
 	}
 
 #ifdef USE_VOIP
