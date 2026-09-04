@@ -32,6 +32,26 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include <vector>
 
 /*
+ * Added in Omaha: Stage 2 scoped layout. When enabled, UID_Update re-lays out from
+ * nearest fixed-size boundaries instead of the full document tree.
+ */
+void UID_SetLayoutScoped(int enabled);
+int  UID_LayoutScopedEnabled(void);
+
+
+/*
+ * Added in Omaha: re-layout dirtyLayoutNodes from nearest layout boundaries using
+ * cached LayoutNode inputs. Returns UID_OK on success, or an error to force a
+ * full UID_LayoutDocument fallback.
+ */
+uid_result_t UID_LayoutScoped(
+	uid_document_t *doc,
+	float fbScale,
+	const uid_backend_t *backend,
+	uid_diag_list_t *diags
+);
+
+/*
  * Measure and place the expanded document tree in logical pixels.
  * Does not paint. Writes margin/border/content boxes, effectiveClip,
  * scroll clamps, and content extents onto uid_node_state_t.
@@ -49,6 +69,14 @@ uid_result_t UID_LayoutDocument(
 
 /* Added in OPM: authored px × lastUiPxScale (reference-resolution scale). */
 float UID_ScaleAuthoredPx(const uid_document_t *doc, float px);
+
+/*
+ * Added in Omaha: translate-x/y paint-only fast path — offset boxes and re-intersect clips
+ * without a full measure/place pass. Used when LAYOUT is clean and pendingTranslateDeltas
+ * are queued from binding updates.
+ */
+void UID_ShiftSubtreeBoxes(uid_document_t *doc, uid_node_id_t id, float dx, float dy, const uid_rect_t &parentClip);
+void UID_ApplyPendingTranslateDeltas(uid_document_t *doc);
 
 /*
  * Topmost interactive node under (x,y) in logical space.

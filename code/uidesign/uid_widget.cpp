@@ -30,8 +30,10 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "uid_modal.h"
 #include "uid_layout.h"
 #include "uid_opt.h"
+#include "uid_paint.h"
 #include "uid_scrollbar.h"
 #include "uid_shape.h"
+#include "uid_style.h"
 #include "uid_value.h"
 
 #include <algorithm>
@@ -467,7 +469,8 @@ void ComputeTextDrawOrigin(
 	void *font,
 	const uid_backend_t *backend,
 	float *outX,
-	float *outY
+	float *outY,
+	float *outTextW /* Added in Omaha Stage 3b: optional; avoids re-measure in paint */
 )
 {
 	uid_align_t halign;
@@ -492,29 +495,70 @@ void ComputeTextDrawOrigin(
 		const float fontPx = FontLogicalPx(doc, node);
 		const float fbScale = (doc && doc->lastFbScale > 0.0f) ? doc->lastFbScale : 1.0f;
 		const float uiPxScale = (doc && doc->lastUiPxScale > 0.0f) ? doc->lastUiPxScale : 1.0f;
-		const uint64_t measureKey = HashTextCacheKey(text, fontId, weight, fontPx, uiPxScale, fbScale);
-		if (UID_OptEnabled(UID_OPT_TEXT_CACHE) && mst->cachedTextWidth >= 0.0f
-			&& mst->cachedMeasureKey == measureKey) {
-			textW = mst->cachedTextWidth;
-		} else {
-			textW = backend->fontMeasure(font, text);
-			const char *trackProp = node.properties.GetCStr("letter-spacing", nullptr);
-			if (trackProp && trackProp[0] && text[0]) {
-				uid_length_t len;
-				len.unit = UID_LENGTH_PX;
-				len.value = 0.0f;
-				if (node.properties.GetLengthCached("letter-spacing", &len) || UID_ParseLength(trackProp, &len, nullptr)) {
-					if (len.unit == UID_LENGTH_PX && len.value != 0.0f) {
-						const int n = static_cast<int>(std::strlen(text));
-						if (n > 1) {
-							textW += UID_ScaleAuthoredPx(doc, len.value) * static_cast<float>(n - 1);
-						}
+		/*
+		 * Stage 3b: measure key is font identity only. Width is summed from the
+		 * baked glyph advance table (O(chars)) so changing health/ammo/timer
+		 * strings do not thrash a text-hashed cache entry.
+		 */
+		const uint64_t fontKey = HashTextCacheKey("", fontId, weight, fontPx, uiPxScale, fbScale);
+		float trackingExtra = 0.0f;
+		const char *trackProp = node.properties.GetCStr("letter-spacing", nullptr);
+		if (trackProp && trackProp[0] && text[0]) {
+			uid_length_t len;
+			len.unit = UID_LENGTH_PX;
+			len.value = 0.0f;
+			if (node.properties.GetLengthCached("letter-spacing", &len) || UID_ParseLength(trackProp, &len, nullptr)) {
+				if (len.unit == UID_LENGTH_PX && len.value != 0.0f) {
+					const int n = static_cast<int>(std::strlen(text));
+					if (n > 1) {
+						trackingExtra = UID_ScaleAuthoredPx(doc, len.value) * static_cast<float>(n - 1);
 					}
 				}
 			}
-			if (UID_OptEnabled(UID_OPT_TEXT_CACHE)) {
-				mst->cachedMeasureKey = measureKey;
-				mst->cachedTextWidth = textW;
+		}
+		/*
+		 * Stage 3b: HUD numbers (health/ammo/timer) change every frame. Summing
+		 * baked glyph advances is cheap; skip the text-keyed width cache for
+		 * short numeric-ish strings so we don't thrash insert/lookup.
+		 */
+		bool volatileNumeric = false;
+		{
+			size_t n = 0;
+			volatileNumeric = text[0] != '\0';
+			for (const char *p = text; *p; ++p, ++n) {
+				const unsigned char c = static_cast<unsigned char>(*p);
+				if (n > 12) {
+					volatileNumeric = false;
+					break;
+				}
+				if (!((c >= '0' && c <= '9') || c == ':' || c == '.' || c == '-' || c == '/' || c == ' ' ||
+					  c == '%')) {
+					volatileNumeric = false;
+					break;
+				}
+			}
+		}
+		if (volatileNumeric) {
+			textW = backend->fontMeasure(font, text) + trackingExtra;
+			(void)fontKey;
+		} else {
+			uint64_t contentKey = fontKey;
+			{
+				const char *p = text;
+				while (*p) {
+					contentKey ^= static_cast<unsigned char>(*p++);
+					contentKey *= 1099511628211ull;
+				}
+			}
+			if (UID_OptEnabled(UID_OPT_TEXT_CACHE) && mst->cachedTextWidth >= 0.0f
+				&& mst->cachedMeasureKey == contentKey) {
+				textW = mst->cachedTextWidth;
+			} else {
+				textW = backend->fontMeasure(font, text) + trackingExtra;
+				if (UID_OptEnabled(UID_OPT_TEXT_CACHE)) {
+					mst->cachedMeasureKey = contentKey;
+					mst->cachedTextWidth = textW;
+				}
 			}
 		}
 	} else if (text) {
@@ -581,6 +625,9 @@ void ComputeTextDrawOrigin(
 	}
 	if (outY) {
 		*outY = y;
+	}
+	if (outTextW) {
+		*outTextW = textW;
 	}
 }
 
@@ -699,6 +746,23 @@ void PaintTextGlyphs(
 	};
 
 	if (WantsDropShadow(node)) {
+		/*
+		 * Stage 3b: axis-aligned path uses one glyph walk for all shadow offsets
+		 * plus the main fill. Skew/rotate keep multi-pass (rare for drop-shadow).
+		 */
+		const bool singleWalk = !rotate && skewTan == 0.0f && backend->fontDrawWithShadows;
+		if (singleWalk) {
+			float shadowFlat[15];
+			int n = 0;
+			for (const auto &pass : kShadowPasses) {
+				shadowFlat[n * 3 + 0] = UID_ScaleAuthoredPx(doc, pass.dx);
+				shadowFlat[n * 3 + 1] = UID_ScaleAuthoredPx(doc, pass.dy);
+				shadowFlat[n * 3 + 2] = pass.a * opacityMul * opacityMul;
+				++n;
+			}
+			backend->fontDrawWithShadows(font, x, y, text, rgba, tracking, shadowFlat, n);
+			return;
+		}
 		float shadowRgba[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 		for (const auto &pass : kShadowPasses) {
 			float dx = UID_ScaleAuthoredPx(doc, pass.dx);
@@ -1223,7 +1287,7 @@ static void PaintBackgroundImage(
 					params.parentHeight = geom.h;
 				}
 				/*
-				 * Fixed in OPM: intrinsic viewbox props must not also take uiPxScale —
+			 * Fixed in OPM: intrinsic viewbox props must not also take uiPxScale —
 				 * layout already sized geom and SvgMap stretches view→dest.
 				 */
 				if (sit->second.hasIntrinsicSize && (viewW != geom.w || viewH != geom.h)) {
@@ -1440,7 +1504,7 @@ void PaintDropdownSelect(uid_document_t *doc, uid_node_id_t id, const uid_backen
 		labelSt.contentBox = {box.x + padX * 0.25f, box.y, labelW, box.h};
 		float x = labelSt.contentBox.x;
 		float y = labelSt.contentBox.y;
-		ComputeTextDrawOrigin(doc, *node, labelSt, text.c_str(), font, backend, &x, &y);
+		ComputeTextDrawOrigin(doc, *node, labelSt, text.c_str(), font, backend, &x, &y, nullptr);
 
 		float tracking = 0.0f;
 		const char *trackProp = node->properties.GetCStr("letter-spacing", nullptr);
@@ -1897,7 +1961,8 @@ bool UID_ResolveFillPaint(
 	uid_node_id_t id,
 	const uid_backend_t *backend,
 	uid_color_t *outSolid,
-	std::string *outGradient
+	std::string *outGradient,
+	const char *fillBaseOverride
 )
 {
 	if (!doc) {
@@ -1933,7 +1998,7 @@ bool UID_ResolveFillPaint(
 		have = TryFillPropString(*node, "focus-fill", &fillStr);
 	}
 	if (!have) {
-		const char *fill = PropCStr(*node, "fill", "#00000000");
+		const char *fill = fillBaseOverride ? fillBaseOverride : PropCStr(*node, "fill", "#00000000");
 		if (fill && fill[0]) {
 			fillStr = fill;
 			have = true;
@@ -2140,108 +2205,102 @@ void UID_PaintNodeBackground(uid_document_t *doc, uid_node_id_t id, const uid_ba
 		return;
 	}
 
-	/*
-	 * Fixed in OPM: if fill is still an unresolved style ternary, evaluate it
-	 * before shape resolve. skew-rect paths use fill="{parent.fill}" which must
-	 * ParseColor or ResolveShape fails and stroke is dropped.
-	 */
-	{
-		const char *fillCur = PropCStr(*node, "fill", nullptr);
-		uid_color_t probe{};
-		const bool knownPaint = fillCur && (UID_ParseColor(fillCur, &probe, nullptr) || UID_IsGradientBrush(fillCur) ||
-			std::strncmp(fillCur, "cvar-rgba:", 10) == 0);
-		if (!knownPaint && !node->styleExprs.empty()) {
-			auto sit = node->styleExprs.find("fill");
-			if (sit != node->styleExprs.end() && !sit->second.empty()) {
-				uid_bool_lookup_ctx_t bctx{};
-				bctx.backend = backend;
-				bctx.doc = doc;
-				bctx.nodeId = id;
-				bctx.item = nullptr;
-				bctx.itemIndex = -1;
-				bctx.itemCount = 0;
-				bctx.selectedIndex = -1;
-				if (node->foreachGenerated && node->foreachScopeId >= 0 &&
-				    static_cast<size_t>(node->foreachScopeId) < doc->states.size()) {
-					const uid_node_state_t &scopeSt = doc->states[static_cast<size_t>(node->foreachScopeId)];
-					const int idx = node->foreachItemIndex;
-					bctx.itemIndex = idx;
-					bctx.itemCount = scopeSt.collectionItemCount;
-					bctx.selectedIndex = scopeSt.collectionSelectedIndex;
-					if (idx >= 0 && static_cast<size_t>(idx) < scopeSt.collectionItems.size()) {
-						bctx.item = &scopeSt.collectionItems[static_cast<size_t>(idx)];
-					}
-				}
-				std::string resolved;
-				std::string diag;
-				std::string expr = sit->second;
-				if (expr.size() >= 2 && expr.front() == '{' && expr.back() == '}') {
-					expr = expr.substr(1, expr.size() - 2);
-				}
-				if (UID_EvalStyleTernary(expr.c_str(), &bctx, nullptr, &resolved, &diag)) {
-					node->properties.Set("fill", resolved.c_str());
-				}
-			}
-		}
-	}
-
 	uid_color_t fill{};
 	std::string gradientBrush;
-	const bool resolvedPaint = UID_ResolveFillPaint(doc, id, backend, &fill, &gradientBrush);
-	const bool hasGradient = resolvedPaint && !gradientBrush.empty();
-	const bool hasFill = resolvedPaint && !hasGradient && fill.a > 0.0f;
-
-	/* Added in OPM: element-owned stroke drilled into shape path draw. */
+	bool hasGradient = false;
+	bool hasFill = false;
 	uid_color_t stroke{};
 	float strokeWidthPx = 0.0f;
 	bool hasStroke = false;
-	{
-		const char *strokeStr = PropCStr(*node, "stroke", nullptr);
-		if (strokeStr && strokeStr[0]) {
-			std::string dm;
-			if (UID_ParseColor(strokeStr, &stroke, &dm) && stroke.a > 0.0f) {
-				std::string widthStr = PropCStr(*node, "stroke-width", "1px");
-				if (backend) {
-					std::string resolved;
-					if (UID_ResolvePropString(backend, widthStr, &resolved)) {
-						widthStr = resolved;
+	const char *shapeName = "rectangle";
+	bool isEdgeClip = false;
+	bool rectShape = true;
+	float pathRotationDeg = 0.0f;
+	float bgRotationDeg = 0.0f;
+
+	if (UID_StyleCacheEnabled()) {
+		const uid_computed_style_t *cs = UID_EnsureComputedStyle(doc, id, backend);
+		if (!cs) {
+			return;
+		}
+		fill = cs->fill;
+		gradientBrush = cs->gradientBrush;
+		hasGradient = cs->hasGradient;
+		hasFill = cs->hasFill;
+		stroke = cs->stroke;
+		strokeWidthPx = cs->strokeWidthPx;
+		hasStroke = cs->hasStroke;
+		shapeName = cs->shapeName;
+		isEdgeClip = cs->isEdgeClip;
+		rectShape = cs->rectShape;
+		pathRotationDeg = cs->pathRotationDeg;
+		bgRotationDeg = cs->bgRotationDeg;
+	} else {
+		/*
+	 * Fixed in OPM: if fill is still an unresolved style ternary, evaluate it
+		 * without writing properties (Version bumps defeat shape cache).
+		 */
+		std::string fillOverride;
+		(void)UID_ResolveFillStyleTernary(doc, id, backend, &fillOverride);
+
+		const bool resolvedPaint = UID_ResolveFillPaint(
+			doc,
+			id,
+			backend,
+			&fill,
+			&gradientBrush,
+			fillOverride.empty() ? nullptr : fillOverride.c_str()
+		);
+		hasGradient = resolvedPaint && !gradientBrush.empty();
+		hasFill = resolvedPaint && !hasGradient && fill.a > 0.0f;
+
+	/* Added in OPM: element-owned stroke drilled into shape path draw. */
+		{
+			const char *strokeStr = PropCStr(*node, "stroke", nullptr);
+			if (strokeStr && strokeStr[0]) {
+				std::string dm;
+				if (UID_ParseColor(strokeStr, &stroke, &dm) && stroke.a > 0.0f) {
+					std::string widthStr = PropCStr(*node, "stroke-width", "1px");
+					if (backend) {
+						std::string resolved;
+						if (UID_ResolvePropString(backend, widthStr, &resolved)) {
+							widthStr = resolved;
+						}
+					}
+					uid_length_t wLen{};
+					if (UID_ParseLength(widthStr.c_str(), &wLen, &dm) && wLen.unit == UID_LENGTH_PX && wLen.value > 0.0f) {
+						strokeWidthPx = UID_ScaleAuthoredPx(doc, wLen.value);
+						hasStroke = strokeWidthPx > 0.0f;
 					}
 				}
-				uid_length_t wLen{};
-				if (UID_ParseLength(widthStr.c_str(), &wLen, &dm) && wLen.unit == UID_LENGTH_PX && wLen.value > 0.0f) {
-					strokeWidthPx = UID_ScaleAuthoredPx(doc, wLen.value);
-					hasStroke = strokeWidthPx > 0.0f;
-				}
+			}
+		}
+
+		shapeName = PropCStr(*node, "shape", "rectangle");
+		isEdgeClip = shapeName && std::strcmp(shapeName, "edge-clip") == 0;
+		rectShape = IsDefaultRectShape(*node) || !shapeName || !shapeName[0] ||
+			doc->definitions.shapes.find(shapeName) == doc->definitions.shapes.end();
+
+		{
+			const char *rotStr = PropCStr(*node, "shape-rotation", nullptr);
+			if (!rotStr || !rotStr[0]) {
+				rotStr = PropCStr(*node, "rotation", nullptr);
+			}
+			if (rotStr && rotStr[0]) {
+				(void)UID_ParseRotationDeg(rotStr, &pathRotationDeg, nullptr);
+			}
+		}
+		{
+			const char *rotStr = PropCStr(*node, "rotation", nullptr);
+			if (!rotStr || !rotStr[0]) {
+				rotStr = PropCStr(*node, "shape-rotation", nullptr);
+			}
+			if (rotStr && rotStr[0]) {
+				(void)UID_ParseRotationDeg(rotStr, &bgRotationDeg, nullptr);
 			}
 		}
 	}
 
-	const char *shapeName = PropCStr(*node, "shape", "rectangle");
-	const bool isEdgeClip = shapeName && std::strcmp(shapeName, "edge-clip") == 0;
-	const bool rectShape = IsDefaultRectShape(*node) || !shapeName || !shapeName[0] ||
-		doc->definitions.shapes.find(shapeName) == doc->definitions.shapes.end();
-
-	float pathRotationDeg = 0.0f;
-	{
-		/* Added in Omaha: rotation spins SVG fills too (shape-rotation preferred when set). */
-		const char *rotStr = PropCStr(*node, "shape-rotation", nullptr);
-		if (!rotStr || !rotStr[0]) {
-			rotStr = PropCStr(*node, "rotation", nullptr);
-		}
-		if (rotStr && rotStr[0]) {
-			(void)UID_ParseRotationDeg(rotStr, &pathRotationDeg, nullptr);
-		}
-	}
-	float bgRotationDeg = 0.0f;
-	{
-		const char *rotStr = PropCStr(*node, "rotation", nullptr);
-		if (!rotStr || !rotStr[0]) {
-			rotStr = PropCStr(*node, "shape-rotation", nullptr);
-		}
-		if (rotStr && rotStr[0]) {
-			(void)UID_ParseRotationDeg(rotStr, &bgRotationDeg, nullptr);
-		}
-	}
 	const bool rotateShape = std::fabs(pathRotationDeg) > 1e-6f;
 	const bool usePathPaint = !rectShape || rotateShape || isEdgeClip;
 
@@ -2592,7 +2651,16 @@ void UID_PaintNodeContent(uid_document_t *doc, uid_node_id_t id, const uid_backe
 	}
 
 	uid_color_t color;
-	UID_ResolveTextColor(doc, id, &color);
+	if (UID_StyleCacheEnabled()) {
+		const uid_computed_style_t *cs = UID_EnsureComputedStyle(doc, id, backend);
+		if (cs) {
+			color = cs->textColor;
+		} else {
+			UID_ResolveTextColor(doc, id, &color);
+		}
+	} else {
+		UID_ResolveTextColor(doc, id, &color);
+	}
 	float rgba[4];
 	ColorToRgba(color, rgba, opacityMul);
 
@@ -2734,16 +2802,10 @@ void UID_PaintNodeContent(uid_document_t *doc, uid_node_id_t id, const uid_backe
 
 			float x = st->contentBox.x;
 			float y = st->contentBox.y;
-			ComputeTextDrawOrigin(doc, *node, *st, drawText.c_str(), font, backend, &x, &y);
-
 			float textW = 0.0f;
+			ComputeTextDrawOrigin(doc, *node, *st, drawText.c_str(), font, backend, &x, &y, &textW);
+
 			float textH = FontLogicalPx(doc, *node);
-			if (backend->fontMeasure) {
-				textW = backend->fontMeasure(font, drawText.c_str());
-				if (tracking > 0.0f && drawText.size() > 1) {
-					textW += tracking * static_cast<float>(drawText.size() - 1);
-				}
-			}
 			if (backend->fontAscent) {
 				const float asc = backend->fontAscent(font);
 				if (asc > 0.0f) {
@@ -2925,7 +2987,7 @@ void UID_PaintNodeContent(uid_document_t *doc, uid_node_id_t id, const uid_backe
 		/* Fallback glyph bar when fonts are unavailable. */
 		float x = st->contentBox.x;
 		float y = st->contentBox.y;
-		ComputeTextDrawOrigin(doc, *node, *st, text.c_str(), nullptr, backend, &x, &y);
+		ComputeTextDrawOrigin(doc, *node, *st, text.c_str(), nullptr, backend, &x, &y, nullptr);
 		DrawSolid(
 			backend,
 			{x, y + FontLogicalPx(doc, *node) * 0.3f, std::min(st->contentBox.w, static_cast<float>(text.size()) * 8.0f), 2.0f},
@@ -2936,7 +2998,7 @@ void UID_PaintNodeContent(uid_document_t *doc, uid_node_id_t id, const uid_backe
 	if (paintCaret) {
 		float x = st->contentBox.x;
 		float y = st->contentBox.y;
-		ComputeTextDrawOrigin(doc, *node, *st, text.c_str(), font, backend, &x, &y);
+		ComputeTextDrawOrigin(doc, *node, *st, text.c_str(), font, backend, &x, &y, nullptr);
 		const float caretX = x + MeasureCaretAdvance(doc, *node, text, st->caretCodepoint, font, backend);
 		const float caretH = st->contentBox.h * 0.65f;
 		const float caretY = st->contentBox.y + (st->contentBox.h - caretH) * 0.5f;
@@ -2949,12 +3011,37 @@ void UID_PaintChrome(uid_document_t *doc, const uid_backend_t *backend)
 	if (!doc || !backend) {
 		return;
 	}
+
+	/* Stage 4: replay retained batch list when chrome is clean. */
+	if (UID_PaintListEnabled() && UID_PaintListTryReplay(doc)) {
+		return;
+	}
+
 	if (doc->states.size() != doc->nodes.size()) {
-		doc->states.resize(doc->nodes.size());
-		for (uid_node_state_t &st : doc->states) {
-			UID_InitNodeState(&st);
+		const size_t n = doc->nodes.size();
+		const size_t old = doc->states.size();
+		if (old > n) {
+			doc->states.resize(n);
+		} else {
+			doc->states.resize(n);
+			for (size_t i = old; i < n; ++i) {
+				UID_InitNodeState(&doc->states[i]);
+			}
 		}
 	}
+
+	/*
+	 * Only record when the doc is already clean: dirty HUD/menu frames skip
+	 * the memcpy cost; the first subsequent clean frame builds the list.
+	 */
+	const unsigned chromeDirt =
+		static_cast<unsigned>(doc->dirty) &
+		static_cast<unsigned>(UID_DIRTY_PAINT | UID_DIRTY_LAYOUT | UID_DIRTY_STRUCTURE);
+	const bool recording = UID_PaintListEnabled() != 0 && chromeDirt == 0u;
+	if (recording) {
+		UID_PaintListBeginRecord(doc);
+	}
+
 	if (doc->rootNode != UID_INVALID_NODE_ID) {
 		uid_node_id_t chromeRoot = doc->rootNode;
 		auto mit = doc->idIndex.find("menu_root");
@@ -2968,6 +3055,10 @@ void UID_PaintChrome(uid_document_t *doc, const uid_backend_t *backend)
 	 * Chrome still queues <model> previews; drawing the modal here put dropdowns
 	 * under the player previews on the Profile panel.
 	 */
+
+	if (recording) {
+		UID_PaintListEndRecord(doc);
+	}
 	doc->dirty = static_cast<uid_dirty_flags_t>(doc->dirty & ~UID_DIRTY_PAINT);
 }
 
@@ -2977,9 +3068,15 @@ void UID_PaintChromeSubtree(uid_document_t *doc, uid_node_id_t rootId, const uid
 		return;
 	}
 	if (doc->states.size() != doc->nodes.size()) {
-		doc->states.resize(doc->nodes.size());
-		for (uid_node_state_t &st : doc->states) {
-			UID_InitNodeState(&st);
+		const size_t n = doc->nodes.size();
+		const size_t old = doc->states.size();
+		if (old > n) {
+			doc->states.resize(n);
+		} else {
+			doc->states.resize(n);
+			for (size_t i = old; i < n; ++i) {
+				UID_InitNodeState(&doc->states[i]);
+			}
 		}
 	}
 	PaintChromeNode(doc, rootId, backend, true);
@@ -2991,9 +3088,15 @@ void UID_PaintOverlay(uid_document_t *doc, const uid_backend_t *backend)
 		return;
 	}
 	if (doc->states.size() != doc->nodes.size()) {
-		doc->states.resize(doc->nodes.size());
-		for (uid_node_state_t &st : doc->states) {
-			UID_InitNodeState(&st);
+		const size_t n = doc->nodes.size();
+		const size_t old = doc->states.size();
+		if (old > n) {
+			doc->states.resize(n);
+		} else {
+			doc->states.resize(n);
+			for (size_t i = old; i < n; ++i) {
+				UID_InitNodeState(&doc->states[i]);
+			}
 		}
 	}
 	/* Added in OPM: modals (incl. type=relative dropdowns) draw above model previews. */

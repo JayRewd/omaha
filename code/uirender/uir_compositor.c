@@ -242,6 +242,19 @@ static void uir_apply_clip_scissor(const uir_rect_t *clip)
 	g_appliedClip = *clip;
 	g_appliedClipValid = 1;
 	g_stats.clipApplies++;
+	/* Added in Omaha Stage 4: feed retained paint-list recorder. */
+	UIR_BatchNotifyClip(clip->x, clip->y, clip->w, clip->h);
+}
+
+void UIR_ForceClipRect(float x, float y, float w, float h)
+{
+	uir_rect_t clip;
+	clip.x = x;
+	clip.y = y;
+	clip.w = w;
+	clip.h = h;
+	g_appliedClipValid = 0;
+	uir_apply_clip_scissor(&clip);
 }
 
 void UIR_ResetClipStack(void)

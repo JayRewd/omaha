@@ -42,7 +42,8 @@ bool UID_ResolveFillPaint(
 	uid_node_id_t id,
 	const uid_backend_t *backend,
 	uid_color_t *outSolid,
-	std::string *outGradient
+	std::string *outGradient,
+	const char *fillBaseOverride = nullptr
 );
 
 /* Resolve text/control foreground color with state overrides. */

@@ -98,6 +98,8 @@ typedef struct uid_backend_s {
 
 	/* cvar */
 	bool (*cvarDescribe)(const char *name, int *flags, char *valueBuf, size_t valueBufSize);
+	/* Added in Omaha: numeric read (cvar_t::value) without string copy / parse. */
+	bool (*cvarNumber)(const char *name, double *outValue, unsigned *outModCount);
 	bool (*cvarWrite)(const char *name, const char *value);
 	bool (*cvarReset)(const char *name);
 	/* Added in OPM: monotonic epoch bumped when any cvar value changes. */
@@ -124,6 +126,21 @@ typedef struct uid_backend_s {
 	float (*fontMeasure)(void *font, const char *text);
 	float (*fontAscent)(void *font); /* typographic ascent (px); used for cap-optical valign */
 	void (*fontDraw)(void *font, float x, float y, const char *text, const float *rgba, float tracking);
+	/*
+	 * Added in Omaha Stage 3b: one glyph walk with drop-shadow quads.
+	 * shadows is an array of {dx, dy, a}; when null/count 0, same as fontDraw.
+	 * When this hook is null, hosts fall back to multiple fontDraw calls.
+	 */
+	void (*fontDrawWithShadows)(
+		void *font,
+		float x,
+		float y,
+		const char *text,
+		const float *rgba,
+		float tracking,
+		const float *shadowDxDyA, /* count * 3 floats: dx, dy, a */
+		int shadowCount
+	);
 	/*
 	 * Optional CSS skewX-style shear. skewTan = tan(degrees); originY is the
 	 * transform origin in draw space (typically content vertical center).

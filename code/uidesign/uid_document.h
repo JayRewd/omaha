@@ -28,6 +28,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "uid_value.h"
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <string>
 #include <unordered_map>
@@ -295,6 +296,35 @@ struct uid_optional_value_t {
 	std::string stringValue;
 };
 
+/* Added in Omaha: Stage 3 computed paint style (ui_style_cache). */
+struct uid_computed_style_t {
+	unsigned    propsVersion;
+	unsigned    scaleEpoch;
+	unsigned    cvarEpoch;
+	unsigned    interactionKey;
+	bool        valid;
+	/* Added in Omaha: only invalidate on cvarEpoch when paint reads live cvars. */
+	bool        dependsOnCvar;
+
+	bool        hasFill;
+	bool        hasGradient;
+	uid_color_t fill;
+	std::string gradientBrush;
+
+	bool        hasStroke;
+	uid_color_t stroke;
+	float       strokeWidthPx;
+
+	char        shapeName[64];
+	bool        rectShape;
+	bool        isEdgeClip;
+
+	float       pathRotationDeg;
+	float       bgRotationDeg;
+
+	uid_color_t textColor;
+};
+
 struct uid_node_state_t {
 	bool                hovered;
 	bool                pressed;
@@ -357,10 +387,48 @@ struct uid_node_state_t {
 	unsigned            styleExprEpoch;
 	bool                styleExprCached;
 
+	/*
+	 * Added in Omaha Stage 6b: skip full bind body when cvar-pure work is unchanged.
+	 * bindSyncEpoch tracks Cvar_GlobalModCount; bindPrimaryModCount / labelCvarModCount
+	 * allow per-cvar early-outs when other HUD cvars still churn the global epoch.
+	 */
+	unsigned            bindSyncEpoch;
+	bool                bindSyncCached;
+	unsigned            bindPrimaryModCount;
+	unsigned            labelCvarModCount;
+	unsigned            cvarPropsModStamp;
+	/*
+	 * Added in Omaha: foreach-generated nodes skip item.field text/prop rebind while
+	 * the enclosing collection scope revision is unchanged (join/leave or field
+	 * refresh bumps the scope revision).
+	 */
+	uint64_t            itemBindRevision;
+
 	/* Added in OPM: cached UID_ResolveShape output. */
 	std::vector<uid_resolved_path_t> cachedShapePaths;
 	unsigned long long               cachedShapeKey;
 	bool                             cachedShapeValid;
+
+	/*
+	 * Added in Omaha: last LayoutNode inputs (Stage 2 scoped layout). Valid after a
+	 * successful layout of this node; used to re-run LayoutNode from a boundary.
+	 */
+	float               layoutMarginX;
+	float               layoutMarginY;
+	float               layoutMarginW;
+	float               layoutMarginH;
+	float               layoutPercentBaseW;
+	float               layoutPercentBaseH;
+	uid_rect_t          layoutParentClip;
+	bool                layoutAncestorVisible;
+	bool                layoutAncestorEnabled;
+	bool                layoutInputsValid;
+	/* Added in Omaha: last LayoutNode authored size units were non-auto (px/%/fill). */
+	bool                layoutSizedW;
+	bool                layoutSizedH;
+
+	/* Added in Omaha: Stage 3 computed style cache. */
+	uid_computed_style_t computedStyle;
 };
 
 /* Per-document pointer/modifier edge state (owned; not a global map). */
@@ -402,6 +470,13 @@ struct uid_document_t {
 	bool                                         collectionFieldsApplied;
 	/* Added in OPM: incremented each UID_SyncBindings for collection refresh stamps. */
 	int                                          syncFrameCounter;
+	/* Added in Omaha: translate-x/y deltas applied without full-document layout. */
+	struct translate_delta_t {
+		uid_node_id_t nodeId;
+		float         dx;
+		float         dy;
+	};
+	std::vector<translate_delta_t>               pendingTranslateDeltas;
 
 	/* Added in OPM: cvar-dispatched modal overlay (nodes appended to nodes/states). */
 	std::string                                  activeModalId;
@@ -410,6 +485,12 @@ struct uid_document_t {
 	/* Added in OPM: node that triggered show-modal / select modal= (relative placement anchor). */
 	uid_node_id_t                                modalOpenerNode;
 	uid_keybind_pending_t                        keybindPending;
+
+	/* Added in Omaha: nodes that contributed UID_DIRTY_LAYOUT (Stage 2 scoped layout). */
+	std::vector<uid_node_id_t>                   dirtyLayoutNodes;
+
+	/* Added in Omaha Stage 4: retained chrome paint list (opaque; uid_paint.cpp). */
+	void                                        *paintList;
 };
 
 void UID_InitNodeDef(uid_node_def_t *node);
@@ -418,6 +499,13 @@ void UID_InitNodeState(uid_node_state_t *state);
 uid_document_t *UID_CreateDocument(void);
 void            UID_DestroyDocument(uid_document_t *doc);
 void            UID_ClearDocument(uid_document_t *doc);
+
+/*
+ * Added in Omaha: OR dirty flags; when LAYOUT is newly set, attribute the first
+ * transition for ui_profile (nodeId may be UID_INVALID_NODE_ID; reason optional).
+ */
+void UID_MarkDirty(uid_document_t *doc, uid_dirty_flags_t flags, uid_node_id_t nodeId, const char *reason);
+const char *UID_NodeKindName(uid_node_kind_t kind);
 
 /* Look up an expanded (or parsed canvas) node by id string. */
 uid_node_def_t *UID_GetNodeById(uid_document_t *doc, const char *id);

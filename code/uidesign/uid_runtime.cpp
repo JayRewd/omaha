@@ -38,7 +38,6 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include <cstring>
 #include <new>
 #include <string>
-#include <cstdio>
 
 struct uid_runtime_s {
 	uid_backend_t     backend;
@@ -188,8 +187,13 @@ uid_result_t AdoptExpandedDocument(uid_runtime_t *runtime, uid_document_t *fresh
 	if (sourceName && sourceName[0]) {
 		runtime->doc->sourceName = sourceName;
 	}
-	runtime->doc->dirty = static_cast<uid_dirty_flags_t>(
-		UID_DIRTY_STRUCTURE | UID_DIRTY_LAYOUT | UID_DIRTY_PAINT | UID_DIRTY_BINDING
+	UID_MarkDirty(
+		runtime->doc,
+		static_cast<uid_dirty_flags_t>(
+			UID_DIRTY_STRUCTURE | UID_DIRTY_LAYOUT | UID_DIRTY_PAINT | UID_DIRTY_BINDING
+		),
+		UID_INVALID_NODE_ID,
+		"load_adopt"
 	);
 	UID_DestroyDocument(old);
 	UID_ProfileEnd(UID_PROF_LOAD_ADOPT);
@@ -430,8 +434,11 @@ void UID_SetSurface(uid_runtime_t *runtime, int logicalW, int logicalH, int fram
 	runtime->fbScale = ComputeFbScale(logicalW, logicalH, framebufferW, framebufferH);
 
 	if (changed && runtime->doc) {
-		runtime->doc->dirty = static_cast<uid_dirty_flags_t>(
-			runtime->doc->dirty | UID_DIRTY_LAYOUT | UID_DIRTY_PAINT
+		UID_MarkDirty(
+			runtime->doc,
+			static_cast<uid_dirty_flags_t>(UID_DIRTY_LAYOUT | UID_DIRTY_PAINT),
+			UID_INVALID_NODE_ID,
+			"surface_resize"
 		);
 	}
 }
@@ -457,8 +464,11 @@ void UID_SetUiPxScale(uid_runtime_t *runtime, float uiPxScale)
 	runtime->uiPxScale = s;
 	if (runtime->doc) {
 		runtime->doc->lastUiPxScale = s;
-		runtime->doc->dirty = static_cast<uid_dirty_flags_t>(
-			runtime->doc->dirty | UID_DIRTY_LAYOUT | UID_DIRTY_PAINT
+		UID_MarkDirty(
+			runtime->doc,
+			static_cast<uid_dirty_flags_t>(UID_DIRTY_LAYOUT | UID_DIRTY_PAINT),
+			UID_INVALID_NODE_ID,
+			"ui_px_scale"
 		);
 	}
 }
@@ -488,19 +498,40 @@ void UID_Update(uid_runtime_t *runtime, int realtime, const uid_pointer_state_t 
 	if (doc->dirty & (UID_DIRTY_STRUCTURE | UID_DIRTY_LAYOUT)) {
 		uid_diag_list_t diags(runtime->limits.maxDiagnostics);
 		UID_ProfileBegin(UID_PROF_FRAME_LAYOUT);
-		UID_LayoutDocument(
-			doc,
-			runtime->logicalW,
-			runtime->logicalH,
-			runtime->fbScale,
-			runtime->uiPxScale > 0.0f ? runtime->uiPxScale : 1.0f,
-			&runtime->backend,
-			&diags
-		);
+		/*
+		 * Added in Omaha: Stage 2 — try scoped layout even when STRUCTURE is set
+		 * (foreach/collection rebuilds still have a fixed-size host boundary).
+		 * layoutRan: 0=none 1=full 2=scoped non-root.
+		 */
+		int layoutMode = 0;
+		uid_result_t layoutRc = UID_ERR_NOT_READY;
+		const int scopedOn = UID_LayoutScopedEnabled();
+		const int dirtyN = static_cast<int>(doc->dirtyLayoutNodes.size());
+		if (scopedOn && dirtyN > 0) {
+			layoutRc = UID_LayoutScoped(doc, runtime->fbScale, &runtime->backend, &diags);
+			if (layoutRc == UID_OK) {
+				layoutMode = 2;
+			}
+		}
+		if (layoutRc != UID_OK) {
+			UID_LayoutDocument(
+				doc,
+				runtime->logicalW,
+				runtime->logicalH,
+				runtime->fbScale,
+				runtime->uiPxScale > 0.0f ? runtime->uiPxScale : 1.0f,
+				&runtime->backend,
+				&diags
+			);
+			layoutMode = 1;
+		}
 		UID_ProfileEnd(UID_PROF_FRAME_LAYOUT);
-		layoutRan = 1;
+		layoutRan = layoutMode;
 		doc->dirty = static_cast<uid_dirty_flags_t>(doc->dirty & ~UID_DIRTY_STRUCTURE);
 		ReportDiags(&runtime->backend, diags, doc->sourceName.c_str());
+	} else if (!doc->pendingTranslateDeltas.empty()) {
+		/* Added in Omaha: translate-only shifts — not a full layout (layoutRan stays 0). */
+		UID_ApplyPendingTranslateDeltas(doc);
 	}
 
 	if (pointer) {

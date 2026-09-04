@@ -71,6 +71,8 @@ void         UIR_ResetClipStack(void);
 /* Added in OPM: toggle / invalidate clip-scissor dedup. */
 void         UIR_SetClipDedup(int enable);
 void         UIR_InvalidateAppliedClip(void);
+/* Added in Omaha Stage 4: apply absolute logical clip (paint-list replay). */
+void         UIR_ForceClipRect(float x, float y, float w, float h);
 
 /* Added in OPM: optional retained chrome RT (gl1); default off via ui_chrome_cache. */
 typedef struct {

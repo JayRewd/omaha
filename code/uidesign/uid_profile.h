@@ -57,7 +57,7 @@ typedef enum uid_prof_phase_e {
 	UID_PROF_COUNT
 } uid_prof_phase_t;
 
-/* Added in OPM: per-sample work counters (heap/format/parse churn). */
+/* Added in Omaha: per-sample work counters (heap/format/parse churn). */
 typedef enum uid_prof_counter_e {
 	UID_PROF_CNT_NEW = 0, /* scoped operator-new observations during UID_Update */
 	UID_PROF_CNT_CVAR_SET,
@@ -74,6 +74,17 @@ typedef struct uid_prof_timings_s {
 	int       nodeCount;
 	int       counts[UID_PROF_CNT_COUNT];
 	char      label[128];
+	/* Added in Omaha: first UID_DIRTY_LAYOUT transition this sample (Stage 1). */
+	int       layoutDirtyHits;
+	int       layoutDirtyNodeId;
+	char      layoutDirtyKind[32];
+	char      layoutDirtyReason[64];
+	/* Added in Omaha: compositor submission counters snapshotted at sample end. */
+	int       batches;
+	int       batchVerts;
+	int       batchTris;
+	int       clipApplies;
+	int       clipSkips;
 } uid_prof_timings_t;
 
 void        UID_ProfileSetEnabled(int enabled);
@@ -86,13 +97,29 @@ void UID_ProfileResetFrame(void);
 void UID_ProfileBegin(uid_prof_phase_t phase);
 void UID_ProfileEnd(uid_prof_phase_t phase);
 
-/* Added in OPM: nested sample stack — pause parent phases across child samples. */
+/* Added in Omaha: nested sample stack — pause parent phases across child samples. */
 void UID_ProfilePushFrame(void);
 void UID_ProfilePopFrame(void);
 
 void UID_ProfileSetLoadLabel(const char *label);
 void UID_ProfileSetFrameLabel(const char *label);
 void UID_ProfileSetFrameMeta(int layoutRan, int nodeCount);
+
+/*
+ * layoutRan codes (printed as layout=N in UIProfile):
+ *   0 = no layout this sample
+ *   1 = full UID_LayoutDocument
+ *   2 = Stage 2 scoped non-root boundary layout
+ */
+
+/*
+ * Added in Omaha: record first (and count subsequent) layout-dirty transitions
+ * when MarkDirty adds UID_DIRTY_LAYOUT to a previously layout-clean document.
+ */
+void UID_ProfileNoteLayoutDirty(int nodeId, const char *kind, const char *reason);
+
+/* Added in Omaha: snapshot uir_stats_t batch/clip counters into the current sample. */
+void UID_ProfileSetSubmitStats(int batches, int batchVerts, int batchTris, int clipApplies, int clipSkips);
 
 void UID_ProfileCountReset(void);
 void UID_ProfileCountInc(uid_prof_counter_t counter);

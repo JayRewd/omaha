@@ -1818,6 +1818,8 @@ void		RE_EndUiStencil(void);
 qboolean	RE_UI2DBatchSupported(void);
 qboolean	RE_UI2DCanBatchShader(qhandle_t hShader);
 void		RE_DrawUI2D(const ui2dVert_t *verts, int numVerts, const unsigned short *indexes, int numIndexes, qhandle_t hShader);
+void		RE_UI2DBatchBegin(void);
+void		RE_UI2DBatchEnd(void);
 qboolean	RE_UI2DTargetAvailable(void);
 qboolean	RE_BeginUI2DTarget(void);
 void		RE_EndUI2DTarget(void);

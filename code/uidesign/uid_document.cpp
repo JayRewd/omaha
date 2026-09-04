@@ -23,6 +23,8 @@ source tree, or write to the Free Software Foundation, Inc.,
 */
 
 #include "uid_document.h"
+#include "uid_paint.h"
+#include "uid_profile.h"
 #include "uid_value.h"
 
 #include <cstring>
@@ -187,9 +189,28 @@ void UID_InitNodeState(uid_node_state_t *state)
 	state->enabledCachedValue = true;
 	state->styleExprEpoch = 0;
 	state->styleExprCached = false;
+	state->bindSyncEpoch = 0;
+	state->bindSyncCached = false;
+	state->bindPrimaryModCount = 0;
+	state->labelCvarModCount = 0;
+	state->cvarPropsModStamp = 0;
+	state->itemBindRevision = 0;
 	state->cachedShapePaths.clear();
 	state->cachedShapeKey = 0;
 	state->cachedShapeValid = false;
+	state->layoutMarginX = 0.0f;
+	state->layoutMarginY = 0.0f;
+	state->layoutMarginW = 0.0f;
+	state->layoutMarginH = 0.0f;
+	state->layoutPercentBaseW = 0.0f;
+	state->layoutPercentBaseH = 0.0f;
+	std::memset(&state->layoutParentClip, 0, sizeof(state->layoutParentClip));
+	state->layoutAncestorVisible = false;
+	state->layoutAncestorEnabled = false;
+	state->layoutInputsValid = false;
+	state->layoutSizedW = false;
+	state->layoutSizedH = false;
+	state->computedStyle = uid_computed_style_t{};
 }
 
 uid_document_t *UID_CreateDocument(void)
@@ -209,6 +230,82 @@ void UID_DestroyDocument(uid_document_t *doc)
 	}
 	UID_ClearDocument(doc);
 	delete doc;
+}
+
+const char *UID_NodeKindName(uid_node_kind_t kind)
+{
+	switch (kind) {
+	case UID_NODE_CONTAINER:
+		return "container";
+	case UID_NODE_LABEL:
+		return "label";
+	case UID_NODE_BUTTON:
+		return "button";
+	case UID_NODE_INPUT:
+		return "input";
+	case UID_NODE_TOGGLE:
+		return "toggle";
+	case UID_NODE_SLIDER:
+		return "slider";
+	case UID_NODE_SLIDER_TRACK:
+		return "slider_track";
+	case UID_NODE_SLIDER_RANGE:
+		return "slider_range";
+	case UID_NODE_SLIDER_THUMB:
+		return "slider_thumb";
+	case UID_NODE_SCROLLBAR:
+		return "scrollbar";
+	case UID_NODE_SCROLLBAR_TRACK:
+		return "scrollbar_track";
+	case UID_NODE_SCROLLBAR_THUMB:
+		return "scrollbar_thumb";
+	case UID_NODE_SELECT:
+		return "select";
+	case UID_NODE_OPTION:
+		return "option";
+	case UID_NODE_KEYBIND:
+		return "keybind";
+	case UID_NODE_SHAPE_INSTANCE:
+		return "shape";
+	case UID_NODE_IMAGE:
+		return "image";
+	case UID_NODE_MODEL:
+		return "model";
+	case UID_NODE_SERVER_LIST:
+		return "server_list";
+	case UID_NODE_FOREACH:
+		return "foreach";
+	case UID_NODE_USE:
+		return "use";
+	case UID_NODE_CANVAS:
+		return "canvas";
+	default:
+		return "other";
+	}
+}
+
+void UID_MarkDirty(uid_document_t *doc, uid_dirty_flags_t flags, uid_node_id_t nodeId, const char *reason)
+{
+	const char *kindName = nullptr;
+
+	if (!doc) {
+		return;
+	}
+	if ((flags & UID_DIRTY_LAYOUT) && !(doc->dirty & UID_DIRTY_LAYOUT)) {
+		if (nodeId >= 0 && static_cast<size_t>(nodeId) < doc->nodes.size()) {
+			kindName = UID_NodeKindName(doc->nodes[static_cast<size_t>(nodeId)].kind);
+		}
+		UID_ProfileNoteLayoutDirty(static_cast<int>(nodeId), kindName, reason);
+	}
+	if ((flags & UID_DIRTY_LAYOUT) && nodeId >= 0 &&
+		static_cast<size_t>(nodeId) < doc->nodes.size()) {
+		doc->dirtyLayoutNodes.push_back(nodeId);
+	}
+	doc->dirty = static_cast<uid_dirty_flags_t>(doc->dirty | flags);
+	/* Stage 4: any paint/layout/structure dirt drops the retained chrome list. */
+	if (flags & (UID_DIRTY_PAINT | UID_DIRTY_LAYOUT | UID_DIRTY_STRUCTURE)) {
+		UID_PaintListInvalidate(doc);
+	}
 }
 
 void UID_ClearDocument(uid_document_t *doc)
@@ -259,6 +356,9 @@ void UID_ClearDocument(uid_document_t *doc)
 	doc->keybindPending.slot = 0;
 	doc->keybindPending.newKey = -1;
 	doc->keybindPending.command.clear();
+	doc->pendingTranslateDeltas.clear();
+	doc->dirtyLayoutNodes.clear();
+	UID_PaintListFree(doc);
 }
 
 uid_node_def_t *UID_GetNodeById(uid_document_t *doc, const char *id)

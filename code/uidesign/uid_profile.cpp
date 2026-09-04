@@ -284,10 +284,47 @@ void UID_ProfileSetFrameLabel(const char *label)
 
 void UID_ProfileSetFrameMeta(int layoutRan, int nodeCount)
 {
-	if (layoutRan) {
-		g_frame.layoutRan = 1;
+	/* layoutRan: 0=none 1=full 2=scoped; keep the higher code if nested samples. */
+	if (layoutRan > g_frame.layoutRan) {
+		g_frame.layoutRan = layoutRan;
 	}
 	g_frame.nodeCount += nodeCount;
+}
+
+void UID_ProfileNoteLayoutDirty(int nodeId, const char *kind, const char *reason)
+{
+	if (!g_enabled) {
+		return;
+	}
+	g_frame.layoutDirtyHits++;
+	if (g_frame.layoutDirtyHits > 1) {
+		return;
+	}
+	g_frame.layoutDirtyNodeId = nodeId;
+	if (kind && kind[0]) {
+		std::strncpy(g_frame.layoutDirtyKind, kind, sizeof(g_frame.layoutDirtyKind) - 1);
+		g_frame.layoutDirtyKind[sizeof(g_frame.layoutDirtyKind) - 1] = '\0';
+	} else {
+		g_frame.layoutDirtyKind[0] = '\0';
+	}
+	if (reason && reason[0]) {
+		std::strncpy(g_frame.layoutDirtyReason, reason, sizeof(g_frame.layoutDirtyReason) - 1);
+		g_frame.layoutDirtyReason[sizeof(g_frame.layoutDirtyReason) - 1] = '\0';
+	} else {
+		g_frame.layoutDirtyReason[0] = '\0';
+	}
+}
+
+void UID_ProfileSetSubmitStats(int batches, int batchVerts, int batchTris, int clipApplies, int clipSkips)
+{
+	if (!g_enabled) {
+		return;
+	}
+	g_frame.batches = batches;
+	g_frame.batchVerts = batchVerts;
+	g_frame.batchTris = batchTris;
+	g_frame.clipApplies = clipApplies;
+	g_frame.clipSkips = clipSkips;
 }
 
 void UID_ProfileCountReset(void)

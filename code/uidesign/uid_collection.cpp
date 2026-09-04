@@ -36,6 +36,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <functional>
 #include <map>
@@ -73,9 +74,7 @@ struct UidProfScope {
 
 void MarkDirty(uid_document_t *doc, uid_dirty_flags_t flags)
 {
-	if (doc) {
-		doc->dirty = static_cast<uid_dirty_flags_t>(doc->dirty | flags);
-	}
+	UID_MarkDirty(doc, flags, UID_INVALID_NODE_ID, nullptr);
 }
 
 std::vector<uid_node_id_t> BuildParentMap(const uid_document_t *doc)
@@ -239,7 +238,12 @@ void SyncWindowOffsetFromOverflow(
 	}
 	if (offset != scopeSt->collectionScrollOffset) {
 		scopeSt->collectionScrollOffset = offset;
-		MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_STRUCTURE | UID_DIRTY_LAYOUT | UID_DIRTY_PAINT));
+		UID_MarkDirty(
+			doc,
+			static_cast<uid_dirty_flags_t>(UID_DIRTY_STRUCTURE | UID_DIRTY_LAYOUT | UID_DIRTY_PAINT),
+			scopeId,
+			"foreach_window_scroll"
+		);
 	}
 }
 
@@ -435,7 +439,12 @@ uid_node_id_t ExpandDeferredUseIfReady(
 	uid_node_def_t &useNode = doc->nodes[static_cast<size_t>(nodeId)];
 	useNode.deferredUseExpanded = true;
 	useNode.properties.Set("visible", "false");
-	MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_STRUCTURE | UID_DIRTY_LAYOUT | UID_DIRTY_PAINT));
+	UID_MarkDirty(
+		doc,
+		static_cast<uid_dirty_flags_t>(UID_DIRTY_STRUCTURE | UID_DIRTY_LAYOUT | UID_DIRTY_PAINT),
+		nodeId,
+		"deferred_use"
+	);
 	return expanded;
 }
 
@@ -795,6 +804,11 @@ void RemoveExpandedForeach(uid_document_t *doc, uid_node_id_t foreachId)
 
 	doc->nodes = std::move(newNodes);
 	doc->states = std::move(newStates);
+	/*
+	 * Added in Omaha: node ids in dirtyLayoutNodes are stale after remap — drop them.
+	 * Callers re-mark with post-remap ids (foreach_expand / foreach_empty).
+	 */
+	doc->dirtyLayoutNodes.clear();
 	doc->idIndex.clear();
 	for (size_t i = 0; i < doc->nodes.size(); ++i) {
 		if (!doc->nodes[i].id.empty()) {
@@ -844,7 +858,7 @@ bool RefreshCollectionScope(uid_document_t *doc, uid_node_id_t scopeId, const ui
 		st->collectionRevision = revision;
 		st->collectionRefreshFrame = doc->syncFrameCounter;
 		ClampCollectionSelection(st);
-		MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_LAYOUT | UID_DIRTY_PAINT | UID_DIRTY_BINDING));
+		UID_MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_LAYOUT | UID_DIRTY_PAINT | UID_DIRTY_BINDING), scopeId, "collection_xml");
 		return true;
 	}
 
@@ -859,6 +873,18 @@ bool RefreshCollectionScope(uid_document_t *doc, uid_node_id_t scopeId, const ui
 	uint64_t revision = 0;
 	q.outTotal = &total;
 	q.outRevision = &revision;
+
+	/*
+	 * Added in Omaha: peek revision/total with max=0 so hosts that honor out-only
+	 * queries (scoreboard, browser, vote, …) avoid copying every row when unchanged.
+	 */
+	if (!st->collectionItems.empty()) {
+		const int peek = backend->queryCollectionItems(&q, nullptr, 0);
+		if (peek >= 0 && revision == st->collectionRevision && total == st->collectionItemCount) {
+			st->collectionRefreshFrame = doc->syncFrameCounter;
+			return false;
+		}
+	}
 
 	const int maxItems = q.limit;
 	std::vector<uid_collection_item_t> hostItems(static_cast<size_t>(maxItems));
@@ -940,7 +966,7 @@ bool RefreshCollectionScope(uid_document_t *doc, uid_node_id_t scopeId, const ui
 	st->collectionRevision = revision;
 	st->collectionRefreshFrame = doc->syncFrameCounter;
 	ClampCollectionSelection(st);
-	MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_LAYOUT | UID_DIRTY_PAINT | UID_DIRTY_BINDING));
+	UID_MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_LAYOUT | UID_DIRTY_PAINT | UID_DIRTY_BINDING), scopeId, "collection_host");
 	return true;
 }
 
@@ -1177,6 +1203,58 @@ void CollectLifetimeVisibleIndices(
 	}
 }
 
+bool ForeachLifetimeNeedsOpacityPass(
+	const uid_node_def_t *fn,
+	const uid_node_state_t *fnSt,
+	const std::vector<uid_collection_entry_t> &items,
+	int nowMs,
+	const uid_document_t *doc,
+	uid_node_id_t foreachId
+)
+{
+	if (!fn || !fnSt || !doc || foreachId < 0 || static_cast<size_t>(foreachId) >= doc->nodes.size()) {
+		return false;
+	}
+	const int lifetimeMs = fn->foreachLifetimeMs;
+	const int fadeMs = fn->foreachFadeDurationMs;
+	if (lifetimeMs <= 0) {
+		return false;
+	}
+
+	const uid_node_def_t &foreachNode = doc->nodes[static_cast<size_t>(foreachId)];
+	/* Leaving a fade window must still run once to restore mul=1. */
+	for (uid_node_id_t childId : foreachNode.children) {
+		if (childId < 0 || static_cast<size_t>(childId) >= doc->states.size()) {
+			continue;
+		}
+		if (doc->states[static_cast<size_t>(childId)].lifetimeOpacityMul < 0.999f) {
+			return true;
+		}
+	}
+
+	if (fadeMs <= 0) {
+		return false;
+	}
+	const int fadeStart = lifetimeMs - std::min(fadeMs, lifetimeMs);
+	for (uid_node_id_t childId : foreachNode.children) {
+		if (childId < 0 || static_cast<size_t>(childId) >= doc->nodes.size()) {
+			continue;
+		}
+		const int idx = doc->nodes[static_cast<size_t>(childId)].foreachItemIndex;
+		if (idx < 0 || static_cast<size_t>(idx) >= items.size()) {
+			continue;
+		}
+		const std::string &key = items[static_cast<size_t>(idx)].key;
+		auto it = fnSt->foreachAppearAtMs.find(key);
+		const int appeared = (it != fnSt->foreachAppearAtMs.end()) ? it->second : nowMs;
+		const int age = nowMs - appeared;
+		if (age >= fadeStart && age < lifetimeMs) {
+			return true;
+		}
+	}
+	return false;
+}
+
 bool ApplyForeachLifetimeOpacity(
 	uid_document_t *doc,
 	uid_node_id_t foreachId,
@@ -1303,11 +1381,16 @@ void ExpandForeach(uid_document_t *doc, uid_node_id_t foreachId, const uid_backe
 		}
 
 		const uint64_t sig = ForeachExpandSig(fn, nullptr, count, nullptr);
-		if (fnSt->foreachExpandSig == sig && !fn->children.empty()) {
+		/*
+		 * Fixed in Omaha: empty expansions (count==0) must early-out too. Requiring
+		 * !children.empty() re-dirtied STRUCTURE|LAYOUT every frame for empty
+		 * count foreaches and left layout=1 permanently.
+		 */
+		if (fnSt->foreachExpandSig == sig) {
 			return;
 		}
 
-		/* Added in OPM: copy templates only when rebuilding. */
+	/* Added in OPM: copy templates only when rebuilding. */
 		const std::vector<uid_node_def_t> tmplNodes = fn->foreachTemplateNodes;
 
 		RemoveExpandedForeach(doc, foreachId);
@@ -1346,7 +1429,12 @@ void ExpandForeach(uid_document_t *doc, uid_node_id_t foreachId, const uid_backe
 				doc->nodes[static_cast<size_t>(foreachId)].children.push_back(root);
 			}
 		}
-		MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_STRUCTURE | UID_DIRTY_LAYOUT | UID_DIRTY_PAINT));
+		UID_MarkDirty(
+			doc,
+			static_cast<uid_dirty_flags_t>(UID_DIRTY_STRUCTURE | UID_DIRTY_LAYOUT | UID_DIRTY_PAINT),
+			foreachId,
+			"foreach_count"
+		);
 		return;
 	}
 
@@ -1426,12 +1514,20 @@ void ExpandForeach(uid_document_t *doc, uid_node_id_t foreachId, const uid_backe
 	}
 
 	const uint64_t sig = ForeachExpandSig(fn, scopeSt, 0, sigVisible ? sigVisible : &visibleIndices);
-	if (fnSt->foreachExpandSig == sig && !fn->children.empty()) {
-		if (fn->hasForeachLifetime) {
-			const bool fading =
-				ApplyForeachLifetimeOpacity(doc, foreachId, fn, fnSt, scopeSt->collectionItems, nowMs);
-			if (fading) {
-				MarkDirty(doc, UID_DIRTY_PAINT);
+	/*
+	 * Fixed in Omaha: allow early-out when the correct expansion is empty
+	 * (mode=selected with no selection, empty killfeed/chat, etc.). The old
+	 * !children.empty() guard forced STRUCTURE|LAYOUT dirty every frame.
+	 */
+	if (fnSt->foreachExpandSig == sig) {
+		if (fn->hasForeachLifetime && !fn->children.empty()) {
+			/* Stage 6: skip full opacity walk when no row is in a fade window. */
+			if (ForeachLifetimeNeedsOpacityPass(fn, fnSt, scopeSt->collectionItems, nowMs, doc, foreachId)) {
+				const bool fading =
+					ApplyForeachLifetimeOpacity(doc, foreachId, fn, fnSt, scopeSt->collectionItems, nowMs);
+				if (fading) {
+					UID_MarkDirty(doc, UID_DIRTY_PAINT, foreachId, "foreach_fade");
+				}
 			}
 		}
 		return;
@@ -1444,6 +1540,7 @@ void ExpandForeach(uid_document_t *doc, uid_node_id_t foreachId, const uid_backe
 	const std::vector<uid_node_def_t> tmplNodes = fn->foreachTemplateNodes;
 
 	if (visibleIndices.empty()) {
+		const bool hadChildren = !fn->children.empty();
 		RemoveExpandedForeach(doc, foreachId);
 		if (!foreachStableId.empty()) {
 			auto fit = doc->idIndex.find(foreachStableId);
@@ -1453,7 +1550,14 @@ void ExpandForeach(uid_document_t *doc, uid_node_id_t foreachId, const uid_backe
 			}
 		}
 		fnSt->foreachExpandSig = sig;
-		MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_STRUCTURE | UID_DIRTY_LAYOUT | UID_DIRTY_PAINT));
+		if (hadChildren) {
+			UID_MarkDirty(
+				doc,
+				static_cast<uid_dirty_flags_t>(UID_DIRTY_STRUCTURE | UID_DIRTY_LAYOUT | UID_DIRTY_PAINT),
+				foreachId,
+				"foreach_empty"
+			);
+		}
 		return;
 	}
 
@@ -1522,7 +1626,12 @@ void ExpandForeach(uid_document_t *doc, uid_node_id_t foreachId, const uid_backe
 	if (fn->hasForeachLifetime) {
 		ApplyForeachLifetimeOpacity(doc, foreachId, fn, fnSt, scopeSt->collectionItems, nowMs);
 	}
-	MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_STRUCTURE | UID_DIRTY_LAYOUT | UID_DIRTY_PAINT));
+	UID_MarkDirty(
+		doc,
+		static_cast<uid_dirty_flags_t>(UID_DIRTY_STRUCTURE | UID_DIRTY_LAYOUT | UID_DIRTY_PAINT),
+		foreachId,
+		"foreach_expand"
+	);
 }
 
 } // namespace
@@ -1678,7 +1787,12 @@ bool UID_StepCollectionIndex(uid_document_t *doc, uid_node_id_t scopeId, int del
 		EnsureSelectionInWindow(doc, scopeId, st, next);
 	}
 	WriteScopeIndexToBind(doc, scopeId, backend);
-	MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_LAYOUT | UID_DIRTY_PAINT | UID_DIRTY_BINDING));
+	UID_MarkDirty(
+		doc,
+		static_cast<uid_dirty_flags_t>(UID_DIRTY_LAYOUT | UID_DIRTY_PAINT | UID_DIRTY_BINDING),
+		scopeId,
+		"collection_select"
+	);
 	return true;
 }
 
@@ -1696,7 +1810,12 @@ bool UID_SetCollectionIndex(uid_document_t *doc, uid_node_id_t scopeId, int inde
 			return false;
 		}
 		st->collectionSelectedIndex = -1;
-		MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_LAYOUT | UID_DIRTY_PAINT | UID_DIRTY_BINDING));
+		UID_MarkDirty(
+			doc,
+			static_cast<uid_dirty_flags_t>(UID_DIRTY_LAYOUT | UID_DIRTY_PAINT | UID_DIRTY_BINDING),
+			scopeId,
+			"collection_select"
+		);
 		return true;
 	}
 	if (index >= st->collectionItemCount) {
@@ -1710,7 +1829,12 @@ bool UID_SetCollectionIndex(uid_document_t *doc, uid_node_id_t scopeId, int inde
 		EnsureSelectionInWindow(doc, scopeId, st, index);
 	}
 	WriteScopeIndexToBind(doc, scopeId, backend);
-	MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_LAYOUT | UID_DIRTY_PAINT | UID_DIRTY_BINDING));
+	UID_MarkDirty(
+		doc,
+		static_cast<uid_dirty_flags_t>(UID_DIRTY_LAYOUT | UID_DIRTY_PAINT | UID_DIRTY_BINDING),
+		scopeId,
+		"collection_select"
+	);
 	return true;
 }
 
@@ -1841,6 +1965,11 @@ void UID_SyncCollections(uid_document_t *doc, const uid_backend_t *backend)
 			}
 
 			if (!selfVisible) {
+				/*
+				 * Added in Omaha: drop expanded foreach rows under hidden ancestors
+				 * (e.g. FFA vs team scoreboard panels). Skipping Expand alone left
+				 * stale children in the tree from a prior visible frame.
+				 */
 				for (size_t i = 0; i < ctx->doc->nodes[static_cast<size_t>(id)].children.size(); ++i) {
 					const uid_node_id_t c = ctx->doc->nodes[static_cast<size_t>(id)].children[i];
 					walkRef(ctx, c, false, walkRef);

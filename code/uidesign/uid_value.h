@@ -27,6 +27,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "uid_types.h"
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <string>
 
@@ -136,7 +137,7 @@ public:
 	/* Added in OPM: later keys override earlier ones. */
 	void MergeFrom(const uid_property_set_t &other);
 
-	const std::map<std::string, uid_prop_entry_t> &Attrs() const { return m_attrs; }
+	const std::map<std::string, uid_prop_entry_t, std::less<>> &Attrs() const { return m_attrs; }
 	/* Added in OPM: bumps on Set/Clear/MergeFrom for shape resolve cache keys. */
 	unsigned Version() const { return m_version; }
 
@@ -148,8 +149,9 @@ public:
 	bool GetEnumCached(const char *name, uid_prop_enum_kind_t kind, int *out) const;
 
 private:
-	std::map<std::string, uid_prop_entry_t> m_attrs;
-	unsigned                                m_version = 0;
+	/* Added in Omaha: transparent comparator — GetCStr("width") does not allocate a key. */
+	std::map<std::string, uid_prop_entry_t, std::less<>> m_attrs;
+	unsigned                                             m_version = 0;
 };
 
 /* Built-in defaults: transparent, visible, enabled, vertical, start, zero spacing, overflow none, auto size. */

@@ -29,6 +29,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "uid_collection.h"
 #include "uid_layout.h"
 #include "uid_modal.h"
+#include "uid_paint.h"
 #include "uid_scrollbar.h"
 #include "uid_value.h"
 
@@ -82,20 +83,25 @@ bool EnsureStates(uid_document_t *doc)
 	if (!doc) {
 		return false;
 	}
-	if (doc->states.size() != doc->nodes.size()) {
-		doc->states.resize(doc->nodes.size());
-		for (uid_node_state_t &st : doc->states) {
-			UID_InitNodeState(&st);
-		}
+	const size_t n = doc->nodes.size();
+	const size_t old = doc->states.size();
+	if (old == n) {
+		return true;
+	}
+	if (old > n) {
+		doc->states.resize(n);
+		return true;
+	}
+	doc->states.resize(n);
+	for (size_t i = old; i < n; ++i) {
+		UID_InitNodeState(&doc->states[i]);
 	}
 	return true;
 }
 
 void MarkDirty(uid_document_t *doc, int flags)
 {
-	if (doc) {
-		doc->dirty = static_cast<uid_dirty_flags_t>(doc->dirty | flags);
-	}
+	UID_MarkDirty(doc, static_cast<uid_dirty_flags_t>(flags), UID_INVALID_NODE_ID, nullptr);
 }
 
 void CollectFocusWalk(const uid_document_t *doc, uid_node_id_t id, bool ancVis, bool ancEn, std::vector<uid_node_id_t> *out)
@@ -935,6 +941,14 @@ void UID_HandlePointer(
 		}
 	}
 
+	uid_node_id_t prevHovered = UID_INVALID_NODE_ID;
+	for (size_t i = 0; i < doc->states.size(); ++i) {
+		if (doc->states[i].hovered) {
+			prevHovered = static_cast<uid_node_id_t>(i);
+			break;
+		}
+	}
+
 	for (uid_node_state_t &st : doc->states) {
 		st.hovered = false;
 	}
@@ -943,6 +957,15 @@ void UID_HandlePointer(
 		if (hst) {
 			hst->hovered = true;
 		}
+	}
+
+	/*
+	 * Fixed in Omaha Stage 4: hover visuals bake into the retained paint list.
+	 * Without DIRTY_PAINT on hover change, clean frames keep replaying the
+	 * pre-hover geometry (clicks still worked via press/release dirty).
+	 */
+	if (prevHovered != hit) {
+		MarkDirty(doc, UID_DIRTY_PAINT);
 	}
 
 	/* Slider drag — live write if commit=change; stage until release if submit. */

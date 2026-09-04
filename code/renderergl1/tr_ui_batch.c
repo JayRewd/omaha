@@ -19,8 +19,12 @@ along with OpenMoHAA source code; if not, write to the Free Software
 Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 ===========================================================================
 */
-// tr_ui_batch.c -- batched 2D UI geometry for modern UI (GL1 GPU path)
+/* tr_ui_batch.c -- batched 2D UI geometry for modern UI (GL1 GPU path) */
 #include "tr_local.h"
+
+/* Added in Omaha Stage 5: session hoists IssuePending/MSAA/client-state. */
+static qboolean s_ui2dBatchOpen = qfalse;
+static GLboolean s_ui2dMsaaWasEnabled = GL_FALSE;
 
 qboolean RE_UI2DBatchSupported(void)
 {
@@ -55,12 +59,69 @@ qboolean RE_UI2DCanBatchShader(qhandle_t hShader)
 	return qtrue;
 }
 
-void RE_DrawUI2D(
+void RE_UI2DBatchBegin(void)
+{
+	if (s_ui2dBatchOpen) {
+		return;
+	}
+
+	R_IssuePendingRenderCommands();
+	RE_UI2DTargetRebind();
+
+	s_ui2dMsaaWasEnabled = GL_FALSE;
+#ifdef GL_MULTISAMPLE
+	if (!RE_UI2DTargetIsActive() || RE_UI2DTargetSamples() <= 0) {
+		s_ui2dMsaaWasEnabled = qglIsEnabled(GL_MULTISAMPLE);
+		if (s_ui2dMsaaWasEnabled) {
+			qglDisable(GL_MULTISAMPLE);
+		}
+	}
+#endif
+
+	GL_State(GLS_DEPTHTEST_DISABLE | GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA);
+
+	if (glConfig.numTextureUnits > 1) {
+		GL_SelectTexture(1);
+		qglDisable(GL_TEXTURE_2D);
+		GL_SelectTexture(0);
+	}
+
+	qglEnableClientState(GL_VERTEX_ARRAY);
+	qglEnableClientState(GL_COLOR_ARRAY);
+
+	s_ui2dBatchOpen = qtrue;
+}
+
+void RE_UI2DBatchEnd(void)
+{
+	if (!s_ui2dBatchOpen) {
+		return;
+	}
+
+	qglDisableClientState(GL_COLOR_ARRAY);
+	qglEnableClientState(GL_TEXTURE_COORD_ARRAY);
+	qglEnable(GL_TEXTURE_2D);
+	qglColor4ubv(backEnd.color2D);
+
+#ifdef GL_MULTISAMPLE
+	if (!RE_UI2DTargetIsActive() || RE_UI2DTargetSamples() <= 0) {
+		if (s_ui2dMsaaWasEnabled) {
+			qglEnable(GL_MULTISAMPLE);
+		}
+	}
+#endif
+
+	s_ui2dMsaaWasEnabled = GL_FALSE;
+	s_ui2dBatchOpen = qfalse;
+}
+
+static void RE_DrawUI2D_Inner(
 	const ui2dVert_t *verts,
 	int numVerts,
 	const unsigned short *indexes,
 	int numIndexes,
-	qhandle_t hShader
+	qhandle_t hShader,
+	qboolean sessionOwned
 )
 {
 	shader_t *sh;
@@ -70,26 +131,31 @@ void RE_DrawUI2D(
 		return;
 	}
 
-	R_IssuePendingRenderCommands();
-	RE_UI2DTargetRebind();
+	if (!sessionOwned) {
+		R_IssuePendingRenderCommands();
+		RE_UI2DTargetRebind();
 
 #ifdef GL_MULTISAMPLE
-	if (!RE_UI2DTargetIsActive() || RE_UI2DTargetSamples() <= 0) {
-		msaaEnabled = qglIsEnabled(GL_MULTISAMPLE);
-		if (msaaEnabled) {
-			qglDisable(GL_MULTISAMPLE);
+		if (!RE_UI2DTargetIsActive() || RE_UI2DTargetSamples() <= 0) {
+			msaaEnabled = qglIsEnabled(GL_MULTISAMPLE);
+			if (msaaEnabled) {
+				qglDisable(GL_MULTISAMPLE);
+			}
 		}
-	}
 #else
-	msaaEnabled = GL_FALSE;
+		msaaEnabled = GL_FALSE;
 #endif
 
-	GL_State(GLS_DEPTHTEST_DISABLE | GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA);
+		GL_State(GLS_DEPTHTEST_DISABLE | GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA);
 
-	if (glConfig.numTextureUnits > 1) {
-		GL_SelectTexture(1);
-		qglDisable(GL_TEXTURE_2D);
-		GL_SelectTexture(0);
+		if (glConfig.numTextureUnits > 1) {
+			GL_SelectTexture(1);
+			qglDisable(GL_TEXTURE_2D);
+			GL_SelectTexture(0);
+		}
+
+		qglEnableClientState(GL_VERTEX_ARRAY);
+		qglEnableClientState(GL_COLOR_ARRAY);
 	}
 
 	if (hShader != 0) {
@@ -109,24 +175,34 @@ void RE_DrawUI2D(
 		qglDisableClientState(GL_TEXTURE_COORD_ARRAY);
 	}
 
-	qglEnableClientState(GL_VERTEX_ARRAY);
 	qglVertexPointer(2, GL_FLOAT, sizeof(ui2dVert_t), verts[0].xy);
-
-	qglEnableClientState(GL_COLOR_ARRAY);
 	qglColorPointer(4, GL_UNSIGNED_BYTE, sizeof(ui2dVert_t), verts[0].rgba);
 
 	qglDrawElements(GL_TRIANGLES, numIndexes, GL_UNSIGNED_SHORT, indexes);
 
-	qglDisableClientState(GL_COLOR_ARRAY);
-	qglEnableClientState(GL_TEXTURE_COORD_ARRAY);
-	qglEnable(GL_TEXTURE_2D);
-	qglColor4ubv(backEnd.color2D);
+	if (!sessionOwned) {
+		qglDisableClientState(GL_COLOR_ARRAY);
+		qglEnableClientState(GL_TEXTURE_COORD_ARRAY);
+		qglEnable(GL_TEXTURE_2D);
+		qglColor4ubv(backEnd.color2D);
 
 #ifdef GL_MULTISAMPLE
-	if (!RE_UI2DTargetIsActive() || RE_UI2DTargetSamples() <= 0) {
-		if (msaaEnabled) {
-			qglEnable(GL_MULTISAMPLE);
+		if (!RE_UI2DTargetIsActive() || RE_UI2DTargetSamples() <= 0) {
+			if (msaaEnabled) {
+				qglEnable(GL_MULTISAMPLE);
+			}
 		}
-	}
 #endif
+	}
+}
+
+void RE_DrawUI2D(
+	const ui2dVert_t *verts,
+	int numVerts,
+	const unsigned short *indexes,
+	int numIndexes,
+	qhandle_t hShader
+)
+{
+	RE_DrawUI2D_Inner(verts, numVerts, indexes, numIndexes, hShader, s_ui2dBatchOpen);
 }

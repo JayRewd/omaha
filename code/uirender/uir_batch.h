@@ -30,8 +30,8 @@ source tree, or write to the Free Software Foundation, Inc.,
 extern "C" {
 #endif
 
-#define UIR_BATCH_MAX_VERTS   4096
-#define UIR_BATCH_MAX_INDEXES 12288
+#define UIR_BATCH_MAX_VERTS   16384
+#define UIR_BATCH_MAX_INDEXES 49152
 
 typedef struct {
 	float x;
@@ -48,6 +48,9 @@ typedef struct {
 	int  (*supported)(void);
 	int  (*canBatchShader)(int shader);
 	void (*draw)(const uir_vert_t *v, int nv, const unsigned short *idx, int ni, int shader);
+	/* Added in Omaha Stage 5: hoist IssuePending/MSAA/client-state around multi-draw. */
+	void (*beginDraw)(void);
+	void (*endDraw)(void);
 	int  (*targetAvailable)(void);
 	int  (*targetSamples)(void);
 	int  (*beginTarget)(void);
@@ -57,12 +60,31 @@ typedef struct {
 void UIR_BatchSetBackend(const uir_batch_backend_t *backend);
 void UIR_BatchSetEnabled(int enabled);
 int  UIR_BatchEnabled(void);
+/* Added in Omaha Stage 5: 64px translucent quad tiling (default off). */
+void UIR_BatchSetTile(int enabled);
+int  UIR_BatchTileEnabled(void);
 void UIR_BatchSetFringe(int enabled);
 int  UIR_BatchFringeEnabled(void);
 void UIR_BatchBeginFrame(uir_stats_t *stats);
 void UIR_BatchFlush(void);
 void UIR_BatchTargetBegin(void);
 void UIR_BatchTargetEnd(void);
+
+/*
+ * Added in Omaha Stage 4: optional recorder for retained paint lists.
+ * onDraw is invoked from flush (and oversized direct draws) with the geometry
+ * about to be submitted. onClip is invoked when a scissor is actually applied.
+ */
+typedef struct uir_paint_recorder_s {
+	void (*onDraw)(const uir_vert_t *v, int nv, const unsigned short *idx, int ni, int shader, void *userdata);
+	void (*onClip)(float x, float y, float w, float h, void *userdata);
+	void *userdata;
+} uir_paint_recorder_t;
+
+void UIR_BatchSetPaintRecorder(const uir_paint_recorder_t *recorder);
+
+/* Added in Omaha Stage 4: compositor notifies recorder of applied clips. */
+void UIR_BatchNotifyClip(float x, float y, float w, float h);
 
 uir_status_t UIR_BatchQuad(
 	int shader,

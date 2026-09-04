@@ -207,6 +207,9 @@ typedef struct {
 	qboolean (*UI2DCanBatchShader)(qhandle_t hShader);
 	void     (*DrawUI2D)(const ui2dVert_t *verts, int numVerts,
 	                     const unsigned short *indexes, int numIndexes, qhandle_t hShader);
+	/* Added in Omaha Stage 5: hoist IssuePending/MSAA/client-state across flushes. */
+	void     (*UI2DBatchBegin)(void);
+	void     (*UI2DBatchEnd)(void);
 
 	/* Added in OPM: optional offscreen MSAA UI target (GL1). */
 	qboolean (*UI2DTargetAvailable)(void);

@@ -32,6 +32,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "uid_value.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -41,6 +42,7 @@ uid_rect_t UID_ScrollbarChromeClip(const uid_node_def_t *container, const uid_no
 
 namespace {
 
+/* Stage 6b jump: log classic HUD fill spacer + bottom chrome geometry (on change only). */
 const char *PropCStr(const uid_node_def_t &node, const char *name, const char *fallback)
 {
 	const char *v = node.properties.GetCStr(name, nullptr);
@@ -201,11 +203,19 @@ bool EnsureStates(uid_document_t *doc)
 	if (!doc) {
 		return false;
 	}
-	if (doc->states.size() != doc->nodes.size()) {
-		doc->states.resize(doc->nodes.size());
-		for (uid_node_state_t &st : doc->states) {
-			UID_InitNodeState(&st);
-		}
+	const size_t n = doc->nodes.size();
+	const size_t old = doc->states.size();
+	if (old == n) {
+		return true;
+	}
+	/* Added in Omaha: never re-init surviving states — that wiped Stage 2 layout caches. */
+	if (old > n) {
+		doc->states.resize(n);
+		return true;
+	}
+	doc->states.resize(n);
+	for (size_t i = old; i < n; ++i) {
+		UID_InitNodeState(&doc->states[i]);
 	}
 	return true;
 }
@@ -852,6 +862,7 @@ void ClearNodeGeometry(uid_node_state_t *st)
 	std::memset(&st->effectiveClip, 0, sizeof(st->effectiveClip));
 	st->contentExtentW = 0.0f;
 	st->contentExtentH = 0.0f;
+	st->layoutInputsValid = false;
 }
 
 float IntrinsicBorderSize(
@@ -965,6 +976,28 @@ void ApplySelfBoxes(
 	const float mr = ResolveSidePx(doc, margin.right, percentBaseW);
 	const float mt = ResolveSidePx(doc, margin.top, percentBaseH);
 	const float mb = ResolveSidePx(doc, margin.bottom, percentBaseH);
+
+	/*
+	 * Added in Omaha: Stage 2 — cache LayoutNode-equivalent inputs here.
+	 * Most nodes are placed by LayoutChildren/Overlap via ApplySelfBoxes, not
+	 * LayoutNode; caching only in LayoutNode left valid=1 (root) after full layout.
+	 */
+	st->layoutMarginX = borderX - ml;
+	st->layoutMarginY = borderY - mt;
+	st->layoutMarginW = borderW + ml + mr;
+	st->layoutMarginH = borderH + mt + mb;
+	st->layoutPercentBaseW = percentBaseW;
+	st->layoutPercentBaseH = percentBaseH;
+	st->layoutParentClip = parentClip;
+	st->layoutInputsValid = true;
+	{
+		const uid_length_t width = PropLength(*node, "width", UID_LENGTH_AUTO);
+		const uid_length_t height = PropLength(*node, "height", UID_LENGTH_AUTO);
+		st->layoutSizedW = (width.unit == UID_LENGTH_PX || width.unit == UID_LENGTH_PERCENT
+							|| width.unit == UID_LENGTH_FILL);
+		st->layoutSizedH = (height.unit == UID_LENGTH_PX || height.unit == UID_LENGTH_PERCENT
+							|| height.unit == UID_LENGTH_FILL);
+	}
 
 	/* Added in OPM: post-flow translate (does not affect sibling packing). */
 	{
@@ -1728,6 +1761,18 @@ void LayoutNode(
 		return;
 	}
 
+	/* Added in Omaha: cache LayoutNode inputs for Stage 2 scoped re-layout. */
+	st->layoutMarginX = marginX;
+	st->layoutMarginY = marginY;
+	st->layoutMarginW = marginW;
+	st->layoutMarginH = marginH;
+	st->layoutPercentBaseW = percentBaseW;
+	st->layoutPercentBaseH = percentBaseH;
+	st->layoutParentClip = parentClip;
+	st->layoutAncestorVisible = ancestorVisible;
+	st->layoutAncestorEnabled = ancestorEnabled;
+	st->layoutInputsValid = true;
+
 	const uid_sides_t margin = PropSides(*node, "margin");
 	const float ml = ResolveSidePx(doc, margin.left, percentBaseW);
 	const float mr = ResolveSidePx(doc, margin.right, percentBaseW);
@@ -1739,6 +1784,10 @@ void LayoutNode(
 
 	const uid_length_t width = PropLength(*node, "width", UID_LENGTH_AUTO);
 	const uid_length_t height = PropLength(*node, "height", UID_LENGTH_AUTO);
+	st->layoutSizedW = (width.unit == UID_LENGTH_PX || width.unit == UID_LENGTH_PERCENT
+						|| width.unit == UID_LENGTH_FILL);
+	st->layoutSizedH = (height.unit == UID_LENGTH_PX || height.unit == UID_LENGTH_PERCENT
+						|| height.unit == UID_LENGTH_FILL);
 
 	float bw;
 	float bh;
@@ -1906,6 +1955,8 @@ void LayoutOverlapChildren(
 		const bool childEnabled = parentEnabled && PropBool(*cn, "enabled", true);
 		if (cstWrite) {
 			cstWrite->effectivelyEnabled = childEnabled;
+			cstWrite->layoutAncestorVisible = true;
+			cstWrite->layoutAncestorEnabled = childEnabled;
 		}
 		if (cn->kind == UID_NODE_CONTAINER || cn->kind == UID_NODE_FOREACH) {
 			LayoutChildren(doc, c, childEnabled, fbScale, backend, diags);
@@ -2254,6 +2305,8 @@ void LayoutChildren(
 		const bool childEnabled = parentEnabled && cn && PropBool(*cn, "enabled", true);
 		if (cstWrite) {
 			cstWrite->effectivelyEnabled = childEnabled;
+			cstWrite->layoutAncestorVisible = true;
+			cstWrite->layoutAncestorEnabled = childEnabled;
 		}
 		if (cn && (cn->kind == UID_NODE_CONTAINER || cn->kind == UID_NODE_FOREACH)) {
 			LayoutChildren(doc, g.id, childEnabled, fbScale, backend, diags);
@@ -2568,6 +2621,257 @@ uid_node_id_t UID_HitTest(const uid_document_t *doc, float x, float y, bool over
 	return UID_INVALID_NODE_ID;
 }
 
+/* Added in Omaha: Stage 2 scoped layout gate (ui_layout_scoped). */
+static int g_layoutScoped = 1;
+
+void UID_SetLayoutScoped(int enabled)
+{
+	g_layoutScoped = enabled ? 1 : 0;
+}
+
+int UID_LayoutScopedEnabled(void)
+{
+	return g_layoutScoped;
+}
+
+static bool LengthIsExplicitSize(uid_length_unit_t unit)
+{
+	/* PX/% size from author/parent; FILL takes parent avail — neither sizes from content. */
+	return unit == UID_LENGTH_PX || unit == UID_LENGTH_PERCENT || unit == UID_LENGTH_FILL;
+}
+
+/*
+ * Bound width/height (cvar/expr) change without a parent reflow. Treating those
+ * nodes as scoped-layout boundaries trapped the classic HUD ammo stack: a bad
+ * height was applied, hud_body fill went to 0, then later height corrections only
+ * re-laid the ammo node in place and left the bottom row mid-screen until a
+ * forced full layout (e.g. firing). Stage 2 boundaries must be stable sizes.
+ */
+static bool NodeHasDataBoundSize(const uid_node_def_t *node)
+{
+	if (!node) {
+		return false;
+	}
+	if (node->exprBoundProps.find("width") != node->exprBoundProps.end()
+		|| node->exprBoundProps.find("height") != node->exprBoundProps.end()) {
+		return true;
+	}
+	if (node->cvarBoundProps.find("width") != node->cvarBoundProps.end()
+		|| node->cvarBoundProps.find("height") != node->cvarBoundProps.end()) {
+		return true;
+	}
+	return false;
+}
+
+static bool NodeIsLayoutBoundary(const uid_document_t *doc, uid_node_id_t id)
+{
+	const uid_node_def_t *node = UID_GetNode(doc, id);
+	if (!node) {
+		return false;
+	}
+	if (NodeHasDataBoundSize(node)) {
+		return false;
+	}
+	const uid_length_t width = PropLength(*node, "width", UID_LENGTH_AUTO);
+	const uid_length_t height = PropLength(*node, "height", UID_LENGTH_AUTO);
+	if (LengthIsExplicitSize(width.unit) && LengthIsExplicitSize(height.unit)) {
+		return true;
+	}
+	/* Prefer last successful layout's resolved sized axes (survives prop churn). */
+	const uid_node_state_t *st = StateC(doc, id);
+	return st && st->layoutInputsValid && st->layoutSizedW && st->layoutSizedH;
+}
+
+static std::vector<uid_node_id_t> BuildLayoutParentMap(const uid_document_t *doc)
+{
+	std::vector<uid_node_id_t> parents(doc ? doc->nodes.size() : 0, UID_INVALID_NODE_ID);
+	if (!doc) {
+		return parents;
+	}
+	for (size_t i = 0; i < doc->nodes.size(); ++i) {
+		for (uid_node_id_t c : doc->nodes[i].children) {
+			if (c >= 0 && static_cast<size_t>(c) < parents.size()) {
+				parents[static_cast<size_t>(c)] = static_cast<uid_node_id_t>(i);
+			}
+		}
+	}
+	return parents;
+}
+
+static uid_node_id_t FindNearestLayoutBoundary(
+	const uid_document_t *doc,
+	uid_node_id_t from,
+	const std::vector<uid_node_id_t> &parents
+)
+{
+	if (!doc || from < 0 || static_cast<size_t>(from) >= doc->nodes.size()) {
+		return doc ? doc->rootNode : UID_INVALID_NODE_ID;
+	}
+	for (uid_node_id_t id = from; id != UID_INVALID_NODE_ID;
+		 id = (static_cast<size_t>(id) < parents.size()) ? parents[static_cast<size_t>(id)]
+														 : UID_INVALID_NODE_ID) {
+		if (id == doc->rootNode) {
+			return id;
+		}
+		/*
+		 * Added in Omaha: only stop at a boundary that has cached LayoutNode inputs.
+		 * Prop-sized but never-laid-out / remapped-fresh nodes cannot be scoped roots.
+		 */
+		if (!NodeIsLayoutBoundary(doc, id)) {
+			continue;
+		}
+		const uid_node_state_t *st = StateC(doc, id);
+		if (st && st->layoutInputsValid) {
+			return id;
+		}
+	}
+	return doc->rootNode;
+}
+
+static bool NodeIsAncestorOf(
+	uid_node_id_t ancestor,
+	uid_node_id_t descendant,
+	const std::vector<uid_node_id_t> &parents
+)
+{
+	if (ancestor < 0 || descendant < 0) {
+		return false;
+	}
+	for (uid_node_id_t id = descendant; id != UID_INVALID_NODE_ID;
+		 id = (static_cast<size_t>(id) < parents.size()) ? parents[static_cast<size_t>(id)]
+														 : UID_INVALID_NODE_ID) {
+		if (id == ancestor) {
+			return true;
+		}
+	}
+	return false;
+}
+
+uid_result_t UID_LayoutScoped(
+	uid_document_t *doc,
+	float fbScale,
+	const uid_backend_t *backend,
+	uid_diag_list_t *diags
+)
+{
+	if (!doc) {
+		return UID_ERR_INVALID_ARG;
+	}
+	if (doc->dirtyLayoutNodes.empty()) {
+		return UID_ERR_NOT_READY;
+	}
+	/* Modal placement has canvas-relative side effects; keep the full path. */
+	if (UID_IsModalActive(doc)) {
+		return UID_ERR_NOT_READY;
+	}
+	if (doc->rootNode == UID_INVALID_NODE_ID) {
+		doc->dirtyLayoutNodes.clear();
+		doc->dirty = static_cast<uid_dirty_flags_t>(doc->dirty & ~UID_DIRTY_LAYOUT);
+		return UID_OK;
+	}
+	if (doc->lastLogicalW < 0 || doc->lastLogicalH < 0) {
+		return UID_ERR_NOT_READY;
+	}
+
+	EnsureStates(doc);
+	doc->pendingTranslateDeltas.clear();
+	if (fbScale > 0.0f) {
+		doc->lastFbScale = fbScale;
+	}
+
+	const std::vector<uid_node_id_t> parents = BuildLayoutParentMap(doc);
+	std::vector<uid_node_id_t> boundaries;
+	boundaries.reserve(doc->dirtyLayoutNodes.size());
+
+	for (uid_node_id_t dirtyId : doc->dirtyLayoutNodes) {
+		const uid_node_id_t boundary = FindNearestLayoutBoundary(doc, dirtyId, parents);
+		if (boundary == UID_INVALID_NODE_ID) {
+			return UID_ERR_NOT_READY;
+		}
+		bool already = false;
+		for (uid_node_id_t existing : boundaries) {
+			if (existing == boundary) {
+				already = true;
+				break;
+			}
+		}
+		if (!already) {
+			boundaries.push_back(boundary);
+		}
+	}
+
+	/* Prefer outermost boundaries so nested dirty sets are covered once. */
+	std::vector<uid_node_id_t> roots;
+	roots.reserve(boundaries.size());
+	for (uid_node_id_t candidate : boundaries) {
+		bool covered = false;
+		for (uid_node_id_t other : boundaries) {
+			if (other == candidate) {
+				continue;
+			}
+			if (NodeIsAncestorOf(other, candidate, parents)) {
+				covered = true;
+				break;
+			}
+		}
+		if (!covered) {
+			roots.push_back(candidate);
+		}
+	}
+
+	/*
+	 * Root-only "scoped" is a full tree walk — fall back so callers profile it as
+	 * full layout and so LayoutDocument can refresh viewport/scale + modal.
+	 */
+	bool anyNonRoot = false;
+	for (uid_node_id_t rootId : roots) {
+		if (rootId != doc->rootNode) {
+			anyNonRoot = true;
+			break;
+		}
+	}
+	if (!anyNonRoot) {
+		return UID_ERR_NOT_READY;
+	}
+
+	const float useFb = doc->lastFbScale > 0.0f ? doc->lastFbScale : 1.0f;
+
+	for (uid_node_id_t rootId : roots) {
+		if (rootId == doc->rootNode) {
+			return UID_ERR_NOT_READY;
+		}
+		const uid_node_state_t *st = StateC(doc, rootId);
+		if (!st || !st->layoutInputsValid) {
+			return UID_ERR_NOT_READY;
+		}
+	}
+
+	for (uid_node_id_t rootId : roots) {
+		uid_node_state_t *st = State(doc, rootId);
+		LayoutNode(
+			doc,
+			rootId,
+			st->layoutMarginX,
+			st->layoutMarginY,
+			st->layoutMarginW,
+			st->layoutMarginH,
+			st->layoutPercentBaseW,
+			st->layoutPercentBaseH,
+			st->layoutParentClip,
+			st->layoutAncestorVisible,
+			st->layoutAncestorEnabled,
+			useFb,
+			backend,
+			diags
+		);
+	}
+
+	doc->dirtyLayoutNodes.clear();
+	doc->dirty = static_cast<uid_dirty_flags_t>(doc->dirty & ~UID_DIRTY_LAYOUT);
+	doc->dirty = static_cast<uid_dirty_flags_t>(doc->dirty | UID_DIRTY_PAINT);
+	return UID_OK;
+}
+
 uid_result_t UID_LayoutDocument(
 	uid_document_t *doc,
 	int logicalW,
@@ -2586,6 +2890,7 @@ uid_result_t UID_LayoutDocument(
 	}
 
 	EnsureStates(doc);
+	doc->pendingTranslateDeltas.clear();
 	doc->lastFbScale = fbScale > 0.0f ? fbScale : 1.0f;
 	doc->lastUiPxScale = uiPxScale > 0.0f ? uiPxScale : 1.0f;
 	doc->lastLogicalW = logicalW;
@@ -2647,5 +2952,87 @@ uid_result_t UID_LayoutDocument(
 
 	doc->dirty = static_cast<uid_dirty_flags_t>(doc->dirty & ~UID_DIRTY_LAYOUT);
 	doc->dirty = static_cast<uid_dirty_flags_t>(doc->dirty | UID_DIRTY_PAINT);
+	doc->dirtyLayoutNodes.clear();
 	return UID_OK;
+}
+
+/* Added in Omaha: translate-only box shift (paint dirty); re-intersect effectiveClip with parent. */
+void UID_ShiftSubtreeBoxes(uid_document_t *doc, uid_node_id_t id, float dx, float dy, const uid_rect_t &parentClip)
+{
+	uid_node_def_t *node = UID_GetNode(doc, id);
+	uid_node_state_t *st = State(doc, id);
+	if (!node || !st) {
+		return;
+	}
+
+	st->borderBox.x += dx;
+	st->borderBox.y += dy;
+	st->marginBox.x += dx;
+	st->marginBox.y += dy;
+	st->contentBox.x += dx;
+	st->contentBox.y += dy;
+	st->scrollbarTrackRect.x += dx;
+	st->scrollbarTrackRect.y += dy;
+	st->scrollbarThumbRect.x += dx;
+	st->scrollbarThumbRect.y += dy;
+
+	uid_overflow_t overflow = UID_OVERFLOW_NONE;
+	{
+		int ovEnum = static_cast<int>(UID_OVERFLOW_NONE);
+		if (node->properties.GetEnumCached("overflow", UID_PROP_ENUM_OVERFLOW, &ovEnum)) {
+			overflow = static_cast<uid_overflow_t>(ovEnum);
+		} else {
+			UID_ParseOverflow(PropCStr(*node, "overflow", "none"), &overflow, nullptr);
+		}
+	}
+	if (overflow == UID_OVERFLOW_HIDDEN || overflow == UID_OVERFLOW_SCROLL) {
+		st->effectiveClip = IntersectRect(parentClip, st->contentBox);
+	} else {
+		st->effectiveClip = parentClip;
+	}
+
+	for (uid_node_id_t child : node->children) {
+		UID_ShiftSubtreeBoxes(doc, child, dx, dy, st->effectiveClip);
+	}
+}
+
+void UID_ApplyPendingTranslateDeltas(uid_document_t *doc)
+{
+	if (!doc || doc->pendingTranslateDeltas.empty()) {
+		return;
+	}
+	EnsureStates(doc);
+
+	std::vector<uid_node_id_t> parents(doc->nodes.size(), UID_INVALID_NODE_ID);
+	for (size_t i = 0; i < doc->nodes.size(); ++i) {
+		for (uid_node_id_t c : doc->nodes[i].children) {
+			if (c >= 0 && static_cast<size_t>(c) < parents.size()) {
+				parents[static_cast<size_t>(c)] = static_cast<uid_node_id_t>(i);
+			}
+		}
+	}
+
+	const float lw = static_cast<float>(doc->lastLogicalW > 0 ? doc->lastLogicalW : 0);
+	const float lh = static_cast<float>(doc->lastLogicalH > 0 ? doc->lastLogicalH : 0);
+	const uid_rect_t canvasClip = MakeRect(0.0f, 0.0f, lw, lh);
+
+	for (const uid_document_t::translate_delta_t &d : doc->pendingTranslateDeltas) {
+		if (d.nodeId < 0 || static_cast<size_t>(d.nodeId) >= doc->nodes.size()) {
+			continue;
+		}
+		if (std::fabs(d.dx) < 1e-6f && std::fabs(d.dy) < 1e-6f) {
+			continue;
+		}
+		uid_rect_t parentClip = canvasClip;
+		const uid_node_id_t parentId = parents[static_cast<size_t>(d.nodeId)];
+		if (parentId != UID_INVALID_NODE_ID) {
+			if (const uid_node_state_t *pst = State(doc, parentId)) {
+				parentClip = pst->effectiveClip;
+			}
+		}
+		UID_ShiftSubtreeBoxes(doc, d.nodeId, d.dx, d.dy, parentClip);
+	}
+
+	doc->pendingTranslateDeltas.clear();
+	doc->dirty = static_cast<uid_dirty_flags_t>(doc->dirty | UID_DIRTY_PAINT);
 }

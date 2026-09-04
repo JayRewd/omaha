@@ -1998,6 +1998,8 @@ refexport_t *GetRefAPI ( int apiVersion, refimport_t *rimp ) {
 	re.UI2DBatchSupported = RE_UI2DBatchSupported;
 	re.UI2DCanBatchShader = RE_UI2DCanBatchShader;
 	re.DrawUI2D = RE_DrawUI2D;
+	re.UI2DBatchBegin = RE_UI2DBatchBegin;
+	re.UI2DBatchEnd = RE_UI2DBatchEnd;
 	re.UI2DTargetAvailable = RE_UI2DTargetAvailable;
 	re.BeginUI2DTarget = RE_BeginUI2DTarget;
 	re.EndUI2DTarget = RE_EndUI2DTarget;

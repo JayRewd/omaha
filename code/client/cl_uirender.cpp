@@ -73,6 +73,9 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include <cstdio>
 #include <ctime>
 #include "../uidesign/uid_opt.h"
+#include "../uidesign/uid_layout.h"
+#include "../uidesign/uid_paint.h"
+#include "../uidesign/uid_style.h"
 #include "../uidesign/uid_widget.h"
 #include "../uilib/ui_public.h"
 
@@ -80,6 +83,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 static cvar_t *ui_legacy;
@@ -93,6 +97,11 @@ static cvar_t *ui_om_menu_map_view;
 static cvar_t *ui_profile; /* Added in OPM: 0=off 1=periodic 2=every frame */
 static cvar_t *ui_profile_interval;
 static cvar_t *ui_opt; /* Added in OPM: bitmask of UID_OPT_* (-1 = all on) */
+static cvar_t *ui_layout_scoped; /* Added in Omaha: Stage 2 scoped subtree layout */
+static cvar_t *ui_style_cache;   /* Added in Omaha: Stage 3 computed style cache */
+static cvar_t *ui_paint_list;    /* Added in Omaha: Stage 4 retained paint command list */
+static cvar_t *ui_batch_tile;    /* Added in Omaha: Stage 5 64px translucent quad tiling */
+static cvar_t *ui_bind_cache;    /* Added in Omaha: Stage 6 cvar_t*+modCount describe cache */
 static cvar_t *ui_clip_dedup; /* Added in OPM: skip unchanged clip/scissor applies */
 static cvar_t *ui_mesh_cache; /* Added in OPM: tessellated mesh cache for GPU fills/strokes */
 static cvar_t *ui_chrome_cache; /* Added in OPM: retained chrome RT (gl1; default off) */
@@ -124,6 +133,26 @@ static void CL_UIR_ProfilePrint(const char *kind, const uid_prof_timings_t *t)
 		t->counts[UID_PROF_CNT_STRTOD],
 		t->counts[UID_PROF_CNT_SNPRINTF]
 	);
+	/* layout=0 none, 1 full document, 2 scoped non-root boundary */
+	if (t->layoutDirtyHits > 0) {
+		Com_Printf(
+			"  layout_dirty           hits=%d node=%d kind=%s reason=%s\n",
+			t->layoutDirtyHits,
+			t->layoutDirtyNodeId,
+			t->layoutDirtyKind[0] ? t->layoutDirtyKind : "-",
+			t->layoutDirtyReason[0] ? t->layoutDirtyReason : "-"
+		);
+	}
+	if (t->batches || t->batchVerts || t->clipApplies || t->clipSkips) {
+		Com_Printf(
+			"  submit                 batches=%d batchVerts=%d batchTris=%d clipApplies=%d clipSkips=%d\n",
+			t->batches,
+			t->batchVerts,
+			t->batchTris,
+			t->clipApplies,
+			t->clipSkips
+		);
+	}
 	for (i = 0; i < UID_PROF_COUNT; ++i) {
 		if (t->us[i] <= 0) {
 			continue;
@@ -149,6 +178,22 @@ void CL_UIR_ProfileSyncFromCvar(void)
 			UID_SetOptFlags((unsigned)ui_opt->integer);
 		}
 	}
+	/* Added in Omaha: Stage 2 scoped layout (nearest fixed-size boundary). */
+	if (ui_layout_scoped) {
+		UID_SetLayoutScoped(ui_layout_scoped->integer != 0);
+	}
+	/* Added in Omaha: Stage 3 computed style cache for paint. */
+	if (ui_style_cache) {
+		UID_SetStyleCache(ui_style_cache->integer != 0);
+	}
+	/* Added in Omaha: Stage 4 retained chrome paint list. */
+	if (ui_paint_list) {
+		UID_SetPaintList(ui_paint_list->integer != 0);
+	}
+	/* Added in Omaha: Stage 5 translucent quad tiling (default off). */
+	if (ui_batch_tile) {
+		UIR_BatchSetTile(ui_batch_tile->integer != 0);
+	}
 	/* Added in OPM: clip/scissor dedup for chrome paint. */
 	if (ui_clip_dedup) {
 		UIR_SetClipDedup(ui_clip_dedup->integer != 0);
@@ -157,7 +202,7 @@ void CL_UIR_ProfileSyncFromCvar(void)
 	if (ui_mesh_cache) {
 		UIR_MeshCacheSetEnabled(ui_mesh_cache->integer != 0);
 	}
-	/* Added in OPM: retained chrome RT (idle blit); default off — enable only when idle. */
+	/* Added in Omaha: retained chrome RT (idle blit); default off — enable only when idle. */
 	if (ui_chrome_cache) {
 		UIR_SetChromeCache(ui_chrome_cache->integer != 0);
 	}
@@ -191,6 +236,18 @@ void CL_UIR_ProfileEndSample(const char *kind)
 	}
 	if (g_uiProfileSampleDepth <= 0) {
 		return;
+	}
+	{
+		uir_stats_t *stats = UIR_CompositorStats();
+		if (stats) {
+			UID_ProfileSetSubmitStats(
+				stats->batches,
+				stats->batchVerts,
+				stats->batchTris,
+				stats->clipApplies,
+				stats->clipSkips
+			);
+		}
 	}
 	UID_ProfileCaptureFrame(&t);
 	if (t.totalUs <= 0 && t.us[UID_PROF_FRAME_PAINT_CHROME] <= 0 && t.us[UID_PROF_FRAME_BIND] <= 0
@@ -335,6 +392,20 @@ static void uir_batch_draw(const uir_vert_t *v, int nv, const unsigned short *id
 {
 	if (re.DrawUI2D) {
 		re.DrawUI2D((const ui2dVert_t *)v, nv, idx, ni, (qhandle_t)shader);
+	}
+}
+
+static void uir_batch_begin_draw(void)
+{
+	if (re.UI2DBatchBegin) {
+		re.UI2DBatchBegin();
+	}
+}
+
+static void uir_batch_end_draw(void)
+{
+	if (re.UI2DBatchEnd) {
+		re.UI2DBatchEnd();
 	}
 }
 
@@ -778,6 +849,8 @@ static void CL_UIR_WireBackends(void)
 	batch.supported = uir_batch_supported;
 	batch.canBatchShader = uir_batch_can_shader;
 	batch.draw = uir_batch_draw;
+	batch.beginDraw = uir_batch_begin_draw;
+	batch.endDraw = uir_batch_end_draw;
 	batch.targetAvailable = uir_target_available;
 	batch.targetSamples = uir_target_samples;
 	batch.beginTarget = uir_begin_target;
@@ -911,6 +984,13 @@ static void uid_free_file(void *buf)
 	FS_FreeFile(buf);
 }
 
+/* Stage 6: host-side cvar describe cache (pointer + modificationCount). */
+struct uid_cvar_cache_entry_t {
+	cvar_t      *var;
+	unsigned     modCount;
+	std::string  value;
+};
+
 static bool uid_cvar_describe(const char *name, int *flags, char *valueBuf, size_t valueBufSize)
 {
 	cvar_t *var;
@@ -918,9 +998,20 @@ static bool uid_cvar_describe(const char *name, int *flags, char *valueBuf, size
 	if (!name || !name[0]) {
 		return false;
 	}
+
+	/*
+	 * Stage 6: persistent cvar_t* + modificationCount cache. Avoids FindVar +
+	 * string copy when the value has not changed. Gate: ui_bind_cache (default 1).
+	 */
+	static std::unordered_map<std::string, uid_cvar_cache_entry_t> s_cvarCache;
+	const int cacheOn = (ui_bind_cache && ui_bind_cache->integer) ? 1 : 0;
+
 	UID_ProfileCountInc(UID_PROF_CNT_CVAR_DESCRIBE);
 	var = Cvar_FindVar(name);
 	if (!var) {
+		if (cacheOn) {
+			s_cvarCache.erase(name);
+		}
 		return false;
 	}
 	if (flags) {
@@ -928,6 +1019,34 @@ static bool uid_cvar_describe(const char *name, int *flags, char *valueBuf, size
 	}
 	if (valueBuf && valueBufSize > 0) {
 		Q_strncpyz(valueBuf, var->string ? var->string : "", (int)valueBufSize);
+	}
+	if (cacheOn) {
+		uid_cvar_cache_entry_t &e = s_cvarCache[name];
+		e.var = var;
+		e.modCount = static_cast<unsigned>(var->modificationCount);
+		e.value = var->string ? var->string : "";
+	}
+
+	return true;
+}
+
+/* Added in Omaha: numeric cvar read without string copy / strtod. */
+static bool uid_cvar_number(const char *name, double *outValue, unsigned *outModCount)
+{
+	cvar_t *var;
+
+	if (!name || !name[0]) {
+		return false;
+	}
+	var = Cvar_FindVar(name);
+	if (!var) {
+		return false;
+	}
+	if (outValue) {
+		*outValue = static_cast<double>(var->value);
+	}
+	if (outModCount) {
+		*outModCount = static_cast<unsigned>(var->modificationCount);
 	}
 	return true;
 }
@@ -1934,6 +2053,7 @@ static void cl_uir_paint_sniper_preview(float x, float y, float w, float h)
 
 static void uid_draw_host_region(const char *role, float x, float y, float w, float h, void *userdata)
 {
+	UID_PaintListMarkHostDraw();
 	float       colX[7];
 	float       colW[7];
 	float       bodyY;
@@ -2193,6 +2313,7 @@ static void uid_queue_model_preview(const uid_model_preview_desc_t *desc)
 		}
 		return;
 	}
+	UID_PaintListMarkHostDraw();
 	if (!modelName || !modelName[0]) {
 		modelName = uid_fallback_model_name(desc->team);
 	}
@@ -4679,6 +4800,45 @@ static void uid_font_draw(void *font, float x, float y, const char *text, const 
 	UIR_FontDraw(vp, (uir_font_t *)font, x, y, text, &color, tracking);
 }
 
+/* Added in Omaha Stage 3b: single glyph walk for drop-shadow labels. */
+static void uid_font_draw_with_shadows(
+	void *font,
+	float x,
+	float y,
+	const char *text,
+	const float *rgba,
+	float tracking,
+	const float *shadowDxDyA,
+	int shadowCount
+)
+{
+	uir_color_t           color;
+	const uir_viewport_t *vp = UIR_CompositorViewport();
+	uir_font_shadow_t     shadows[8];
+	int                   n = 0;
+	int                   i;
+
+	if (!font || !text || !rgba || !vp) {
+		return;
+	}
+	color.r = rgba[0];
+	color.g = rgba[1];
+	color.b = rgba[2];
+	color.a = rgba[3];
+	if (shadowDxDyA && shadowCount > 0) {
+		if (shadowCount > 8) {
+			shadowCount = 8;
+		}
+		for (i = 0; i < shadowCount; i++) {
+			shadows[n].dx = shadowDxDyA[i * 3 + 0];
+			shadows[n].dy = shadowDxDyA[i * 3 + 1];
+			shadows[n].a = shadowDxDyA[i * 3 + 2];
+			n++;
+		}
+	}
+	UIR_FontDrawWithShadows(vp, (uir_font_t *)font, x, y, text, &color, tracking, n > 0 ? shadows : NULL, n);
+}
+
 static void uid_font_draw_skewed(
 	void *font,
 	float x,
@@ -4923,11 +5083,18 @@ static bool uid_begin_shape_clip(
 	float rotationDeg
 )
 {
-	return UIR_BeginSvgShapeClip(x, y, w, h, pathD, pathCount, viewW, viewH, rotationDeg) == UIR_OK;
+	/* Shape clips are retained in the paint list — do not poison replay. */
+	const qboolean ok =
+		UIR_BeginSvgShapeClip(x, y, w, h, pathD, pathCount, viewW, viewH, rotationDeg) == UIR_OK;
+	if (ok) {
+		UID_PaintListRecordShapeClipBegin(x, y, w, h, pathD, pathCount, viewW, viewH, rotationDeg);
+	}
+	return ok ? qtrue : qfalse;
 }
 
 static void uid_end_shape_clip(void)
 {
+	UID_PaintListRecordShapeClipEnd();
 	UIR_EndShapeClip();
 }
 
@@ -4975,6 +5142,7 @@ static void CL_UIR_FillUidBackend(uid_backend_t *out)
 	out->readFile = uid_read_file;
 	out->freeFile = uid_free_file;
 	out->cvarDescribe = uid_cvar_describe;
+	out->cvarNumber = uid_cvar_number;
 	out->cvarWrite = uid_cvar_write;
 	out->cvarReset = uid_cvar_reset;
 	out->cvarEpoch = uid_cvar_epoch;
@@ -4991,6 +5159,7 @@ static void CL_UIR_FillUidBackend(uid_backend_t *out)
 	out->fontMeasure = uid_font_measure;
 	out->fontAscent = uid_font_ascent;
 	out->fontDraw = uid_font_draw;
+	out->fontDrawWithShadows = uid_font_draw_with_shadows;
 	out->fontDrawSkewed = uid_font_draw_skewed;
 	out->fontDrawRotated = uid_font_draw_rotated;
 	out->drawSolidRect = uid_draw_solid_rect;
@@ -5641,11 +5810,18 @@ void CL_UIR_RegisterCvars(void)
 	ui_profile_interval = Cvar_Get("ui_profile_interval", "60", CVAR_TEMP);
 	/* Added in OPM: UID_OPT_* bitmask; -1 enables all optimizations. */
 	ui_opt = Cvar_Get("ui_opt", "-1", CVAR_ARCHIVE);
+	/* Added in Omaha: Stage 2 scoped layout from nearest fixed-size boundary. */
+	ui_layout_scoped = Cvar_Get("ui_layout_scoped", "1", CVAR_ARCHIVE);
+	ui_style_cache = Cvar_Get("ui_style_cache", "1", CVAR_ARCHIVE);
+	ui_paint_list = Cvar_Get("ui_paint_list", "1", CVAR_ARCHIVE);
+	ui_batch_tile = Cvar_Get("ui_batch_tile", "0", CVAR_ARCHIVE);
+	ui_bind_cache = Cvar_Get("ui_bind_cache", "1", CVAR_ARCHIVE);
 	/* Added in OPM: skip redundant flush+scissor when clip unchanged. */
 	ui_clip_dedup = Cvar_Get("ui_clip_dedup", "1", CVAR_ARCHIVE);
 	/* Added in OPM: tessellated mesh cache for GPU path fills/strokes. */
 	ui_mesh_cache = Cvar_Get("ui_mesh_cache", "1", CVAR_ARCHIVE);
-	/* Added in OPM: retained chrome RT; default off (rebuilds every frame while HUD is live). */
+	/* Added in Omaha: retained chrome RT; default off (rebuilds every frame while HUD is live).
+	 * Follow-up: auto-enable only after N clean (paint-only / no dirty) frames — not a forced-on cache. */
 	ui_chrome_cache = Cvar_Get("ui_chrome_cache", "0", CVAR_ARCHIVE);
 	/* Added in OPM: batched GPU UI path; default on. */
 	ui_gpu_draw = Cvar_Get("ui_gpu_draw", "1", CVAR_ARCHIVE);

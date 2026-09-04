@@ -68,6 +68,32 @@ float UIR_FontAscent(const uir_font_t *font);
 float UIR_FontLineHeight(const uir_font_t *font);
 float UIR_FontMeasure(const uir_font_t *font, const char *text, float tracking);
 
+/* Added in Omaha Stage 3b: per-glyph advance from the baked atlas (logical px). */
+float UIR_FontGlyphAdvance(const uir_font_t *font, unsigned char ch);
+
+/*
+ * Added in Omaha Stage 3b: one glyph walk emitting optional drop-shadow quads then
+ * the main glyph (replaces 6× UIR_FontDraw for classic drop-shadow labels).
+ * shadows[i].dx/dy are logical-px offsets; shadows[i].a is absolute alpha.
+ */
+typedef struct uir_font_shadow_s {
+	float dx;
+	float dy;
+	float a;
+} uir_font_shadow_t;
+
+uir_status_t UIR_FontDrawWithShadows(
+	const uir_viewport_t     *vp,
+	uir_font_t               *font,
+	float                     x,
+	float                     y,
+	const char               *text,
+	const uir_color_t        *rgba,
+	float                     tracking,
+	const uir_font_shadow_t  *shadows,
+	int                       shadowCount
+);
+
 uir_status_t UIR_FontDraw(
 	const uir_viewport_t *vp,
 	uir_font_t           *font,

@@ -30,6 +30,11 @@ static uir_scoreboard_row_t  g_scoreboardRows[UIR_SCOREBOARD_MAX_ROWS];
 static uir_scoreboard_meta_t g_scoreboardMeta;
 static int                   g_scoreboardCount = 0;
 static uint64_t              g_scoreboardRevision = 1;
+/* Last revision-published snapshot — skip revision++ when identical after sort. */
+static uir_scoreboard_row_t  g_publishedRows[UIR_SCOREBOARD_MAX_ROWS];
+static uir_scoreboard_meta_t g_publishedMeta;
+static int                   g_publishedCount = 0;
+static qboolean              g_publishedValid = qfalse;
 
 static cvar_t *ui_om_scoreboard_team_mode = NULL;
 static cvar_t *ui_om_scoreboard_deaths_label = NULL;
@@ -430,7 +435,30 @@ void UIR_Scoreboard_SetRowCount(int count)
 void UIR_Scoreboard_NotifyChanged(void)
 {
 	UIR_Scoreboard_SortRowsInPlace();
+
+	/*
+	 * Revision hygiene: identical sorted payload must not bump revision.
+	 * Collection hosts that always ++rev force fields/rebuild + paint dirty
+	 * even when the UI already shows the same rows (common on score packets).
+	 */
+	if (g_publishedValid && g_publishedCount == g_scoreboardCount &&
+	    std::memcmp(&g_publishedMeta, &g_scoreboardMeta, sizeof(g_scoreboardMeta)) == 0 &&
+	    (g_scoreboardCount <= 0 ||
+	     std::memcmp(g_publishedRows, g_scoreboardRows, sizeof(uir_scoreboard_row_t) * (size_t)g_scoreboardCount) ==
+		     0)) {
+		UIR_Scoreboard_PublishSessionCvars();
+		UIR_Scoreboard_PublishMetaCvars();
+		UIR_Scoreboard_PublishSortCvars();
+		return;
+	}
+
 	g_scoreboardRevision++;
+	g_publishedMeta = g_scoreboardMeta;
+	g_publishedCount = g_scoreboardCount;
+	if (g_scoreboardCount > 0) {
+		std::memcpy(g_publishedRows, g_scoreboardRows, sizeof(uir_scoreboard_row_t) * (size_t)g_scoreboardCount);
+	}
+	g_publishedValid = qtrue;
 	UIR_Scoreboard_PublishSessionCvars();
 	UIR_Scoreboard_PublishMetaCvars();
 	UIR_Scoreboard_PublishSortCvars();
@@ -448,6 +476,12 @@ void UIR_Scoreboard_ApplySortColumn(const char *column)
 	}
 	UIR_Scoreboard_SortRowsInPlace();
 	g_scoreboardRevision++;
+	g_publishedMeta = g_scoreboardMeta;
+	g_publishedCount = g_scoreboardCount;
+	if (g_scoreboardCount > 0) {
+		std::memcpy(g_publishedRows, g_scoreboardRows, sizeof(uir_scoreboard_row_t) * (size_t)g_scoreboardCount);
+	}
+	g_publishedValid = qtrue;
 	UIR_Scoreboard_PublishSortCvars();
 }
 

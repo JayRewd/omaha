@@ -33,14 +33,41 @@ source tree, or write to the Free Software Foundation, Inc.,
 static uir_batch_backend_t g_batchBackend;
 static uir_stats_t        *g_batchStats;
 static int                 g_batchEnabled = 1;
+static int                 g_batchTile = 0; /* Added in Omaha Stage 5: default off */
 static int                 g_fringeEnabled = 1;
 static int                 g_targetActive = 0;
+/* Added in Omaha: TargetBegin requested; bind+clear deferred until first geometry. */
+static int                 g_targetPending = 0;
+/* Added in Omaha Stage 5: draw-session open (beginDraw/endDraw). */
+static int                 g_drawSessionOpen = 0;
 
 static uir_vert_t          g_batchVerts[UIR_BATCH_MAX_VERTS];
 static unsigned short      g_batchIdx[UIR_BATCH_MAX_INDEXES];
 static int                 g_batchVertCount;
 static int                 g_batchIdxCount;
 static int                 g_batchShader = -1;
+
+/* Added in Omaha Stage 4: retained paint-list recorder. */
+static uir_paint_recorder_t g_paintRecorder;
+static int                  g_paintRecorderActive;
+
+void UIR_BatchSetPaintRecorder(const uir_paint_recorder_t *recorder)
+{
+	if (recorder && (recorder->onDraw || recorder->onClip)) {
+		g_paintRecorder = *recorder;
+		g_paintRecorderActive = 1;
+	} else {
+		memset(&g_paintRecorder, 0, sizeof(g_paintRecorder));
+		g_paintRecorderActive = 0;
+	}
+}
+
+void UIR_BatchNotifyClip(float x, float y, float w, float h)
+{
+	if (g_paintRecorderActive && g_paintRecorder.onClip) {
+		g_paintRecorder.onClip(x, y, w, h, g_paintRecorder.userdata);
+	}
+}
 
 static unsigned char uir_batch_byte(float v)
 {
@@ -87,6 +114,16 @@ int UIR_BatchEnabled(void)
 	return g_batchEnabled;
 }
 
+void UIR_BatchSetTile(int enabled)
+{
+	g_batchTile = enabled ? 1 : 0;
+}
+
+int UIR_BatchTileEnabled(void)
+{
+	return g_batchTile;
+}
+
 void UIR_BatchSetFringe(int enabled)
 {
 	g_fringeEnabled = enabled ? 1 : 0;
@@ -99,10 +136,39 @@ int UIR_BatchFringeEnabled(void)
 
 void UIR_BatchBeginFrame(uir_stats_t *stats)
 {
+	if (g_drawSessionOpen && g_batchBackend.endDraw) {
+		g_batchBackend.endDraw();
+		g_drawSessionOpen = 0;
+	}
 	g_batchStats = stats;
 	g_batchVertCount = 0;
 	g_batchIdxCount = 0;
 	g_batchShader = -1;
+}
+
+/* Added in Omaha: bind+clear UI FBO on first real draw of a pending session. */
+static void uir_batch_ensure_target(void)
+{
+	if (g_targetActive || !g_targetPending) {
+		return;
+	}
+	if (!g_batchBackend.targetAvailable || !g_batchBackend.beginTarget) {
+		g_targetPending = 0;
+		return;
+	}
+	if (!g_batchBackend.targetAvailable()) {
+		g_targetPending = 0;
+		return;
+	}
+	if (!g_batchBackend.beginTarget()) {
+		g_targetPending = 0;
+		return;
+	}
+	g_targetPending = 0;
+	g_targetActive = 1;
+	if (g_batchBackend.targetSamples && g_batchBackend.targetSamples() > 0) {
+		UIR_BatchSetFringe(0);
+	}
 }
 
 void UIR_BatchFlush(void)
@@ -114,6 +180,22 @@ void UIR_BatchFlush(void)
 		return;
 	}
 
+	if (g_paintRecorderActive && g_paintRecorder.onDraw) {
+		g_paintRecorder.onDraw(
+			g_batchVerts,
+			g_batchVertCount,
+			g_batchIdx,
+			g_batchIdxCount,
+			g_batchShader,
+			g_paintRecorder.userdata
+		);
+	}
+
+	uir_batch_ensure_target();
+	if (!g_drawSessionOpen && g_batchBackend.beginDraw) {
+		g_batchBackend.beginDraw();
+		g_drawSessionOpen = 1;
+	}
 	g_batchBackend.draw(g_batchVerts, g_batchVertCount, g_batchIdx, g_batchIdxCount, g_batchShader);
 
 	if (g_batchStats) {
@@ -166,6 +248,14 @@ static uir_status_t uir_batch_append(
 		g_batchShader = shader;
 		if (vertCount > UIR_BATCH_MAX_VERTS || idxCount > UIR_BATCH_MAX_INDEXES) {
 			if (g_batchBackend.draw) {
+				if (g_paintRecorderActive && g_paintRecorder.onDraw) {
+					g_paintRecorder.onDraw(verts, vertCount, idx, idxCount, shader, g_paintRecorder.userdata);
+				}
+				uir_batch_ensure_target();
+				if (!g_drawSessionOpen && g_batchBackend.beginDraw) {
+					g_batchBackend.beginDraw();
+					g_drawSessionOpen = 1;
+				}
 				g_batchBackend.draw(verts, vertCount, idx, idxCount, shader);
 				if (g_batchStats) {
 					g_batchStats->batches++;
@@ -302,6 +392,7 @@ uir_status_t UIR_BatchQuad(
 	float tileSize;
 	float yCur;
 	float yEnd;
+	int isTileCandidate;
 
 	if (!rgba || !UIR_BatchEnabled()) {
 		return UIR_ERR_UNSUPPORTED;
@@ -311,7 +402,10 @@ uir_status_t UIR_BatchQuad(
 	}
 
 	a = uir_batch_byte(rgba->a);
-	if (a >= 255 || (w <= 64.0f && h <= 64.0f)) {
+	isTileCandidate = (a < 255 && (w > 64.0f || h > 64.0f)) ? 1 : 0;
+
+	/* Stage 5: tiling off by default — one quad matches the tiled math. */
+	if (!g_batchTile || !isTileCandidate) {
 		return uir_batch_quad_single(shader, x, y, w, h, s0, t0, s1, t1, rgba);
 	}
 
@@ -386,7 +480,7 @@ uir_status_t UIR_BatchQuadSkewed(
 	}
 
 	a = uir_batch_byte(rgba->a);
-	if (a >= 255 || (w <= 64.0f && h <= 64.0f)) {
+	if (!g_batchTile || a >= 255 || (w <= 64.0f && h <= 64.0f)) {
 		float corners[4][2];
 		int i;
 
@@ -549,13 +643,22 @@ void UIR_BatchTargetBegin(void)
 	UIR_BatchFlush();
 	/* Added in OPM: FBO switch may reset GL scissor. */
 	UIR_InvalidateAppliedClip();
-	if (g_targetActive) {
+	if (g_targetActive || g_targetPending) {
 		return;
 	}
 	if (!g_batchBackend.targetAvailable || !g_batchBackend.beginTarget) {
 		return;
 	}
 	if (!g_batchBackend.targetAvailable()) {
+		return;
+	}
+	/*
+	 * Added in Omaha: defer bind+clear until first flush with geometry so empty
+	 * overlay/chrome sessions skip a full-res clear+resolve. Immediate begin when
+	 * batching is off (draws bypass the batcher).
+	 */
+	if (UIR_BatchEnabled()) {
+		g_targetPending = 1;
 		return;
 	}
 	if (!g_batchBackend.beginTarget()) {
@@ -569,18 +672,22 @@ void UIR_BatchTargetBegin(void)
 
 void UIR_BatchTargetEnd(void)
 {
-	if (!g_targetActive) {
-		return;
-	}
 	UIR_BatchFlush();
-	/* Added in Omaha debug: time MSAA resolve / FBO blit (was outside profile). */
-	UID_ProfileBegin(UID_PROF_HOST_BATCH_FLUSH);
-	if (g_batchBackend.endTarget) {
-		g_batchBackend.endTarget();
-	}
-	UID_ProfileEnd(UID_PROF_HOST_BATCH_FLUSH);
-	g_targetActive = 0;
-	UIR_BatchSetFringe(1);
+	if (g_targetActive) {
+		/* Added in Omaha debug: time MSAA resolve / FBO blit (was outside profile). */
+		UID_ProfileBegin(UID_PROF_HOST_BATCH_FLUSH);
+		if (g_batchBackend.endTarget) {
+			g_batchBackend.endTarget();
+		}
+		UID_ProfileEnd(UID_PROF_HOST_BATCH_FLUSH);
+		g_targetActive = 0;
+		UIR_BatchSetFringe(1);
 	/* Added in OPM: leaving FBO may reset GL scissor. */
-	UIR_InvalidateAppliedClip();
+		UIR_InvalidateAppliedClip();
+	}
+	g_targetPending = 0;
+	if (g_drawSessionOpen && g_batchBackend.endDraw) {
+		g_batchBackend.endDraw();
+		g_drawSessionOpen = 0;
+	}
 }

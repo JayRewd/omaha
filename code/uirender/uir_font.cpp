@@ -471,20 +471,83 @@ float UIR_FontMeasure(const uir_font_t *font, const char *text, float tracking)
 	return w;
 }
 
-uir_status_t UIR_FontDraw(
-	const uir_viewport_t *vp,
-	uir_font_t           *font,
-	float                 x,
-	float                 y,
-	const char           *text,
-	const uir_color_t    *rgba,
-	float                 tracking
+float UIR_FontGlyphAdvance(const uir_font_t *font, unsigned char ch)
+{
+	float inv;
+	if (!font) {
+		return 0.0f;
+	}
+	inv = font->toLogical > 0.0f ? font->toLogical : 1.0f;
+	if (ch < UIR_FONT_FIRST_CHAR || ch >= UIR_FONT_FIRST_CHAR + UIR_FONT_NUM_CHARS) {
+		ch = (unsigned char)'?';
+	}
+	return font->baked[ch - UIR_FONT_FIRST_CHAR].xadvance * inv;
+}
+
+static void uir_font_emit_glyph_quad(
+	uir_font_t *font,
+	float gx,
+	float gy,
+	float gw,
+	float gh,
+	float u0,
+	float v0,
+	float u1,
+	float v1,
+	const uir_color_t *glyphColor
+)
+{
+	if (!(gw > 0.0f) || !(gh > 0.0f)) {
+		return;
+	}
+	if (UIR_BatchEnabled()) {
+		if (UIR_BatchQuad(font->shader, gx, gy, gw, gh, u0, v0, u1, v1, glyphColor) != UIR_OK) {
+			float color[4];
+			color[0] = glyphColor->r;
+			color[1] = glyphColor->g;
+			color[2] = glyphColor->b;
+			color[3] = glyphColor->a;
+			g_fontBackend.setColor(color);
+			g_fontBackend.drawPic(gx, gy, gw, gh, u0, v0, u1, v1, font->shader);
+			color[0] = color[1] = color[2] = color[3] = 1.0f;
+			g_fontBackend.setColor(color);
+		}
+	} else {
+		float color[4];
+		color[0] = glyphColor->r;
+		color[1] = glyphColor->g;
+		color[2] = glyphColor->b;
+		color[3] = glyphColor->a;
+		g_fontBackend.setColor(color);
+		g_fontBackend.drawPic(gx, gy, gw, gh, u0, v0, u1, v1, font->shader);
+		color[0] = color[1] = color[2] = color[3] = 1.0f;
+		g_fontBackend.setColor(color);
+	}
+}
+
+uir_status_t UIR_FontDrawWithShadows(
+	const uir_viewport_t     *vp,
+	uir_font_t               *font,
+	float                     x,
+	float                     y,
+	const char               *text,
+	const uir_color_t        *rgba,
+	float                     tracking,
+	const uir_font_shadow_t  *shadows,
+	int                       shadowCount
 )
 {
 	float penX;
 	float baseline;
+	int i;
 
 	if (!vp || !font || !text || !rgba || !g_fontBackend.drawPic || !g_fontBackend.setColor) {
+		return UIR_ERR_INVALID_ARG;
+	}
+	if (shadowCount < 0) {
+		shadowCount = 0;
+	}
+	if (shadowCount > 0 && !shadows) {
 		return UIR_ERR_INVALID_ARG;
 	}
 
@@ -522,30 +585,21 @@ uir_status_t UIR_FontDraw(
 
 		UIR_FontInsetUVs(&u0, &v0, &u1, &v1, font->atlasW, font->atlasH);
 		UIR_ViewportSnapQuad(vp, &gx, &gy, &gw, &gh);
-		glyphColor = *rgba;
-		if (UIR_BatchEnabled()) {
-			if (UIR_BatchQuad(font->shader, gx, gy, gw, gh, u0, v0, u1, v1, &glyphColor) != UIR_OK) {
-				float color[4];
-				color[0] = rgba->r;
-				color[1] = rgba->g;
-				color[2] = rgba->b;
-				color[3] = rgba->a;
-				g_fontBackend.setColor(color);
-				g_fontBackend.drawPic(gx, gy, gw, gh, u0, v0, u1, v1, font->shader);
-				color[0] = color[1] = color[2] = color[3] = 1.0f;
-				g_fontBackend.setColor(color);
-			}
-		} else {
-			float color[4];
-			color[0] = rgba->r;
-			color[1] = rgba->g;
-			color[2] = rgba->b;
-			color[3] = rgba->a;
-			g_fontBackend.setColor(color);
-			g_fontBackend.drawPic(gx, gy, gw, gh, u0, v0, u1, v1, font->shader);
-			color[0] = color[1] = color[2] = color[3] = 1.0f;
-			g_fontBackend.setColor(color);
+
+		for (i = 0; i < shadowCount; i++) {
+			float sgx = gx + shadows[i].dx;
+			float sgy = gy + shadows[i].dy;
+			float sgw = gw;
+			float sgh = gh;
+			glyphColor.r = 0.0f;
+			glyphColor.g = 0.0f;
+			glyphColor.b = 0.0f;
+			glyphColor.a = shadows[i].a;
+			uir_font_emit_glyph_quad(font, sgx, sgy, sgw, sgh, u0, v0, u1, v1, &glyphColor);
 		}
+
+		glyphColor = *rgba;
+		uir_font_emit_glyph_quad(font, gx, gy, gw, gh, u0, v0, u1, v1, &glyphColor);
 
 		penX += font->baked[ch - UIR_FONT_FIRST_CHAR].xadvance * inv;
 		if (*text) {
@@ -554,6 +608,19 @@ uir_status_t UIR_FontDraw(
 	}
 
 	return UIR_OK;
+}
+
+uir_status_t UIR_FontDraw(
+	const uir_viewport_t *vp,
+	uir_font_t           *font,
+	float                 x,
+	float                 y,
+	const char           *text,
+	const uir_color_t    *rgba,
+	float                 tracking
+)
+{
+	return UIR_FontDrawWithShadows(vp, font, x, y, text, rgba, tracking, NULL, 0);
 }
 
 uir_status_t UIR_FontDrawSkewed(
