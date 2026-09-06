@@ -1117,30 +1117,52 @@ void S_UnpauseSound()
 
 /*
 ==============
-S_OPENAL_ShouldPlay
+S_OPENAL_MakeRoomForSound
 ==============
 */
-static qboolean S_OPENAL_ShouldPlay(sfx_t *pSfx)
+static qboolean S_OPENAL_MakeRoomForSound(sfx_t *pSfx, int iEntNum, int iEntChannel)
 {
-    if (sfx_infos[pSfx->sfx_info_index].max_number_playing <= 0) {
+    const int iMaxPlaying = sfx_infos[pSfx->sfx_info_index].max_number_playing;
+    if (iMaxPlaying <= 0) {
         return qtrue;
     }
 
-    int iRemainingTimesToPlay;
-    int i;
+    const int       iRealEntNum               = iEntNum & ~S_FLAG_DO_CALLBACK;
+    int             iRemainingTimesToPlay     = iMaxPlaying;
+    openal_channel *pReplacement              = NULL;
+    bool            bReplacementMatchesSource = false;
 
-    iRemainingTimesToPlay = sfx_infos[pSfx->sfx_info_index].max_number_playing;
-
-    for (i = 0; i < MAX_SOUNDSYSTEM_POSITION_CHANNELS; i++) {
+    for (int i = 0; i < MAX_SOUNDSYSTEM_POSITION_CHANNELS; i++) {
         openal_channel *pChannel = openal.channel[i];
         if (!pChannel) {
             continue;
         }
 
         if (pChannel->pSfx == pSfx && pChannel->is_playing()) {
+            const bool bCanReplace =
+                (pChannel->iEntNum != s_iListenerNumber || iRealEntNum == s_iListenerNumber)
+                && pChannel->iEntChannel <= iEntChannel;
+            const bool bMatchesSource =
+                iEntChannel && pChannel->iEntNum == iRealEntNum && pChannel->iEntChannel == iEntChannel;
+
+            if (bCanReplace
+                && (!pReplacement || (bMatchesSource && !bReplacementMatchesSource)
+                    || (bMatchesSource == bReplacementMatchesSource
+                        && (pChannel->iEntChannel < pReplacement->iEntChannel
+                            || (pChannel->iEntChannel == pReplacement->iEntChannel
+                                && pChannel->iStartTime < pReplacement->iStartTime))))) {
+                pReplacement              = pChannel;
+                bReplacementMatchesSource = bMatchesSource;
+            }
+
             iRemainingTimesToPlay--;
             if (!iRemainingTimesToPlay) {
-                return qfalse;
+                if (!pReplacement) {
+                    return qfalse;
+                }
+
+                pReplacement->end_sample();
+                return qtrue;
             }
         }
     }
@@ -1498,7 +1520,7 @@ void S_OPENAL_StartSound(
         pSfx->iFlags |= SFX_FLAG_STREAMED;
     }
 
-    if (!S_OPENAL_ShouldPlay(pSfx)) {
+    if (!S_OPENAL_MakeRoomForSound(pSfx, iEntNum, iEntChannel)) {
         Com_DPrintf("OpenAL: ^~^~^ Not playing sound '%s'\n", pSfx->name);
         return;
     }
