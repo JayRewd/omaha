@@ -2508,6 +2508,7 @@ static const char *const g_uidSettingsDraftCvars[] = {
 	"r_textureMode",
 	"r_ext_compressed_textures",
 	"r_fastentlight",
+	"r_fastdlights",
 	"r_entlightmap",
 	"r_flares",
 	"r_drawstaticdecals",
@@ -2592,6 +2593,8 @@ static const char *const g_uidVideoRestartCvars[] = {
 	"r_swapInterval",
 	"r_colorbits",
 	"r_texturebits",
+	"r_textureMode", /* Applied at renderer init — needs restart to take effect. */
+	"r_fastdlights", /* LATCH — world dlight fast path */
 	NULL
 };
 
@@ -2766,7 +2769,7 @@ static int uid_query_collection_options(
 	};
 	const int bufCount = (int)(sizeof(valueBuf) / sizeof(valueBuf[0]));
 
-	if (!source || !out || max <= 0) {
+	if (!source) {
 		return 0;
 	}
 
@@ -2792,16 +2795,20 @@ static int uid_query_collection_options(
 		return 0;
 	}
 
-	if (total <= 0) {
-		return 0;
-	}
-
+	/*
+	 * Fixed in Omaha: honor max=0 peeks like servers/scoreboard — write total/revision
+	 * before returning so empty scopes still load on the first full query.
+	 */
 	if (outTotal) {
 		*outTotal = total;
 	}
 	if (outRevision) {
 		*outRevision = 1;
 	}
+	if (!out || max <= 0 || total <= 0) {
+		return 0;
+	}
+
 	if (offset < 0) {
 		offset = 0;
 	}
@@ -3784,6 +3791,33 @@ static void uid_write_all_doc_bindings(void)
 	if (runtime && UID_HasDocument(runtime)) {
 		uid_document_t *doc = const_cast<uid_document_t *>(UID_GetDocument(runtime));
 		UID_WriteAllBindings(doc, &g_uidBackend);
+	}
+}
+
+/*
+ * Added in Omaha: light the settings Apply button only when a staged commit=apply
+ * edit differs from the live cvar and that cvar is in g_uidVideoRestartCvars.
+ */
+static void CL_UIR_SyncSettingsApplyPending(void)
+{
+	static cvar_t *pendingCvar;
+	int            want = 0;
+
+	if (!pendingCvar) {
+		pendingCvar = Cvar_Get("ui_om_settings_apply_pending", "0", CVAR_TEMP);
+	}
+
+	uid_runtime_t *runtime = CL_UIR_MainRuntime();
+	if (runtime && UID_HasDocument(runtime)
+		&& !Q_stricmp(Cvar_VariableString("ui_om_main_panel"), "settings")) {
+		uid_document_t *doc = const_cast<uid_document_t *>(UID_GetDocument(runtime));
+		if (UID_HasPendingApplyBindings(doc, &g_uidBackend, g_uidVideoRestartCvars)) {
+			want = 1;
+		}
+	}
+
+	if (pendingCvar->integer != want) {
+		Cvar_Set("ui_om_settings_apply_pending", want ? "1" : "0");
 	}
 }
 
@@ -5983,6 +6017,8 @@ void CL_UIR_RegisterCvars(void)
 	Cvar_Get("ui_om_browser_sort_asc", "0", CVAR_TEMP);
 	Cvar_Get("ui_om_settings_tab", "input", CVAR_TEMP);
 	Cvar_Get("ui_om_settings_search", "", CVAR_TEMP);
+	/* Added in Omaha: 1 while staged video apply edits need settings-apply / vid_restart. */
+	Cvar_Get("ui_om_settings_apply_pending", "0", CVAR_TEMP);
 	Cvar_Get("ui_om_main_panel", "play", CVAR_TEMP);
 	Cvar_Get("ui_om_pause_panel", "root", CVAR_TEMP);
 	Cvar_Get("ui_om_cbuf", "", CVAR_TEMP);
@@ -6573,6 +6609,7 @@ void CL_UIR_UpdateModern(void)
 			CL_UIMenu_UpdateAll(cls.realtime);
 		}
 		uir_browser_update_status_cvars();
+		CL_UIR_SyncSettingsApplyPending();
 		return;
 	}
 
@@ -6595,6 +6632,7 @@ void CL_UIR_UpdateModern(void)
 
 	CL_UIMenu_UpdateAllWithPointer(cls.realtime, &pointer);
 	uir_browser_update_status_cvars();
+	CL_UIR_SyncSettingsApplyPending();
 }
 
 qboolean CL_UIR_KeyEvent(int key, qboolean down, unsigned time)

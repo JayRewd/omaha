@@ -878,10 +878,13 @@ bool RefreshCollectionScope(uid_document_t *doc, uid_node_id_t scopeId, const ui
 	/*
 	 * Added in Omaha: always peek revision/total (including empty collections) so
 	 * hosts that honor out-only queries avoid a full copy when unchanged.
+	 * Fixed in Omaha: hosts that ignore max=0 peeks leave total/revision at 0 —
+	 * do not treat a never-loaded scope as already up to date.
 	 */
 	{
 		const int peek = backend->queryCollectionItems(&q, nullptr, 0);
-		if (peek >= 0 && revision == st->collectionRevision && total == st->collectionItemCount) {
+		if (peek >= 0 && revision == st->collectionRevision && total == st->collectionItemCount &&
+			(!st->collectionItems.empty() || revision != 0 || total != 0)) {
 			st->collectionRefreshFrame = doc->syncFrameCounter;
 			return false;
 		}
@@ -1097,10 +1100,16 @@ void SyncScopeIndexFromBind(uid_document_t *doc, uid_node_id_t scopeId, const ui
 	/*
 	 * Fixed in Omaha: commit=apply keeps a staged selection; do not pull the
 	 * live cvar over local cyclic edits before settings-apply flushes.
+	 * Auto fallback staging (value not in list) used to mark Apply pending with
+	 * no user edit — only honor staging when applyUserEdited is set.
 	 */
 	const uid_commit_mode_t mode = scope->hasCommit ? scope->commit : UID_COMMIT_CHANGE;
-	if (mode == UID_COMMIT_APPLY && st->runtimeValue.hasValue) {
+	if (mode == UID_COMMIT_APPLY && st->runtimeValue.hasValue && st->applyUserEdited) {
 		return;
+	}
+	if (mode == UID_COMMIT_APPLY && st->runtimeValue.hasValue && !st->applyUserEdited) {
+		st->runtimeValue.hasValue = false;
+		st->runtimeValue.stringValue.clear();
 	}
 
 	/* Added in Omaha: select by enclosing foreach item.field (read-only). */
@@ -1131,7 +1140,12 @@ void SyncScopeIndexFromBind(uid_document_t *doc, uid_node_id_t scopeId, const ui
 	if (idx < 0) {
 		idx = ResolveFallbackIndex(doc, scope, st->collectionItems);
 		st->collectionSelectedIndex = idx;
-		if (idx >= 0) {
+		/*
+		 * Changed in Omaha: for commit=apply, only update the displayed selection.
+		 * Do not WriteScopeIndexToBind a fallback — that staged a false pending Apply
+		 * when the live cvar was outside the option list (e.g. r_mode -2).
+		 */
+		if (mode != UID_COMMIT_APPLY && idx >= 0) {
 			if (!haveCvar || want != st->collectionItems[static_cast<size_t>(idx)].value) {
 				WriteScopeIndexToBind(doc, scopeId, backend);
 			}
@@ -1879,6 +1893,10 @@ bool UID_StepCollectionIndex(uid_document_t *doc, uid_node_id_t scopeId, int del
 	if (scope->collectionScroll || FindWindowForeachUnderScope(doc, scopeId) != UID_INVALID_NODE_ID) {
 		EnsureSelectionInWindow(doc, scopeId, st, next);
 	}
+	/* Added in Omaha: cyclic step is a user edit for commit=apply pending Apply. */
+	if (scope->hasCommit && scope->commit == UID_COMMIT_APPLY) {
+		st->applyUserEdited = true;
+	}
 	WriteScopeIndexToBind(doc, scopeId, backend);
 	UID_MarkDirty(
 		doc,
@@ -1920,6 +1938,10 @@ bool UID_SetCollectionIndex(uid_document_t *doc, uid_node_id_t scopeId, int inde
 	st->collectionSelectedIndex = index;
 	if (FindWindowForeachUnderScope(doc, scopeId) != UID_INVALID_NODE_ID) {
 		EnsureSelectionInWindow(doc, scopeId, st, index);
+	}
+	uid_node_def_t *scope = &doc->nodes[static_cast<size_t>(scopeId)];
+	if (scope->hasCommit && scope->commit == UID_COMMIT_APPLY) {
+		st->applyUserEdited = true;
 	}
 	WriteScopeIndexToBind(doc, scopeId, backend);
 	UID_MarkDirty(

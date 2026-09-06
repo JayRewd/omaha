@@ -331,6 +331,8 @@ struct uid_node_state_t {
 	bool                focused;
 	bool                effectivelyEnabled;
 	uid_optional_value_t runtimeValue;
+	/* Added in Omaha: commit=apply staged by user input (not auto sync/fallback). */
+	bool                applyUserEdited;
 	std::string         editBuffer;
 	std::string         preEditValue; /* Escape restores this for inputs */
 	size_t              caretCodepoint;

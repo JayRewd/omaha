@@ -232,7 +232,9 @@
 									<use template="settings-on-off-row" label="Compressed Textures" bind="cvar:r_ext_compressed_textures" commit="apply"/>
 									<use template="settings-cyclic-row" label="Model / World LOD" bind="cvar:r_lodscale" source="lod-scale" commit="change"/>
 									<use template="settings-cyclic-row" label="Shadows" bind="cvar:cg_shadows" source="shadows" commit="change"/>
-									<use template="settings-on-off-row" label="Real Dynamic Lighting" bind="cvar:r_fastentlight" commit="change"/>
+									<!-- r_fastentlight 1 = fast light-grid; 0 = real spherical — invert for this label. -->
+									<use template="settings-on-off-row" label="Real Dynamic Lighting" bind="cvar:r_fastentlight" commit="change" off-value="1" on-value="0"/>
+									<use template="settings-on-off-row" label="Fast Dynamic Lights" bind="cvar:r_fastdlights" commit="apply"/>
 									<use template="settings-on-off-row" label="Flares" bind="cvar:r_flares" commit="change"/>
 									<use template="settings-on-off-row" label="Volumetric Smoke" bind="cvar:vss_draw" commit="change"/>
 									<use template="settings-cyclic-row" label="Effect Detail" bind="cvar:cg_effectdetail" source="effect-detail" commit="change"/>
@@ -319,7 +321,7 @@
 						        shape="skew-rect" skewl="12px" skewr="0"
 						        fill="{var.color-accent}" hoverfill="{var.color-accent-hover}"
 						        disabled-fill="{var.fill-hover-ghost}" disabled-color="{var.color-disabled}"
-						        enabled="{cvar.ui_om_settings_tab == video}"
+						        enabled="{cvar.ui_om_settings_tab == video and cvar.ui_om_settings_apply_pending != 0}"
 						        color="{var.color-white}" font="control" font-size="{var.text-control}" letter-spacing="2px">
 							APPLY
 							<on event="click"><invoke name="settings-apply"/></on>

@@ -1352,6 +1352,8 @@ void SyncCvarBind(
 	MigrateSettingsCvarValue(cvarName, valueBuf, sizeof(valueBuf), backend);
 	const std::string ui = TransformCvarToUi(*node, std::string(valueBuf), backend);
 	SetRuntimeIfChanged(doc, id, st, node->kind, FormatControlDisplayValue(*node, ui));
+	/* Sync from live cvar is not a user Apply edit. */
+	st->applyUserEdited = false;
 }
 
 void SyncKeybindDisplay(
@@ -3012,6 +3014,9 @@ uid_result_t UID_WriteAllBindings(uid_document_t *doc, const uid_backend_t *back
 			continue;
 		}
 		const uid_result_t r = UID_WriteBinding(doc, static_cast<uid_node_id_t>(i), backend);
+		if (r == UID_OK) {
+			doc->states[i].applyUserEdited = false;
+		}
 		if (r != UID_OK && worst == UID_OK) {
 			worst = r;
 		}
@@ -3033,8 +3038,69 @@ void UID_ClearApplyStagedBindings(uid_document_t *doc)
 		}
 		doc->states[i].runtimeValue.hasValue = false;
 		doc->states[i].runtimeValue.stringValue.clear();
+		doc->states[i].applyUserEdited = false;
 	}
 	UID_MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_BINDING | UID_DIRTY_PAINT | UID_DIRTY_LAYOUT), UID_INVALID_NODE_ID, "revert_apply");
+}
+
+static bool CvarNameAllowed(const char *name, const char *const *allowList)
+{
+	if (!allowList) {
+		return true;
+	}
+	if (!name || !name[0]) {
+		return false;
+	}
+	for (int i = 0; allowList[i]; ++i) {
+		if (allowList[i][0] && std::strcmp(name, allowList[i]) == 0) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/* Added in Omaha: detect staged commit=apply edits that still need settings-apply. */
+bool UID_HasPendingApplyBindings(
+	const uid_document_t *doc,
+	const uid_backend_t *backend,
+	const char *const *cvarAllowList
+)
+{
+	if (!doc || !backend) {
+		return false;
+	}
+	const size_t n = doc->nodes.size() < doc->states.size() ? doc->nodes.size() : doc->states.size();
+	for (size_t i = 0; i < n; ++i) {
+		const uid_node_def_t &node = doc->nodes[i];
+		const uid_node_state_t &st = doc->states[i];
+		if (!node.hasCommit || node.commit != UID_COMMIT_APPLY || node.bind.empty()) {
+			continue;
+		}
+		if (!st.runtimeValue.hasValue || !st.applyUserEdited) {
+			continue;
+		}
+		std::string cvarName;
+		if (!UID_ParseCvarBind(node.bind.c_str(), &cvarName)) {
+			continue;
+		}
+		if (!CvarNameAllowed(cvarName.c_str(), cvarAllowList)) {
+			continue;
+		}
+		std::string live;
+		if (!UID_ReadCvarString(backend, cvarName.c_str(), &live)) {
+			continue;
+		}
+		/*
+		 * Match SyncCvarBind display path (transform + control formatting) so
+		 * pending is false when the staged UI value still equals the live cvar.
+		 */
+		const std::string liveUi =
+			FormatControlDisplayValue(node, TransformCvarToUi(node, live, backend));
+		if (liveUi != st.runtimeValue.stringValue) {
+			return true;
+		}
+	}
+	return false;
 }
 
 std::string UID_TransformCvarToUi(

@@ -770,7 +770,8 @@ int fake_queryCollectionItems(const uid_collection_query_t *query, uid_collectio
 	static char pingBuf[8][8];
 	static const char *fieldNames[7];
 	static const char *fieldValues[7];
-	if (!query || !query->source || !out || max <= 0) {
+	/* Fixed in Omaha: allow max=0 peeks (out may be null) like production hosts. */
+	if (!query || !query->source) {
 		return 0;
 	}
 	if (std::strcmp(query->source, "servers") == 0) {
@@ -780,6 +781,9 @@ int fake_queryCollectionItems(const uid_collection_query_t *query, uid_collectio
 		}
 		if (query->outRevision) {
 			*query->outRevision = g_fakeServersRevision;
+		}
+		if (!out || max <= 0) {
+			return 0;
 		}
 		int written = 0;
 		for (int i = 0; i < total && written < max; ++i) {
@@ -847,6 +851,9 @@ int fake_queryCollectionItems(const uid_collection_query_t *query, uid_collectio
 		}
 		if (query->outRevision) {
 			*query->outRevision = g_fakeScoreboardRevision;
+		}
+		if (!out || max <= 0) {
+			return 0;
 		}
 		int written = 0;
 		for (int i = 0; i < total && written < max; ++i) {
@@ -928,6 +935,9 @@ int fake_queryCollectionItems(const uid_collection_query_t *query, uid_collectio
 		if (query->outRevision) {
 			*query->outRevision = 1;
 		}
+		if (!out || max <= 0) {
+			return 0;
+		}
 		const char *names[] = {"Alice", "Bob", "Carol"};
 		const char *specs[] = {"1", "0", "1"};
 		int written = 0;
@@ -963,7 +973,7 @@ int fake_queryCollectionItems(const uid_collection_query_t *query, uid_collectio
 		if (query->outRevision) {
 			*query->outRevision = 1;
 		}
-		if (max <= 0) {
+		if (!out || max <= 0) {
 			return 0;
 		}
 		std::snprintf(textBuf[0], sizeof(textBuf[0]), "Secure the bridge");
@@ -1006,6 +1016,9 @@ int fake_queryCollectionItems(const uid_collection_query_t *query, uid_collectio
 			if (query->outRevision) {
 				*query->outRevision = g_fake->lifetimeRevision;
 			}
+			if (!out || max <= 0) {
+				return 0;
+			}
 			int written = 0;
 			for (int i = 0; i < total && written < max; ++i) {
 				const auto &item = g_fake->lifetimeItems[static_cast<size_t>(i)];
@@ -1035,6 +1048,9 @@ int fake_queryCollectionItems(const uid_collection_query_t *query, uid_collectio
 		}
 		if (query->outRevision) {
 			*query->outRevision = 42;
+		}
+		if (!out || max <= 0) {
+			return 0;
 		}
 		int written = 0;
 		for (int i = 0; i < total && written < max; ++i) {
@@ -1072,6 +1088,9 @@ int fake_queryCollectionItems(const uid_collection_query_t *query, uid_collectio
 		if (query->outRevision) {
 			*query->outRevision = 43;
 		}
+		if (!out || max <= 0) {
+			return 0;
+		}
 		int written = 0;
 		for (int i = 0; i < total && written < max; ++i) {
 			std::snprintf(gmTextBuf[written], sizeof(gmTextBuf[written]), "game line %d", i + 1);
@@ -1108,6 +1127,9 @@ int fake_queryCollectionItems(const uid_collection_query_t *query, uid_collectio
 		}
 		if (query->outRevision) {
 			*query->outRevision = 44;
+		}
+		if (!out || max <= 0) {
+			return 0;
 		}
 		int written = 0;
 		for (int i = 0; i < total && written < max; ++i) {
@@ -1165,6 +1187,9 @@ int fake_queryCollectionItems(const uid_collection_query_t *query, uid_collectio
 		}
 		if (query->outRevision) {
 			*query->outRevision = 45;
+		}
+		if (!out || max <= 0) {
+			return 0;
 		}
 		int written = 0;
 		for (int i = 0; i < total && written < max; ++i) {
@@ -1226,6 +1251,9 @@ int fake_queryCollectionItems(const uid_collection_query_t *query, uid_collectio
 	}
 	if (query->outRevision) {
 		*query->outRevision = 1;
+	}
+	if (!out || max <= 0) {
+		return 0;
 	}
 	int offset = query->offset > 0 ? query->offset : 0;
 	int written = 0;
@@ -5016,6 +5044,67 @@ void TestBindSelectedNumericMatch(void)
 	UID_DestroyDocument(doc);
 }
 
+/* Added in Omaha: commit=apply Off/On stages highlight before settings-apply flush. */
+void TestBindSelectedCommitApplyStages(void)
+{
+	static const char *kDoc = R"(
+<ui version="1">
+  <definitions>
+    <defaults type="vertical" width="100%" height="100%"/>
+    <fonts><font id="control" src="fonts/x.ttf" weight="600"/></fonts>
+  </definitions>
+  <canvas>
+    <container type="horizontal" width="100%" height="40px" gap="8px">
+      <button id="off" bind="cvar:r_fastdlights" set-value="0" commit="apply"
+              fill="{bind.selected ? #1A6FD4FF : #00000073}" color="#FFFFFFFF">Off</button>
+      <button id="on" bind="cvar:r_fastdlights" set-value="1" commit="apply"
+              fill="{bind.selected ? #1A6FD4FF : #00000073}" color="#FFFFFFFF">On</button>
+    </container>
+  </canvas>
+</ui>
+)";
+	static const char *const kAllow[] = {"r_fastdlights", nullptr};
+	uid_limits_t lim;
+	UID_DefaultLimits(&lim);
+	uid_document_t *doc = UID_CreateDocument();
+	uid_diag_list_t diags(lim.maxDiagnostics);
+	FakeBackendState st;
+	st.cvars["r_fastdlights"] = FakeCvar{"0", 0};
+	uid_backend_t be = MakeFakeBackend(&st);
+
+	CHECK(UID_ParseXml("bind_selected_apply.xml", kDoc, std::strlen(kDoc), &lim, nullptr, doc, &diags) == UID_OK);
+	CHECK(UID_ExpandDocument(doc, &diags) == UID_OK);
+	CHECK(UID_CompileDocument(doc, &diags) == UID_OK);
+	CHECK(UID_LayoutDocument(doc, 320, 80, 1.0f, 1.0f, &be, &diags) == UID_OK);
+	UID_SyncBindings(doc, &be);
+
+	uid_node_id_t offId = doc->idIndex["off"];
+	uid_node_id_t onId = doc->idIndex["on"];
+	uid_color_t   fillOn{};
+	uid_color_t   fillOff{};
+	CHECK(UID_ResolveFillColor(doc, onId, &fillOn));
+	CHECK(UID_ResolveFillColor(doc, offId, &fillOff));
+	CHECK(fillOff.b > 0.5f);
+	CHECK(fillOn.b < 0.5f);
+	CHECK(!UID_HasPendingApplyBindings(doc, &be, kAllow));
+
+	UID_SetFocus(doc, onId, &be);
+	CHECK(UID_HandleKey(doc, UID_KEY_ENTER, true, 0, &be));
+	/* Staged only — live cvar unchanged until WriteAllBindings. */
+	CHECK(st.cvars["r_fastdlights"].value == "0");
+	CHECK(UID_HasPendingApplyBindings(doc, &be, kAllow));
+	CHECK(UID_ResolveFillColor(doc, onId, &fillOn));
+	CHECK(UID_ResolveFillColor(doc, offId, &fillOff));
+	CHECK(fillOn.b > 0.5f);
+	CHECK(fillOff.b < 0.5f);
+
+	CHECK(UID_WriteAllBindings(doc, &be) == UID_OK);
+	CHECK(st.cvars["r_fastdlights"].value == "1");
+	CHECK(!UID_HasPendingApplyBindings(doc, &be, kAllow));
+
+	UID_DestroyDocument(doc);
+}
+
 /* Added in Omaha: use-site visible AND template search `or` must keep parent gate. */
 void TestUseVisibleAndSearchOrPrecedence(void)
 {
@@ -6984,6 +7073,68 @@ void TestCyclicCommitApplyStagesUntilFlush(void)
 	UID_DestroyDocument(doc);
 }
 
+/* Added in Omaha: pending apply detection for settings Apply button accent. */
+void TestHasPendingApplyBindings(void)
+{
+	static const char *kDoc = R"(
+<ui version="1">
+  <definitions>
+    <defaults type="vertical" width="100%" height="100%"/>
+    <fonts><font id="control" src="fonts/x.ttf" weight="600"/></fonts>
+    <sources>
+      <source id="picmip" default="1">
+        <item value="0" label="Highest"/>
+        <item value="1" label="High"/>
+        <item value="2" label="Medium"/>
+        <item value="3" label="Low"/>
+      </source>
+    </sources>
+  </definitions>
+  <canvas>
+    <container id="scope" type="horizontal" width="280px" height="40px" gap="0"
+               source="picmip" bind="cvar:r_picmip" wrap="true" commit="apply">
+      <button id="prev" width="32px" height="100%" step-index="-1">‹</button>
+      <container width="fill" height="100%" halign="center" valign="center">
+        <foreach mode="selected">
+          <label id="lbl" font="control" font-size="15px">{item.label}</label>
+        </foreach>
+      </container>
+      <button id="next" width="32px" height="100%" step-index="1">›</button>
+    </container>
+  </canvas>
+</ui>
+)";
+	static const char *const kAllow[] = {"r_picmip", nullptr};
+	static const char *const kOther[] = {"r_mode", nullptr};
+	uid_limits_t lim;
+	UID_DefaultLimits(&lim);
+	uid_document_t *doc = UID_CreateDocument();
+	uid_diag_list_t diags(lim.maxDiagnostics);
+	FakeBackendState st;
+	st.cvars["r_picmip"] = FakeCvar{"1", 0};
+	uid_backend_t be = MakeFakeBackend(&st);
+
+	CHECK(UID_ParseXml("pending_apply.xml", kDoc, std::strlen(kDoc), &lim, nullptr, doc, &diags) == UID_OK);
+	CHECK(UID_ExpandDocument(doc, &diags) == UID_OK);
+	CHECK(UID_CompileDocument(doc, &diags) == UID_OK);
+	UID_SyncBindings(doc, &be);
+	CHECK(!UID_HasPendingApplyBindings(doc, &be, kAllow));
+
+	uid_node_id_t scopeId = doc->idIndex.count("scope") ? doc->idIndex["scope"] : UID_INVALID_NODE_ID;
+	CHECK(scopeId >= 0);
+	CHECK(UID_StepCollectionIndex(doc, scopeId, 1, &be));
+	UID_SyncBindings(doc, &be);
+	CHECK(doc->states[static_cast<size_t>(scopeId)].applyUserEdited);
+	CHECK(UID_HasPendingApplyBindings(doc, &be, kAllow));
+	CHECK(!UID_HasPendingApplyBindings(doc, &be, kOther));
+
+	CHECK(UID_WriteAllBindings(doc, &be) == UID_OK);
+	CHECK(!doc->states[static_cast<size_t>(scopeId)].applyUserEdited);
+	CHECK(!UID_HasPendingApplyBindings(doc, &be, kAllow));
+
+	UID_DestroyDocument(doc);
+}
+
 /* Added in Omaha: vertical list row click via set-index on foreach row. */
 void TestComposableVerticalList(void)
 {
@@ -8140,11 +8291,11 @@ static void RegisterTestSettingsCvars(FakeBackendState &st)
 		"sensitivity", "m_pitch", "m_yaw", "m_filter", "cl_mouseAccel", "cl_run", "cg_zoomSensitivity",
 		"r_mode", "r_fullscreen", "r_swapInterval", "com_maxfps", "r_gamma", "r_colorbits", "r_texturebits",
 		"ui_scale", "ui_om_menu_map_view", "r_picmip", "r_textureMode", "r_ext_compressed_textures",
-		"r_fastentlight", "r_entlightmap", "r_flares", "r_drawstaticdecals",
+		"r_fastentlight", "r_fastdlights", "r_entlightmap", "r_flares", "r_drawstaticdecals",
 		"s_initsound", "s_volume", "s_musicvolume", "s_speaker_type", "s_khz", "s_milesdriver",
 		"s_doppler", "s_reverb", "s_mixahead", "s_muteWhenMinimized", "s_muteWhenUnfocused",
 		"ui_om_hud", "ui_weaponsbar", "cg_crosshair_mode", "cg_autoswitch", "ui_legacy",
-		"ui_om_settings_search", "ui_om_settings_tab", "ui_om_main_panel",
+		"ui_om_settings_search", "ui_om_settings_tab", "ui_om_settings_apply_pending", "ui_om_main_panel",
 		"ui_modernsettings_dpi", "ui_modernsettings_sensitivity_mode",
 		"cg_crosshaircolor_r", "cg_crosshaircolor_g", "cg_crosshaircolor_b", "cg_crosshairalpha",
 		"cg_crosshair_drawoutline", "cg_crosshair_outlinethickness", "cg_crosshairusealpha",
@@ -11182,6 +11333,7 @@ int main(void)
 	TestCyclicSelectSource();
 	TestComposableCyclicForeach();
 	TestCyclicCommitApplyStagesUntilFlush();
+	TestHasPendingApplyBindings();
 	TestComposableVerticalList();
 	TestXmlCollectionSource();
 	TestSourceDefaultNoMatch();
@@ -11214,6 +11366,7 @@ int main(void)
 	TestMainXmlRuntime();
 	TestSettingsOnOffButtons();
 	TestBindSelectedNumericMatch();
+	TestBindSelectedCommitApplyStages();
 	TestInvertMouseBindSelected();
 	TestUseVisibleAndSearchOrPrecedence();
 	TestValueTypeTransforms();

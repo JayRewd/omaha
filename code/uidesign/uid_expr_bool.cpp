@@ -295,20 +295,48 @@ bool BoolLookupPath(const uid_bool_lookup_ctx_t *ctx, const std::string &path, u
 			out->kind = UID_BOOL_VAL_BOOL;
 			out->b = false;
 			if (!node.bind.empty() && !node.setValue.empty() && ctx->backend) {
-				std::string cvarName;
-				const char *p = node.bind.c_str();
-				if (std::strncmp(p, "cvar:", 5) == 0) {
-					cvarName = p + 5;
-				} else {
-					cvarName = node.bind;
-				}
 				std::string have;
-				if (UID_ReadCvarString(ctx->backend, cvarName.c_str(), &have)) {
-					/*
-					 * Fixed in Omaha: compare UI-space value after value-type
-					 * transforms (e.g. invert-mouse maps ±m_pitch → 0/1).
-					 */
-					have = UID_TransformCvarToUi(node, have, ctx->backend);
+				bool        haveValue = false;
+				/*
+				 * Fixed in Omaha: commit=apply Off/On stages runtime until
+				 * settings-apply. Prefer that shared staged value so the
+				 * highlight moves before the live cvar is written.
+				 */
+				if (ctx->doc) {
+					const size_t n = ctx->doc->nodes.size() < ctx->doc->states.size()
+						? ctx->doc->nodes.size()
+						: ctx->doc->states.size();
+					for (size_t i = 0; i < n; ++i) {
+						const uid_node_def_t &peer = ctx->doc->nodes[i];
+						if (peer.bind != node.bind || peer.setValue.empty()) {
+							continue;
+						}
+						const uid_node_state_t &pst = ctx->doc->states[i];
+						if (pst.applyUserEdited && pst.runtimeValue.hasValue) {
+							have = pst.runtimeValue.stringValue;
+							haveValue = true;
+							break;
+						}
+					}
+				}
+				if (!haveValue) {
+					std::string cvarName;
+					const char *p = node.bind.c_str();
+					if (std::strncmp(p, "cvar:", 5) == 0) {
+						cvarName = p + 5;
+					} else {
+						cvarName = node.bind;
+					}
+					if (UID_ReadCvarString(ctx->backend, cvarName.c_str(), &have)) {
+						/*
+						 * Fixed in Omaha: compare UI-space value after value-type
+						 * transforms (e.g. invert-mouse maps ±m_pitch → 0/1).
+						 */
+						have = UID_TransformCvarToUi(node, have, ctx->backend);
+						haveValue = true;
+					}
+				}
+				if (haveValue) {
 					if (have == node.setValue) {
 						out->b = true;
 					} else {

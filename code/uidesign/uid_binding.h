@@ -79,6 +79,17 @@ uid_result_t UID_WriteAllBindings(uid_document_t *doc, const uid_backend_t *back
 /* Added in Omaha: clear commit=apply staged runtime so sync can pull again (defaults). */
 void UID_ClearApplyStagedBindings(uid_document_t *doc);
 
+/*
+ * Added in Omaha: true when any commit=apply cvar bind has a staged runtime value
+ * that differs from the live cvar (UI-transformed). If cvarAllowList is non-NULL,
+ * only those cvar names are considered (NULL-terminated).
+ */
+bool UID_HasPendingApplyBindings(
+	const uid_document_t *doc,
+	const uid_backend_t *backend,
+	const char *const *cvarAllowList
+);
+
 /* Added in Omaha: collection scope bind helpers. */
 std::string UID_TransformCvarToUi(
 	const uid_node_def_t &node,

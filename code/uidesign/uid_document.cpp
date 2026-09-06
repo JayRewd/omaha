@@ -147,6 +147,7 @@ void UID_InitNodeState(uid_node_state_t *state)
 	state->effectivelyEnabled = true;
 	state->runtimeValue.hasValue = false;
 	state->runtimeValue.stringValue.clear();
+	state->applyUserEdited = false;
 	state->editBuffer.clear();
 	state->preEditValue.clear();
 	state->caretCodepoint = 0;

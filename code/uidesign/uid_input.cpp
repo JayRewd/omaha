@@ -225,6 +225,32 @@ void SetRuntimeString(uid_node_state_t *st, const std::string &value)
 	st->runtimeValue.stringValue = value;
 }
 
+/* Added in Omaha: mark commit=apply staging as a real user edit (Apply pending). */
+static void MarkApplyUserEdited(uid_document_t *doc, uid_node_id_t id)
+{
+	uid_node_def_t *node = UID_GetNode(doc, id);
+	uid_node_state_t *st = State(doc, id);
+	if (!node || !st) {
+		return;
+	}
+	if (node->hasCommit && node->commit == UID_COMMIT_APPLY) {
+		st->applyUserEdited = true;
+	}
+	/* Off/On peers share one bind — mark every apply peer so pending detects either. */
+	if (!node->bind.empty() && !node->setValue.empty() && doc) {
+		const size_t n = doc->nodes.size() < doc->states.size() ? doc->nodes.size() : doc->states.size();
+		for (size_t i = 0; i < n; ++i) {
+			const uid_node_def_t &peer = doc->nodes[i];
+			if (peer.bind != node->bind) {
+				continue;
+			}
+			if (peer.hasCommit && peer.commit == UID_COMMIT_APPLY) {
+				doc->states[i].applyUserEdited = true;
+			}
+		}
+	}
+}
+
 void MaybeWriteBinding(uid_document_t *doc, uid_node_id_t id, const uid_backend_t *backend, uid_commit_mode_t when)
 {
 	uid_node_def_t *node = UID_GetNode(doc, id);
@@ -348,14 +374,10 @@ void ActivateButton(uid_document_t *doc, uid_node_id_t id, const uid_backend_t *
 	if (wantSetValue && st) {
 		const std::string bindCopy = node ? node->bind : std::string();
 		SetRuntimeString(st, setValueCopy);
-		MarkDirty(doc, UID_DIRTY_PAINT | UID_DIRTY_BINDING);
-		UID_DispatchEvent(doc, id, UID_EVENT_CHANGE, backend);
-		MaybeWriteBinding(doc, id, backend, UID_COMMIT_CHANGE);
-		MaybeWriteBinding(doc, id, backend, UID_COMMIT_SUBMIT);
 		/*
-		 * Fixed in Omaha: Cvar_Set no-ops when the value is unchanged and does not
-		 * bump cvar epoch. Clear style memo on all set-value peers so bind.selected
-		 * fills recompute (Off/On stayed idle until the other side was clicked).
+		 * Fixed in Omaha: share the staged value across Off/On peers. commit=apply
+		 * does not write the live cvar yet; bind.selected needs every peer's
+		 * runtime to match so only the clicked side highlights.
 		 */
 		if (!bindCopy.empty() && doc) {
 			const size_t n = doc->nodes.size() < doc->states.size() ? doc->nodes.size() : doc->states.size();
@@ -364,10 +386,16 @@ void ActivateButton(uid_document_t *doc, uid_node_id_t id, const uid_backend_t *
 				if (peer.bind != bindCopy || peer.setValue.empty()) {
 					continue;
 				}
+				SetRuntimeString(&doc->states[i], setValueCopy);
 				doc->states[i].styleExprCached = false;
 				doc->states[i].styleExprEpoch = 0;
 			}
 		}
+		MarkApplyUserEdited(doc, id);
+		MarkDirty(doc, UID_DIRTY_PAINT | UID_DIRTY_BINDING);
+		UID_DispatchEvent(doc, id, UID_EVENT_CHANGE, backend);
+		MaybeWriteBinding(doc, id, backend, UID_COMMIT_CHANGE);
+		MaybeWriteBinding(doc, id, backend, UID_COMMIT_SUBMIT);
 		UID_SyncBindings(doc, backend);
 	}
 	UID_DispatchEvent(doc, id, UID_EVENT_CLICK, backend);
