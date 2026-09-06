@@ -1508,7 +1508,7 @@ void R_Register( void )
 	r_lockpvs = ri.Cvar_Get ("r_lockpvs", "0", CVAR_CHEAT);
 	r_noportals = ri.Cvar_Get ("r_noportals", "0", CVAR_CHEAT);
 	r_entlightmap = ri.Cvar_Get("r_entlightmap", "0", CVAR_CHEAT);
-	r_fastentlight = ri.Cvar_Get("r_fastentlight", "0", CVAR_ARCHIVE);
+	r_fastentlight = ri.Cvar_Get("r_fastentlight", "1", CVAR_ARCHIVE); /* Changed in Omaha */
 	r_entlight_scale = ri.Cvar_Get("r_entlight_scale", "1.3", CVAR_CHEAT);
 	r_entlight_errbound = ri.Cvar_Get("r_entlight_errbound", "6", CVAR_ARCHIVE);
 	r_entlight_cubelevel = ri.Cvar_Get("r_entlight_cubelevel", "0", CVAR_ARCHIVE);

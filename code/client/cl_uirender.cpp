@@ -27,6 +27,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 /* Fixed in Omaha: suppress dm_pause click-through after open / panel switch. */
 static qboolean g_uirDmPauseGateClicks = qfalse;
+
 static int      g_uirDmPauseGateUntil  = 0;
 /* Fixed in Omaha: defer pushmenu_teamselect while Continue/loading owns the screen. */
 static char     g_uirPendingDmPausePanel[32];
@@ -1050,11 +1051,28 @@ static bool uid_cvar_describe(const char *name, int *flags, char *valueBuf, size
 	}
 
 	/*
-	 * Stage 6: persistent cvar_t* + modificationCount cache. Avoids FindVar +
-	 * string copy when the value has not changed. Gate: ui_bind_cache (default 1).
+	 * Changed in Omaha: read path uses cached cvar_t* + modificationCount when
+	 * ui_bind_cache is on. Validates name pointer still matches before skipping FindVar.
 	 */
 	static std::unordered_map<std::string, uid_cvar_cache_entry_t> s_cvarCache;
 	const int cacheOn = (ui_bind_cache && ui_bind_cache->integer) ? 1 : 0;
+
+	if (cacheOn) {
+		const auto it = s_cvarCache.find(name);
+		if (it != s_cvarCache.end()) {
+			uid_cvar_cache_entry_t &e = it->second;
+			if (e.var && e.var->name && !strcmp(e.var->name, name)
+				&& static_cast<unsigned>(e.var->modificationCount) == e.modCount) {
+				if (flags) {
+					*flags = e.var->flags;
+				}
+				if (valueBuf && valueBufSize > 0) {
+					Q_strncpyz(valueBuf, e.value.c_str(), (int)valueBufSize);
+				}
+				return true;
+			}
+		}
+	}
 
 	UID_ProfileCountInc(UID_PROF_CNT_CVAR_DESCRIBE);
 	var = Cvar_FindVar(name);
@@ -2498,6 +2516,7 @@ static const char *const g_uidSettingsDraftCvars[] = {
 	"fps",
 	"s_volume",
 	"s_musicvolume",
+	"s_ambientvolume",
 	"s_speaker_type",
 	"s_khz",
 	"s_reverb",
@@ -5813,7 +5832,7 @@ static void CL_UIR_RegisterSettingsCvars(void)
 	Cvar_Get("fps", "0", CVAR_ARCHIVE);
 	Cvar_Get("cg_fov", "80", CVAR_ARCHIVE);
 	Cvar_Get("cg_zoomSensitivity", "screen", CVAR_ARCHIVE); /* Added in Omaha: off|legacy|screen */
-	Cvar_Get("cg_crosshair_sniper_thickness", "3", CVAR_ARCHIVE);
+	Cvar_Get("cg_crosshair_sniper_thickness", "2.5", CVAR_ARCHIVE); /* Changed in Omaha */
 	Cvar_Get("cg_crosshair_sniper_gap", "0", CVAR_ARCHIVE);
 	Cvar_Get("cg_crosshair_sniper_size", "5", CVAR_ARCHIVE);
 	Cvar_Get("cg_crosshair_sniper_t", "0", CVAR_ARCHIVE);
@@ -5821,9 +5840,9 @@ static void CL_UIR_RegisterSettingsCvars(void)
 	Cvar_Get("cg_drawviewmodel", "2", CVAR_ARCHIVE);
 	Cvar_Get("cg_hud", "1", CVAR_ARCHIVE);
 	/* Added in Omaha: hitmarker enable + server/client validation mode + sound pick. */
-	Cvar_Get("cg_hitmarker", "0", CVAR_ARCHIVE);
+	Cvar_Get("cg_hitmarker", "1", CVAR_ARCHIVE); /* Changed in Omaha: on by default */
 	Cvar_Get("cg_hitmarker_mode", "server", CVAR_ARCHIVE);
-	Cvar_Get("cg_hitmarker_sound", "hitmarker", CVAR_ARCHIVE);
+	Cvar_Get("cg_hitmarker_sound", "classic", CVAR_ARCHIVE); /* Changed in Omaha */
 	/* Added in Omaha: remote prediction enable (0/2) + MaxLead ceiling. */
 	{
 		cvar_t *rpLead;
@@ -5834,12 +5853,12 @@ static void CL_UIR_RegisterSettingsCvars(void)
 	}
 	Cvar_Get("cg_rain", "1", CVAR_ARCHIVE);
 	Cvar_Get("cg_marks_add", "1", CVAR_ARCHIVE);
-	Cvar_Get("cg_shadows", "0", CVAR_ARCHIVE);
+	Cvar_Get("cg_shadows", "2", CVAR_ARCHIVE); /* Changed in Omaha */
 	Cvar_Get("cg_effectdetail", "1.0", CVAR_ARCHIVE);
 	Cvar_Get("vss_draw", "1", CVAR_ARCHIVE);
 	Cvar_Get("com_blood", "1", CVAR_ARCHIVE);
 
-	v = Cvar_Get("in_mouse", "1", CVAR_ARCHIVE);
+	v = Cvar_Get("in_mouse", "-1", CVAR_ARCHIVE); /* Changed in Omaha: raw input by default */
 	Cvar_CheckRange(v, -1, 1, qfalse);
 
 	v = Cvar_FindVar("r_lodscale");
@@ -5890,6 +5909,10 @@ void CL_UIR_RegisterCvars(void)
 	ui_paint_list = Cvar_Get("ui_paint_list", "1", CVAR_ARCHIVE);
 	ui_batch_tile = Cvar_Get("ui_batch_tile", "0", CVAR_ARCHIVE);
 	ui_bind_cache = Cvar_Get("ui_bind_cache", "1", CVAR_ARCHIVE);
+	/* Added in Omaha: skip unchanged UIR_Hud_SetCvar* format/Cvar_Set work. */
+	Cvar_Get("ui_hud_push_cache", "1", CVAR_ARCHIVE);
+	/* Added in Omaha: quantize HUD angles/fracs so retained paint can settle. */
+	Cvar_Get("ui_hud_anim_quantize", "1", CVAR_ARCHIVE);
 	/* Added in Omaha: skip redundant flush+scissor when clip unchanged. */
 	ui_clip_dedup = Cvar_Get("ui_clip_dedup", "1", CVAR_ARCHIVE);
 	/* Added in Omaha: tessellated mesh cache for GPU path fills/strokes. */

@@ -3579,16 +3579,18 @@ FS_Startup
 */
 static void FS_Startup(const char* gameName)
 {
-	cvar_t *fs_homepath = Cvar_Get("fs_homepath", "", CVAR_INIT|CVAR_PROTECTED);
-	const char *configPath = Sys_DefaultHomeConfigPath();
-	const char *dataPath = Sys_DefaultHomeDataPath();
-	const char *statePath = Sys_DefaultHomeStatePath();
+	/*
+	 * Changed in Omaha: default writable home to the install/binary directory
+	 * (portable zip / game-folder layout), not XDG or AppData. Override with
+	 * +set fs_homepath <path> on the command line.
+	 */
+	cvar_t *fs_homepath = Cvar_Get("fs_homepath", Sys_DefaultInstallPath(), CVAR_INIT|CVAR_PROTECTED);
+	const char *configPath = fs_homepath->string;
+	const char *dataPath = fs_homepath->string;
+	const char *statePath = fs_homepath->string;
 
-	if(*(fs_homepath)->string) {
-		// Setting fs_homepath manually overrides everything else
-		configPath = dataPath = statePath = fs_homepath->string;
-	} else if(!*configPath || !*dataPath || !*statePath) {
-		// #shouldneverhappen; just a sensible fallback
+	if (!configPath[0]) {
+		/* Fallback if install path somehow empty. */
 		configPath = dataPath = statePath = Sys_DefaultInstallPath();
 	}
 

@@ -24,6 +24,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "cl_uirender.h"
 #include "../qcommon/localization.h"
 #include "../uidesign/uid_profile.h"
+#include "cl_messages_host.h"
 
 #include "../server/server.h"
 
@@ -864,9 +865,6 @@ void View3D::DrawSubtitleOverlay(void)
 
     subAlpha = Cvar_Get("subAlpha", "0.5", 0);
 
-    setFont("facfont-20");
-    m_font->setColor(URed);
-
     for (i = 0; i < MAX_SUBTITLES; i++) {
         if (strcmp(oldStrings[i], subs[i]->string)) {
             fadeTime[i] = 2500 * ((strlen(subs[i]->string) / 68) + 1.f) + 1500;
@@ -893,6 +891,17 @@ void View3D::DrawSubtitleOverlay(void)
             }
         }
     }
+
+    /*
+     * Fixed in Omaha: modern UI (ui_legacy 0) skips the FAKK facfont subtitle
+     * overlay — same gate as centerprint (legacy HUD / ui_legacy 1 only).
+     */
+    if (!CL_UIR_UseLegacyHud()) {
+        return;
+    }
+
+    setFont("facfont-20");
+    m_font->setColor(URed);
 
     minX = m_screenframe.size.height - m_font->getHeight(getHighResScale()) * 10;
     maxX = ((m_frame.pos.x + m_frame.size.width) - (m_frame.pos.x + m_frame.size.width) * 0.2f) / getHighResScale()[0];

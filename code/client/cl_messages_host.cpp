@@ -126,6 +126,65 @@ static float UIR_Messages_ClampAlpha(float alpha)
 	return alpha;
 }
 
+/* Added in Omaha: content hash so Clear+Add+Notify every Draw does not thrash revision. */
+static uint64_t UIR_Messages_HashSlots(const uir_hud_message_slot_t *slots, int count)
+{
+	uint64_t h = 14695981039346656037ull;
+	int      i;
+
+	h ^= (uint64_t)count;
+	h *= 1099511628211ull;
+	for (i = 0; i < count; ++i) {
+		const uir_hud_message_slot_t *slot = &slots[i];
+		const char                   *p;
+		for (p = slot->text; *p; ++p) {
+			h ^= (uint64_t)(unsigned char)(*p);
+			h *= 1099511628211ull;
+		}
+		for (p = slot->color; *p; ++p) {
+			h ^= (uint64_t)(unsigned char)(*p);
+			h *= 1099511628211ull;
+		}
+		h ^= (uint64_t)slot->bold;
+		h *= 1099511628211ull;
+		h ^= slot->stableId;
+		h *= 1099511628211ull;
+	}
+	return h;
+}
+
+static uint64_t UIR_Messages_HashKillFeed(void)
+{
+	uint64_t h = 14695981039346656037ull;
+	int      i;
+
+	h ^= (uint64_t)g_hudKillFeedCount;
+	h *= 1099511628211ull;
+	for (i = 0; i < g_hudKillFeedCount; ++i) {
+		const uir_hud_kill_feed_slot_t *slot = &g_hudKillFeedSlots[i];
+		const char                     *p;
+		for (p = slot->text; *p; ++p) {
+			h ^= (uint64_t)(unsigned char)(*p);
+			h *= 1099511628211ull;
+		}
+		for (p = slot->killer; *p; ++p) {
+			h ^= (uint64_t)(unsigned char)(*p);
+			h *= 1099511628211ull;
+		}
+		for (p = slot->victim; *p; ++p) {
+			h ^= (uint64_t)(unsigned char)(*p);
+			h *= 1099511628211ull;
+		}
+		h ^= slot->stableId;
+		h *= 1099511628211ull;
+		h ^= (uint64_t)slot->headshot;
+		h *= 1099511628211ull;
+		h ^= (uint64_t)slot->friendly;
+		h *= 1099511628211ull;
+	}
+	return h;
+}
+
 static void UIR_Messages_AddRowToSlots(
 	uir_hud_message_slot_t *slots,
 	int maxRows,
@@ -196,6 +255,14 @@ void UIR_HudMessages_AddRow(const uir_hud_message_input_t *row)
 
 void UIR_HudMessages_NotifyChanged(void)
 {
+	static uint64_t s_publishedHash = 0;
+	const uint64_t  hash = UIR_Messages_HashSlots(g_hudMessageSlots, g_hudMessageCount);
+
+	/* Fixed in Omaha: DMBox republishes every Draw; only bump when content changes. */
+	if (hash == s_publishedHash) {
+		return;
+	}
+	s_publishedHash = hash;
 	g_hudMessageRevision++;
 }
 
@@ -236,6 +303,14 @@ void UIR_HudGameMessages_AddRow(const uir_hud_message_input_t *row)
 
 void UIR_HudGameMessages_NotifyChanged(void)
 {
+	static uint64_t s_publishedHash = 0;
+	const uint64_t  hash = UIR_Messages_HashSlots(g_hudGameMessageSlots, g_hudGameMessageCount);
+
+	/* Fixed in Omaha: GMBox republishes every Draw; only bump when content changes. */
+	if (hash == s_publishedHash) {
+		return;
+	}
+	s_publishedHash = hash;
 	g_hudGameMessageRevision++;
 }
 
@@ -274,6 +349,14 @@ void UIR_HudChat_AddRow(const uir_hud_message_input_t *row)
 
 void UIR_HudChat_NotifyChanged(void)
 {
+	static uint64_t s_publishedHash = 0;
+	const uint64_t  hash = UIR_Messages_HashSlots(g_hudChatSlots, g_hudChatCount);
+
+	/* Fixed in Omaha: chat republishes every Draw; only bump when content changes. */
+	if (hash == s_publishedHash) {
+		return;
+	}
+	s_publishedHash = hash;
 	g_hudChatRevision++;
 }
 
@@ -358,6 +441,13 @@ void UIR_HudKillFeed_AddRow(const uir_hud_kill_feed_input_t *row)
 
 void UIR_HudKillFeed_NotifyChanged(void)
 {
+	static uint64_t s_publishedHash = 0;
+	const uint64_t  hash = UIR_Messages_HashKillFeed();
+
+	if (hash == s_publishedHash) {
+		return;
+	}
+	s_publishedHash = hash;
 	g_hudKillFeedRevision++;
 }
 

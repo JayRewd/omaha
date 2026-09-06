@@ -163,7 +163,7 @@ void CG_RegisterCvars(void)
     pmove_fixed                   = cgi.Cvar_Get("pmove_fixed", "0", 0);
     pmove_msec                    = cgi.Cvar_Get("pmove_msec", "8", 0);
     cg_pmove_msec                 = cgi.Cvar_Get("cg_pmove_msec", "8", 0);
-    cg_shadows                    = cgi.Cvar_Get("cg_shadows", "0", CVAR_ARCHIVE);
+    cg_shadows                    = cgi.Cvar_Get("cg_shadows", "2", CVAR_ARCHIVE); /* Changed in Omaha */
     cg_shadowscount               = cgi.Cvar_Get("cg_shadowscount", "8", 0);
     cg_shadowdebug                = cgi.Cvar_Get("cg_shadowdebug", "0", 0);
     developer                     = cgi.Cvar_Get("developer", "0", 0);

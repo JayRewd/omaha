@@ -47,10 +47,50 @@ static void UIR_Objectives_EnsureCvars(void)
 
 static void UIR_Objectives_SyncCvars(void)
 {
+	static int   s_lastVisible = -1;
+	static int   s_lastCount = -1;
+	static float s_lastAlpha = -999.0f;
+	const int    visible = g_objectiveCount > 0 ? 1 : 0;
+
 	UIR_Objectives_EnsureCvars();
-	Cvar_Set("ui_om_hud_objectives_visible", g_objectiveCount > 0 ? "1" : "0");
+	/* Changed in Omaha: skip identical objective cvar pushes (alpha animates separately). */
+	if (visible == s_lastVisible && g_objectiveCount == s_lastCount &&
+		g_objectiveAlpha == s_lastAlpha) {
+		return;
+	}
+	s_lastVisible = visible;
+	s_lastCount = g_objectiveCount;
+	s_lastAlpha = g_objectiveAlpha;
+	Cvar_Set("ui_om_hud_objectives_visible", visible ? "1" : "0");
 	Cvar_SetValue("ui_om_hud_objectives_alpha", g_objectiveAlpha);
 	Cvar_SetValue("ui_om_hud_objectives_count", g_objectiveCount);
+}
+
+static uint64_t UIR_Objectives_ContentHash(void)
+{
+	/* FNV-1a over row text/flags only — alpha is a cvar, not collection content. */
+	uint64_t h = 14695981039346656037ull;
+	int      i;
+
+	h ^= (uint64_t)g_objectiveCount;
+	h *= 1099511628211ull;
+	for (i = 0; i < g_objectiveCount; ++i) {
+		const uir_objective_row_t *row = &g_objectiveRows[i];
+		const char                *p = row->text;
+		while (*p) {
+			h ^= (uint64_t)(unsigned char)(*p++);
+			h *= 1099511628211ull;
+		}
+		h ^= (uint64_t)row->hidden;
+		h *= 1099511628211ull;
+		h ^= (uint64_t)row->completed;
+		h *= 1099511628211ull;
+		h ^= (uint64_t)row->current;
+		h *= 1099511628211ull;
+		h ^= (uint64_t)row->highlight;
+		h *= 1099511628211ull;
+	}
+	return h;
 }
 
 void UIR_Objectives_Clear(void)
@@ -79,7 +119,15 @@ void UIR_Objectives_AddRow(const uir_objective_row_t *row)
 
 void UIR_Objectives_NotifyChanged(void)
 {
+	static uint64_t s_publishedHash = 0;
+	const uint64_t  hash = UIR_Objectives_ContentHash();
+
 	UIR_Objectives_SyncCvars();
+	/* Fixed in Omaha: CG sync used to bump revision every frame with identical rows. */
+	if (hash == s_publishedHash) {
+		return;
+	}
+	s_publishedHash = hash;
 	g_objectiveRevision++;
 }
 

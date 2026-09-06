@@ -41,12 +41,14 @@
 			<item value="500" label="500"/>
 		</source>
 
-		<source id="color-depth" default="32">
+		<source id="color-depth" default="0">
+			<item value="0" label="Default"/>
 			<item value="16" label="16-bit"/>
 			<item value="32" label="32-bit"/>
 		</source>
 
-		<source id="texture-depth" default="32">
+		<source id="texture-depth" default="0">
+			<item value="0" label="Default"/>
 			<item value="16" label="16-bit"/>
 			<item value="32" label="32-bit"/>
 		</source>
@@ -89,7 +91,7 @@
 			<item value="GL_LINEAR_MIPMAP_LINEAR" label="Trilinear"/>
 		</source>
 
-		<source id="shadows" default="1">
+		<source id="shadows" default="2">
 			<item value="0" label="Off"/>
 			<item value="1" label="Mode 1"/>
 			<item value="2" label="Mode 2"/>

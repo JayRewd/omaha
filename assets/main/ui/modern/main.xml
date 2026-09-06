@@ -220,10 +220,8 @@
 									<use template="settings-cyclic-row" label="Max FPS" bind="cvar:com_maxfps" source="max-fps" commit="change"/>
 									<use template="settings-on-off-row" label="Draw FPS" bind="cvar:fps" commit="change"/>
 									<use template="settings-slider-row" label="Gamma" bind="cvar:r_gamma" min="0.5" max="3" step="0.05" commit="change"/>
-									<use template="settings-on-off-row" label="Color Depth" bind="cvar:r_colorbits" commit="apply"
-									     off-label="16-bit" on-label="32-bit" off-value="16" on-value="32"/>
-									<use template="settings-on-off-row" label="Texture Color Depth" bind="cvar:r_texturebits" commit="apply"
-									     off-label="16-bit" on-label="32-bit" off-value="16" on-value="32"/>
+									<use template="settings-cyclic-row" label="Color Depth" bind="cvar:r_colorbits" source="color-depth" commit="apply"/>
+									<use template="settings-cyclic-row" label="Texture Color Depth" bind="cvar:r_texturebits" source="texture-depth" commit="apply"/>
 									<use template="settings-slider-row" label="UI Scale" bind="cvar:ui_scale" min="0.25" max="2" step="0.05" commit="submit"/>
 									<use template="settings-cyclic-row" label="Menu Backdrop" bind="cvar:ui_om_menu_map_view" source="menu-map-views" commit="change"/>
 								</container>
@@ -235,7 +233,6 @@
 									<use template="settings-cyclic-row" label="Model / World LOD" bind="cvar:r_lodscale" source="lod-scale" commit="change"/>
 									<use template="settings-cyclic-row" label="Shadows" bind="cvar:cg_shadows" source="shadows" commit="change"/>
 									<use template="settings-on-off-row" label="Real Dynamic Lighting" bind="cvar:r_fastentlight" commit="change"/>
-									<use template="settings-on-off-row" label="Full Entity Lighting" bind="cvar:r_entlightmap" commit="change"/>
 									<use template="settings-on-off-row" label="Flares" bind="cvar:r_flares" commit="change"/>
 									<use template="settings-on-off-row" label="Volumetric Smoke" bind="cvar:vss_draw" commit="change"/>
 									<use template="settings-cyclic-row" label="Effect Detail" bind="cvar:cg_effectdetail" source="effect-detail" commit="change"/>
@@ -253,6 +250,8 @@
 								<use template="settings-slider-row" label="Master Volume" bind="cvar:s_volume" min="0" max="100" step="1" commit="change" value-type="percent"
 								     visible="{cvar.s_initsound != 0}"/>
 								<use template="settings-slider-row" label="Music volume" bind="cvar:s_musicvolume" min="0" max="100" step="1" commit="change" value-type="percent"
+								     visible="{cvar.s_initsound != 0}"/>
+								<use template="settings-slider-row" label="Ambient volume" bind="cvar:s_ambientvolume" min="0" max="100" step="1" commit="change" value-type="percent"
 								     visible="{cvar.s_initsound != 0}"/>
 								<use template="settings-cyclic-row" label="Speaker Setup" bind="cvar:s_speaker_type" source="speaker-setup" commit="change"
 								     visible="{cvar.s_initsound != 0}"/>

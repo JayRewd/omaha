@@ -74,11 +74,6 @@ enum {
 	UID_BIND_F_SELECT = 1u << 9
 };
 
-void MarkDirty(uid_document_t *doc, uid_dirty_flags_t flags)
-{
-	UID_MarkDirty(doc, flags, UID_INVALID_NODE_ID, nullptr);
-}
-
 static bool IsTranslateProp(const std::string &name)
 {
 	return name == "translate-x" || name == "translate-y";
@@ -155,9 +150,11 @@ static void MarkDirtyAfterPropChange(
 )
 {
 	uid_dirty_flags_t dirty = UID_DIRTY_PAINT;
+	/* Changed in Omaha debug: empty prop names were collapsing into "(null)" in reason ranks. */
+	const char *reason = (!propName.empty()) ? propName.c_str() : "prop_empty";
 	if (IsTranslateProp(propName)) {
 		QueueTranslatePropChange(doc, nodeId, propName, oldValue, newValue);
-		UID_MarkDirty(doc, dirty, nodeId, propName.c_str());
+		UID_MarkDirty(doc, dirty, nodeId, reason);
 		return;
 	}
 	for (size_t i = 0; i < layoutPropCount; ++i) {
@@ -169,7 +166,7 @@ static void MarkDirtyAfterPropChange(
 	if (strokeLayoutExtra && (propName == "stroke" || propName == "stroke-width")) {
 		dirty = static_cast<uid_dirty_flags_t>(dirty | UID_DIRTY_LAYOUT);
 	}
-	UID_MarkDirty(doc, dirty, nodeId, propName.c_str());
+	UID_MarkDirty(doc, dirty, nodeId, reason);
 }
 
 bool TextSizeMayChange(uid_node_kind_t kind)

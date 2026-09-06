@@ -3824,7 +3824,7 @@ void CL_Init( void ) {
 
 	Cbuf_Execute (0);
 
-	// Added in Omaha: archived calibration knobs may still be seta'd in omconfig;
+	// Added in Omaha: archived calibration knobs may still be seta'd in omahaconfig;
 	// drop them so only enable + MaxLead remain console-visible.
 	CL_PurgeObsoleteRemotePredictionCvars();
 

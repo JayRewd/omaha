@@ -32,24 +32,17 @@ The argument `+set com_target_demo 1` must be appended to command-line to play t
 
 ## User data location
 
-The location of user-writable data, like the console logfile, saves and configuration files can be found in different locations depending on the platform:
+By default, Project: Omaha stores user-writable data (configs, screenshots, logs,
+demos) in the **game install directory** (next to the `openmohaa` binary) — the
+same portable layout as retail MOH:AA and zip unpacks. Subfolders match the
+active game: `main`, `mainta`, or `maintt`.
 
-- `%APPDATA%\openmohaa` on Windows
-- `~/.openmohaa` on Linux
-- `~/Library/Application Support/openmohaa` on macOS
+Override with a command-line `fs_homepath` if you want a separate writable tree
+(for example a dedicated server data dir, or a classic XDG/AppData path):
 
-There will be one or more subdirectories like in the game installation folder, they match the game being used: either base game `main` or expansions `mainta`/`maintt`.
-
-This is by design since ioquake3 and has two advantages:
-- On a multi-user system, each user will have their own configuration file
-- It doesn't overwrite the existing MOHAA configuration in the MOHAA installation directory.
-
-If necessary, the location of user-writable data can be changed manually by setting the `fs_homepath` variable in the command-line argument. This is useful when running a dedicated server that can only use the game directory to store/read data. The value can be a relative path (relative to the current working directory) or an absolute path. Example:
-- `+set fs_homepath Z:\openmohaa_data` data will be written inside the fully qualified path `Z:\openmohaa_data`
-- `+set fs_homepath homedata` will use the subfolder `homedata` in the process current working directory to write data (will be created automatically)
-- `+set fs_homepath .` not recommended, will write data inside the process current working directory
-
-The game directory is intended to be read-only, which is the reason why the home path exists. This prevents existing files in the game directory from being accidentally overwritten.
+- `+set fs_homepath Z:\omaha_data` — absolute path
+- `+set fs_homepath homedata` — subdirectory under the process working directory
+- `+set fs_homepath %APPDATA%\openmohaa` / `+set fs_homepath ~/.local/share/openmohaa` — OS user profile (optional)
 
 Note that the configuration file isn't created nor written automatically on a dedicated server (**omohaaded**).
 

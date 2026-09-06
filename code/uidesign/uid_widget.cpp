@@ -1846,45 +1846,45 @@ void PaintChromeNode(
 	}
 
 	bool shapeChildClip = false;
-	uid_rect_t clipGeom{};
-	float clipViewW = 0.0f;
-	float clipViewH = 0.0f;
-	float clipRot = 0.0f;
-	std::vector<std::string> clipPaths;
-	std::vector<const char *> pathPtrs;
-	auto beginChildShapeClip = [&]() -> bool {
-		if (!backend->beginShapeClip || clipPaths.empty()) {
-			return false;
-		}
-		pathPtrs.clear();
-		pathPtrs.reserve(clipPaths.size());
-		for (const std::string &d : clipPaths) {
-			pathPtrs.push_back(d.c_str());
-		}
-		return backend->beginShapeClip(
-			clipGeom.x,
-			clipGeom.y,
-			clipGeom.w,
-			clipGeom.h,
-			pathPtrs.data(),
-			static_cast<int>(pathPtrs.size()),
-			clipViewW,
-			clipViewH,
-			clipRot
-		);
-	};
 	if (backend->beginShapeClip && backend->endShapeClip &&
 	    (node->kind == UID_NODE_CONTAINER || node->kind == UID_NODE_BUTTON || node->kind == UID_NODE_FOREACH)) {
-		if (ResolveShapeChildClip(doc, id, backend, &clipGeom, &clipViewW, &clipViewH, &clipRot, &clipPaths)) {
-			shapeChildClip = beginChildShapeClip();
+		/* Changed in Omaha: allocate clip path vectors only when shape-clip is attempted. */
+		uid_rect_t clipGeom{};
+		float clipViewW = 0.0f;
+		float clipViewH = 0.0f;
+		float clipRot = 0.0f;
+		std::vector<std::string> clipPaths;
+		std::vector<const char *> pathPtrs;
+		if (ResolveShapeChildClip(doc, id, backend, &clipGeom, &clipViewW, &clipViewH, &clipRot, &clipPaths)
+			&& !clipPaths.empty() && backend->beginShapeClip) {
+			pathPtrs.reserve(clipPaths.size());
+			for (const std::string &d : clipPaths) {
+				pathPtrs.push_back(d.c_str());
+			}
+			shapeChildClip = backend->beginShapeClip(
+				clipGeom.x,
+				clipGeom.y,
+				clipGeom.w,
+				clipGeom.h,
+				pathPtrs.data(),
+				static_cast<int>(pathPtrs.size()),
+				clipViewW,
+				clipViewH,
+				clipRot
+			);
 		}
 	}
 
-	std::vector<uid_node_id_t> scrollbarChildren;
+	/* Changed in Omaha: allocate scrollbar child list only when a scrollbar is present. */
+	std::vector<uid_node_id_t> scrollbarStorage;
+	std::vector<uid_node_id_t> *scrollbarChildren = nullptr;
 	for (uid_node_id_t c : node->children) {
 		const uid_node_def_t *child = UID_GetNode(doc, c);
 		if (child && child->kind == UID_NODE_SCROLLBAR) {
-			scrollbarChildren.push_back(c);
+			if (!scrollbarChildren) {
+				scrollbarChildren = &scrollbarStorage;
+			}
+			scrollbarChildren->push_back(c);
 		} else {
 			PaintChromeNode(doc, c, backend, true, effectiveOpacity);
 		}
@@ -1898,12 +1898,14 @@ void PaintChromeNode(
 		imageMaskActive = false;
 	}
 
-	for (uid_node_id_t c : scrollbarChildren) {
-		PopClip(backend);
-		PushClip(backend, UID_ScrollbarChromeClip(node, st));
-		PaintChromeNode(doc, c, backend, true, effectiveOpacity);
-		PopClip(backend);
-		PushClip(backend, st->effectiveClip);
+	if (scrollbarChildren) {
+		for (uid_node_id_t c : *scrollbarChildren) {
+			PopClip(backend);
+			PushClip(backend, UID_ScrollbarChromeClip(node, st));
+			PaintChromeNode(doc, c, backend, true, effectiveOpacity);
+			PopClip(backend);
+			PushClip(backend, st->effectiveClip);
+		}
 	}
 
 	if (node->kind == UID_NODE_CONTAINER) {

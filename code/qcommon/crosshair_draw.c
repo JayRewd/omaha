@@ -120,15 +120,15 @@ void XHair_ReadConfigFromCvars(xhair_config_t *cfg)
 
 	modeStr = Cvar_VariableString("cg_crosshair_mode");
 	cfg->mode = XHair_ParseMode(modeStr);
-	cfg->length = xhair_cvar_float("cg_crosshairsize", 5.0f);
-	cfg->gap = xhair_cvar_float("cg_crosshairgap", -1.0f);
-	cfg->thickness = xhair_cvar_float("cg_crosshairthickness", 1.0f);
+	cfg->length = xhair_cvar_float("cg_crosshairsize", 7.0f);
+	cfg->gap = xhair_cvar_float("cg_crosshairgap", 4.0f);
+	cfg->thickness = xhair_cvar_float("cg_crosshairthickness", 2.5f);
 	cfg->solidSize = xhair_cvar_float("cg_crosshair_solid_size", 4.0f);
 	cfg->dotRadius = xhair_cvar_float("cg_crosshair_dot_size", 2.0f);
 	cfg->centerDot = xhair_cvar_bool("cg_crosshairdot", qfalse);
 	cfg->tStyle = xhair_cvar_bool("cg_crosshair_t", qfalse);
 	cfg->drawOutline = xhair_cvar_bool("cg_crosshair_drawoutline", qtrue);
-	cfg->outline = xhair_cvar_float("cg_crosshair_outlinethickness", 1.0f);
+	cfg->outline = xhair_cvar_float("cg_crosshair_outlinethickness", 1.5f);
 	cfg->dynamicEnabled = xhair_cvar_bool("cg_crosshair_dynamic", qfalse);
 	cfg->splitDist = xhair_cvar_float("cg_crosshair_dynamic_splitdist", 7.0f);
 	cfg->splitRatio = xhair_cvar_float("cg_crosshair_dynamic_maxdist_splitratio", 0.35f);
@@ -146,9 +146,9 @@ void XHair_ReadConfigFromCvars(xhair_config_t *cfg)
 		colorPreset,
 		(float)xhair_cvar_int("cg_crosshaircolor_r", 255),
 		(float)xhair_cvar_int("cg_crosshaircolor_g", 255),
-		(float)xhair_cvar_int("cg_crosshaircolor_b", 255),
+		(float)xhair_cvar_int("cg_crosshaircolor_b", 0),
 		xhair_cvar_bool("cg_crosshairusealpha", qtrue),
-		xhair_cvar_int("cg_crosshairalpha", 255),
+		xhair_cvar_int("cg_crosshairalpha", 220),
 		&cfg->r,
 		&cfg->g,
 		&cfg->b,
@@ -603,26 +603,26 @@ typedef struct {
 } xhair_alias_def_t;
 
 static const xhair_alias_def_t g_xhairAliasDefs[] = {
-	{"cg_crosshairsize", "cl_crosshairsize", "5"},
-	{"cg_crosshairgap", "cl_crosshairgap", "-1"},
-	{"cg_crosshairthickness", "cl_crosshairthickness", "1"},
+	{"cg_crosshairsize", "cl_crosshairsize", "7"},
+	{"cg_crosshairgap", "cl_crosshairgap", "4"},
+	{"cg_crosshairthickness", "cl_crosshairthickness", "2.5"},
 	{"cg_crosshaircolor", "cl_crosshaircolor", "5"},
 	{"cg_crosshaircolor_r", "cl_crosshaircolor_r", "255"},
 	{"cg_crosshaircolor_g", "cl_crosshaircolor_g", "255"},
-	{"cg_crosshaircolor_b", "cl_crosshaircolor_b", "255"},
-	{"cg_crosshairalpha", "cl_crosshairalpha", "255"},
+	{"cg_crosshaircolor_b", "cl_crosshaircolor_b", "0"},
+	{"cg_crosshairalpha", "cl_crosshairalpha", "220"},
 	{"cg_crosshairusealpha", "cl_crosshairusealpha", "1"},
 	{"cg_crosshairdot", "cl_crosshairdot", "0"},
 	{"cg_crosshair_t", "cl_crosshair_t", "0"},
 	{"cg_crosshair_drawoutline", "cl_crosshair_drawoutline", "1"},
-	{"cg_crosshair_outlinethickness", "cl_crosshair_outlinethickness", "1"},
+	{"cg_crosshair_outlinethickness", "cl_crosshair_outlinethickness", "1.5"},
 	{"cg_crosshairgap_useweaponvalue", "cl_crosshairgap_useweaponvalue", "0"},
 	{"cg_crosshair_recoil", "cl_crosshair_recoil", "0"},
 	{"cg_crosshair_dynamic_splitdist", "cl_crosshair_dynamic_splitdist", "7"},
 	{"cg_crosshair_dynamic_maxdist_splitratio", "cl_crosshair_dynamic_maxdist_splitratio", "0.35"},
 	{"cg_crosshair_dynamic_splitalpha_innermod", "cl_crosshair_dynamic_splitalpha_innermod", "1"},
 	{"cg_crosshair_friendly_warning", "cl_crosshair_friendly_warning", "1"},
-	{"cg_crosshair_sniper_thickness", "cl_crosshair_sniper_thickness", "3"},
+	{"cg_crosshair_sniper_thickness", "cl_crosshair_sniper_thickness", "2.5"},
 	{"cg_crosshair_sniper_gap", "cl_crosshair_sniper_gap", "0"},
 	{"cg_crosshair_sniper_size", "cl_crosshair_sniper_size", "5"},
 	{"cg_crosshair_sniper_t", "cl_crosshair_sniper_t", "0"},
@@ -642,20 +642,20 @@ void XHair_RegisterClientCvars(void)
 	int i;
 
 	Cvar_Get("cg_crosshair_mode", "open", flags);
-	Cvar_Get("cg_crosshairsize", "5", flags);
-	Cvar_Get("cg_crosshairgap", "-1", flags);
-	Cvar_Get("cg_crosshairthickness", "1", flags);
+	Cvar_Get("cg_crosshairsize", "7", flags); /* Changed in Omaha */
+	Cvar_Get("cg_crosshairgap", "4", flags); /* Changed in Omaha */
+	Cvar_Get("cg_crosshairthickness", "2.5", flags); /* Changed in Omaha */
 	/* Preset 5 = custom RGB from sliders (no preset picker in UI). */
 	Cvar_Get("cg_crosshaircolor", "5", flags);
 	Cvar_Get("cg_crosshaircolor_r", "255", flags);
 	Cvar_Get("cg_crosshaircolor_g", "255", flags);
-	Cvar_Get("cg_crosshaircolor_b", "255", flags);
-	Cvar_Get("cg_crosshairalpha", "255", flags);
+	Cvar_Get("cg_crosshaircolor_b", "0", flags); /* Changed in Omaha: yellow */
+	Cvar_Get("cg_crosshairalpha", "220", flags); /* Changed in Omaha */
 	Cvar_Get("cg_crosshairusealpha", "1", flags);
 	Cvar_Get("cg_crosshairdot", "0", flags);
 	Cvar_Get("cg_crosshair_t", "0", flags);
 	Cvar_Get("cg_crosshair_drawoutline", "1", flags);
-	Cvar_Get("cg_crosshair_outlinethickness", "1", flags);
+	Cvar_Get("cg_crosshair_outlinethickness", "1.5", flags); /* Changed in Omaha */
 	Cvar_Get("cg_crosshairgap_useweaponvalue", "0", flags);
 	Cvar_Get("cg_crosshair_recoil", "0", flags);
 	Cvar_Get("cg_crosshair_dynamic_splitdist", "7", flags);
@@ -663,7 +663,7 @@ void XHair_RegisterClientCvars(void)
 	Cvar_Get("cg_crosshair_dynamic_splitalpha_innermod", "1", flags);
 	Cvar_Get("cg_crosshair_friendly_warning", "1", flags);
 	/* Added in Omaha: modern sniper zoom open crosshair (UI px). */
-	Cvar_Get("cg_crosshair_sniper_thickness", "3", flags);
+	Cvar_Get("cg_crosshair_sniper_thickness", "2.5", flags); /* Changed in Omaha */
 	Cvar_Get("cg_crosshair_sniper_gap", "0", flags);
 	Cvar_Get("cg_crosshair_sniper_size", "5", flags);
 	Cvar_Get("cg_crosshair_sniper_t", "0", flags);

@@ -5823,7 +5823,7 @@ void CL_InitializeUI(void)
     ui_minicon         = Cvar_Get("ui_minicon", "0", 1);
     ui_gmbox           = Cvar_Get("ui_gmbox", "1", 1);
     ui_consoleposition = Cvar_Get("ui_consoleposition", "", 1);
-    ui_console         = Cvar_Get("ui_console", "0", 1);
+    ui_console         = Cvar_Get("ui_console", "1", 1);
     ui_crosshair       = Cvar_Get("ui_crosshair", "1", 1);
     ui_weaponsbar      = Cvar_Get("ui_weaponsbar", "1", 1);
     ui_weaponsbartime  = Cvar_Get("ui_weaponsbartime", "2500", 1);
@@ -5869,7 +5869,7 @@ void CL_InitializeUI(void)
     ui_legalscreen_fadeout = Cvar_Get("ui_legalscreen_fadeout", "1", 0);
     ui_legalscreen_stay    = Cvar_Get("ui_legalscreen_stay", "3", 0);
     cl_greenfps            = Cvar_Get("cl_greenfps", "0", 1);
-    cl_playintro           = Cvar_Get("cl_playintro", "1", 0);
+    cl_playintro           = Cvar_Get("cl_playintro", "0", CVAR_ARCHIVE); /* Changed in Omaha: skip intro videos by default */
     cl_movieaudio          = Cvar_Get("cl_movieaudio", "1", 0);
     Cvar_Get("ui_startmap", "", 1);
     Cvar_Get("dlg_badsave", "This save game is invalid", 0);

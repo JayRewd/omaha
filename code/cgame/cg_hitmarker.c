@@ -50,9 +50,9 @@ void CG_Hitmarker_RegisterCvars(void)
 {
 	const int flags = CVAR_ARCHIVE;
 
-	cg_hitmarker = cgi.Cvar_Get("cg_hitmarker", "0", flags);
+	cg_hitmarker = cgi.Cvar_Get("cg_hitmarker", "1", flags); /* Changed in Omaha */
 	cg_hitmarker_mode = cgi.Cvar_Get("cg_hitmarker_mode", "server", flags);
-	cg_hitmarker_sound = cgi.Cvar_Get("cg_hitmarker_sound", "hitmarker", flags);
+	cg_hitmarker_sound = cgi.Cvar_Get("cg_hitmarker_sound", "classic", flags); /* Changed in Omaha */
 
 #if !HITMARKER_CLIENT_MODE_ENABLED
 	if (cg_hitmarker_mode && !Q_stricmp(cg_hitmarker_mode->string, "client")) {

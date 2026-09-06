@@ -72,11 +72,6 @@ struct UidProfScope {
 	UidProfScope &operator=(const UidProfScope &) = delete;
 };
 
-void MarkDirty(uid_document_t *doc, uid_dirty_flags_t flags)
-{
-	UID_MarkDirty(doc, flags, UID_INVALID_NODE_ID, nullptr);
-}
-
 std::vector<uid_node_id_t> BuildParentMap(const uid_document_t *doc)
 {
 	std::vector<uid_node_id_t> parent(doc ? doc->nodes.size() : 0, UID_INVALID_NODE_ID);
@@ -881,10 +876,10 @@ bool RefreshCollectionScope(uid_document_t *doc, uid_node_id_t scopeId, const ui
 	q.outRevision = &revision;
 
 	/*
-	 * Added in Omaha: peek revision/total with max=0 so hosts that honor out-only
-	 * queries (scoreboard, browser, vote, …) avoid copying every row when unchanged.
+	 * Added in Omaha: always peek revision/total (including empty collections) so
+	 * hosts that honor out-only queries avoid a full copy when unchanged.
 	 */
-	if (!st->collectionItems.empty()) {
+	{
 		const int peek = backend->queryCollectionItems(&q, nullptr, 0);
 		if (peek >= 0 && revision == st->collectionRevision && total == st->collectionItemCount) {
 			st->collectionRefreshFrame = doc->syncFrameCounter;
@@ -920,15 +915,23 @@ bool RefreshCollectionScope(uid_document_t *doc, uid_node_id_t scopeId, const ui
 			}
 		}
 		if (sameKeys) {
+			/* Changed in Omaha debug: classify whether host revision thrash has real content change. */
+			bool fieldsChanged = false;
 			for (int i = 0; i < n; ++i) {
 				uid_collection_entry_t &item = st->collectionItems[static_cast<size_t>(i)];
-				item.value = hostItems[static_cast<size_t>(i)].value
+				const char *newValue = hostItems[static_cast<size_t>(i)].value
 					? hostItems[static_cast<size_t>(i)].value
 					: "";
-				item.label = hostItems[static_cast<size_t>(i)].label
+				const char *newLabelRaw = hostItems[static_cast<size_t>(i)].label
 					? hostItems[static_cast<size_t>(i)].label
-					: item.value;
-				item.fields.clear();
+					: nullptr;
+				const std::string newLabel = newLabelRaw ? newLabelRaw : newValue;
+				if (item.value != newValue || item.label != newLabel) {
+					fieldsChanged = true;
+				}
+				item.value = newValue;
+				item.label = newLabel;
+				std::map<std::string, std::string> newFields;
 				for (int f = 0; f < hostItems[static_cast<size_t>(i)].nfields; ++f) {
 					const char *name = hostItems[static_cast<size_t>(i)].fieldNames
 						? hostItems[static_cast<size_t>(i)].fieldNames[f]
@@ -937,13 +940,25 @@ bool RefreshCollectionScope(uid_document_t *doc, uid_node_id_t scopeId, const ui
 						? hostItems[static_cast<size_t>(i)].fieldValues[f]
 						: nullptr;
 					if (name && name[0]) {
-						item.fields[name] = val ? val : "";
+						newFields[name] = val ? val : "";
 					}
 				}
+				if (newFields != item.fields) {
+					fieldsChanged = true;
+				}
+				item.fields = std::move(newFields);
 			}
 			st->collectionRevision = revision;
 			st->collectionRefreshFrame = doc->syncFrameCounter;
-			MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_PAINT | UID_DIRTY_BINDING));
+			/* Fixed in Omaha: identical same-keys refresh must not force chrome repaint. */
+			if (fieldsChanged) {
+				UID_MarkDirty(
+					doc,
+					static_cast<uid_dirty_flags_t>(UID_DIRTY_PAINT | UID_DIRTY_BINDING),
+					scopeId,
+					"collection_fields_ch"
+				);
+			}
 			return false;
 		}
 	}
@@ -1273,10 +1288,9 @@ bool ApplyForeachLifetimeOpacity(
 	if (!doc || !fn || !fnSt || foreachId < 0 || static_cast<size_t>(foreachId) >= doc->nodes.size()) {
 		return false;
 	}
-	bool anyFading = false;
+	bool anyChanged = false;
 	const int lifetimeMs = fn->foreachLifetimeMs;
 	const int fadeMs = fn->foreachFadeDurationMs;
-	const int fadeStart = lifetimeMs - std::min(fadeMs, lifetimeMs);
 	uid_node_def_t *foreachNode = &doc->nodes[static_cast<size_t>(foreachId)];
 	for (uid_node_id_t childId : foreachNode->children) {
 		if (childId < 0 || static_cast<size_t>(childId) >= doc->nodes.size()) {
@@ -1292,13 +1306,25 @@ bool ApplyForeachLifetimeOpacity(
 			const int appeared = (it != fnSt->foreachAppearAtMs.end()) ? it->second : nowMs;
 			const int age = nowMs - appeared;
 			alpha = LifetimeAlphaFromAge(age, lifetimeMs, fadeMs);
-			if (fadeMs > 0 && age >= fadeStart && age < lifetimeMs) {
-				anyFading = true;
+			/*
+			 * Fixed in Omaha Stage 4b: quantize fade to 32 steps so retained paint
+			 * is not invalidated every frame (and every ms) during a multi-second fade.
+			 */
+			if (fadeMs > 0 && alpha > 0.0f && alpha < 1.0f) {
+				alpha = std::round(alpha * 32.0f) / 32.0f;
+				if (alpha < 0.0f) {
+					alpha = 0.0f;
+				} else if (alpha > 1.0f) {
+					alpha = 1.0f;
+				}
 			}
 		}
-		wrapSt.lifetimeOpacityMul = alpha;
+		if (wrapSt.lifetimeOpacityMul != alpha) {
+			wrapSt.lifetimeOpacityMul = alpha;
+			anyChanged = true;
+		}
 	}
-	return anyFading;
+	return anyChanged;
 }
 
 uint64_t ForeachExpandSig(
@@ -1590,9 +1616,9 @@ void ExpandForeach(uid_document_t *doc, uid_node_id_t foreachId, const uid_backe
 		if (fn->hasForeachLifetime && !fn->children.empty()) {
 			/* Stage 6: skip full opacity walk when no row is in a fade window. */
 			if (ForeachLifetimeNeedsOpacityPass(fn, fnSt, scopeSt->collectionItems, nowMs, doc, foreachId)) {
-				const bool fading =
+				const bool opacityChanged =
 					ApplyForeachLifetimeOpacity(doc, foreachId, fn, fnSt, scopeSt->collectionItems, nowMs);
-				if (fading) {
+				if (opacityChanged) {
 					UID_MarkDirty(doc, UID_DIRTY_PAINT, foreachId, "foreach_fade");
 				}
 			}

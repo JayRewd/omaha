@@ -8,17 +8,15 @@ If you want to use containers, see [Creating a Docker image](../02-running/04-do
 
 ### Home directory
 
-OpenMoHAA uses a dedicated home directory by default for user data and mods. This behavior can be customized:
+By default, user data and mods are stored in the **game install directory** (next to the binary). Override with `fs_homepath` on the command line:
 
-- `set fs_homepath Z:\openmohaa_data`: User data will be read and written in the directory located in `Z:\openmohaa_data`
-- `set fs_homepath homedata`: The subdirectory `homedata` in the game directory will be used to read and store user data
-- `set fs_homepath .`: Not recommended, the game directory will be used for storing user data, just like the original MOH:AA
+- `+set fs_homepath Z:\omaha_data`: read/write under that absolute path
+- `+set fs_homepath homedata`: subdirectory under the process working directory
+- `+set fs_homepath %APPDATA%\openmohaa` or `~/.local/share/openmohaa`: optional OS user-profile layout
 
-#### Default paths by OS:
+#### Default:
 
-- Windows: `%APPDATA%\openmohaa`
-- Linux: `~/.openmohaa`
-- macOS: `~/Library/Application Support/openmohaa`
+- Install / binary directory (portable; same for Windows, Linux, and macOS zip layouts)
 
 ### Configure the network components
 

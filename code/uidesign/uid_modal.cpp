@@ -73,9 +73,8 @@ bool ReadCvarString(const uid_backend_t *backend, const char *name, std::string 
 
 void MarkDirty(uid_document_t *doc, uid_dirty_flags_t flags)
 {
-	if (doc) {
-		doc->dirty = static_cast<uid_dirty_flags_t>(doc->dirty | flags);
-	}
+	/* Changed in Omaha debug: route through UID_MarkDirty so reasons/invalidate are tracked. */
+	UID_MarkDirty(doc, flags, UID_INVALID_NODE_ID, "null_modal");
 }
 
 void CollectModalButtons(const uid_document_t *doc, uid_node_id_t id, std::vector<uid_node_id_t> *out)

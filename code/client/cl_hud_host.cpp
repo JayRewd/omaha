@@ -88,10 +88,137 @@ static const char *kWeaponSlotClassNames[] = {
 	"heavy",
 };
 
+/* Added in Omaha: skip unchanged HUD cvar pushes (snprintf + Cvar_Set). Gate: ui_hud_push_cache. */
+static cvar_t *ui_hud_push_cache;
+/* Added in Omaha: quantize animated HUD angles/fracs so paint dirty settles. Gate: ui_hud_anim_quantize. */
+static cvar_t *ui_hud_anim_quantize;
+
+enum { UIR_HUD_PUSH_CACHE_SLOTS = 96 };
+
+struct UirHudPushStrSlot {
+	const char *name;
+	char        value[MAX_CVAR_VALUE_STRING];
+	qboolean    valid;
+};
+
+struct UirHudPushIntSlot {
+	const char *name;
+	int         value;
+	qboolean    valid;
+};
+
+struct UirHudPushFloatSlot {
+	const char *name;
+	float       value;
+	qboolean    valid;
+};
+
+static UirHudPushStrSlot   g_hudPushStr[UIR_HUD_PUSH_CACHE_SLOTS];
+static UirHudPushIntSlot   g_hudPushInt[UIR_HUD_PUSH_CACHE_SLOTS];
+static UirHudPushFloatSlot g_hudPushFloat[UIR_HUD_PUSH_CACHE_SLOTS];
+static int                 g_hudPushStrUsed;
+static int                 g_hudPushIntUsed;
+static int                 g_hudPushFloatUsed;
+
+static qboolean UIR_Hud_PushCacheEnabled(void)
+{
+	if (!ui_hud_push_cache) {
+		ui_hud_push_cache = Cvar_Get("ui_hud_push_cache", "1", CVAR_ARCHIVE);
+	}
+	return ui_hud_push_cache->integer != 0 ? qtrue : qfalse;
+}
+
+static qboolean UIR_Hud_AnimQuantizeEnabled(void)
+{
+	if (!ui_hud_anim_quantize) {
+		ui_hud_anim_quantize = Cvar_Get("ui_hud_anim_quantize", "1", CVAR_ARCHIVE);
+	}
+	return ui_hud_anim_quantize->integer != 0 ? qtrue : qfalse;
+}
+
+/* Round angles to 0.5 deg so compass/spinner cvars stop bumping every frame while nearly still. */
+static float UIR_Hud_QuantizeAngleDeg(float deg)
+{
+	if (!UIR_Hud_AnimQuantizeEnabled()) {
+		return deg;
+	}
+	return floorf(deg * 2.0f + (deg >= 0.0f ? 0.5f : -0.5f)) * 0.5f;
+}
+
+/* Round fracs to 0.02 steps (damage alpha fade etc.). */
+static float UIR_Hud_QuantizeFrac(float value)
+{
+	if (!UIR_Hud_AnimQuantizeEnabled()) {
+		return value;
+	}
+	return floorf(value * 50.0f + 0.5f) / 50.0f;
+}
+
+static UirHudPushStrSlot *UIR_Hud_FindStrSlot(const char *name, qboolean create)
+{
+	for (int i = 0; i < g_hudPushStrUsed; ++i) {
+		if (g_hudPushStr[i].name == name) {
+			return &g_hudPushStr[i];
+		}
+	}
+	if (!create || g_hudPushStrUsed >= UIR_HUD_PUSH_CACHE_SLOTS) {
+		return nullptr;
+	}
+	UirHudPushStrSlot *s = &g_hudPushStr[g_hudPushStrUsed++];
+	s->name = name;
+	s->value[0] = '\0';
+	s->valid = qfalse;
+	return s;
+}
+
+static UirHudPushIntSlot *UIR_Hud_FindIntSlot(const char *name, qboolean create)
+{
+	for (int i = 0; i < g_hudPushIntUsed; ++i) {
+		if (g_hudPushInt[i].name == name) {
+			return &g_hudPushInt[i];
+		}
+	}
+	if (!create || g_hudPushIntUsed >= UIR_HUD_PUSH_CACHE_SLOTS) {
+		return nullptr;
+	}
+	UirHudPushIntSlot *s = &g_hudPushInt[g_hudPushIntUsed++];
+	s->name = name;
+	s->value = 0;
+	s->valid = qfalse;
+	return s;
+}
+
+static UirHudPushFloatSlot *UIR_Hud_FindFloatSlot(const char *name, qboolean create)
+{
+	for (int i = 0; i < g_hudPushFloatUsed; ++i) {
+		if (g_hudPushFloat[i].name == name) {
+			return &g_hudPushFloat[i];
+		}
+	}
+	if (!create || g_hudPushFloatUsed >= UIR_HUD_PUSH_CACHE_SLOTS) {
+		return nullptr;
+	}
+	UirHudPushFloatSlot *s = &g_hudPushFloat[g_hudPushFloatUsed++];
+	s->name = name;
+	s->value = 0.0f;
+	s->valid = qfalse;
+	return s;
+}
+
 static void UIR_Hud_SetCvar(const char *name, const char *value)
 {
 	if (!name || !value) {
 		return;
+	}
+	if (UIR_Hud_PushCacheEnabled()) {
+		UirHudPushStrSlot *slot = UIR_Hud_FindStrSlot(name, qtrue);
+		if (slot && slot->valid && !strcmp(slot->value, value)) {
+			return;
+		}
+		if (slot) {
+			Q_strncpyz(slot->value, value, sizeof(slot->value));
+			slot->valid = qtrue;
+		}
 	}
 	UID_ProfileCountInc(UID_PROF_CNT_CVAR_SET);
 	Cvar_Set(name, value);
@@ -100,6 +227,16 @@ static void UIR_Hud_SetCvar(const char *name, const char *value)
 static void UIR_Hud_SetCvarInt(const char *name, int value)
 {
 	char buf[32];
+	if (UIR_Hud_PushCacheEnabled()) {
+		UirHudPushIntSlot *slot = UIR_Hud_FindIntSlot(name, qtrue);
+		if (slot && slot->valid && slot->value == value) {
+			return;
+		}
+		if (slot) {
+			slot->value = value;
+			slot->valid = qtrue;
+		}
+	}
 	UID_ProfileCountInc(UID_PROF_CNT_SNPRINTF);
 	Com_sprintf(buf, sizeof(buf), "%d", value);
 	UIR_Hud_SetCvar(name, buf);
@@ -113,6 +250,17 @@ static void UIR_Hud_SetCvarFrac(const char *name, float value)
 	} else if (value > 1.0f) {
 		value = 1.0f;
 	}
+	value = UIR_Hud_QuantizeFrac(value);
+	if (UIR_Hud_PushCacheEnabled()) {
+		UirHudPushFloatSlot *slot = UIR_Hud_FindFloatSlot(name, qtrue);
+		if (slot && slot->valid && slot->value == value) {
+			return;
+		}
+		if (slot) {
+			slot->value = value;
+			slot->valid = qtrue;
+		}
+	}
 	UID_ProfileCountInc(UID_PROF_CNT_SNPRINTF);
 	Com_sprintf(buf, sizeof(buf), "%.3f", value);
 	UIR_Hud_SetCvar(name, buf);
@@ -121,6 +269,17 @@ static void UIR_Hud_SetCvarFrac(const char *name, float value)
 static void UIR_Hud_SetCvarAngleDeg(const char *name, float deg)
 {
 	char buf[32];
+	deg = UIR_Hud_QuantizeAngleDeg(deg);
+	if (UIR_Hud_PushCacheEnabled()) {
+		UirHudPushFloatSlot *slot = UIR_Hud_FindFloatSlot(name, qtrue);
+		if (slot && slot->valid && slot->value == deg) {
+			return;
+		}
+		if (slot) {
+			slot->value = deg;
+			slot->valid = qtrue;
+		}
+	}
 	UID_ProfileCountInc(UID_PROF_CNT_SNPRINTF);
 	Com_sprintf(buf, sizeof(buf), "%.1f", deg);
 	UIR_Hud_SetCvar(name, buf);

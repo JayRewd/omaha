@@ -101,7 +101,8 @@ bool EnsureStates(uid_document_t *doc)
 
 void MarkDirty(uid_document_t *doc, int flags)
 {
-	UID_MarkDirty(doc, static_cast<uid_dirty_flags_t>(flags), UID_INVALID_NODE_ID, nullptr);
+	/* Changed in Omaha debug: name anonymous dirties so paint_dirty_reasons can attribute them. */
+	UID_MarkDirty(doc, static_cast<uid_dirty_flags_t>(flags), UID_INVALID_NODE_ID, "null_input");
 }
 
 void CollectFocusWalk(const uid_document_t *doc, uid_node_id_t id, bool ancVis, bool ancEn, std::vector<uid_node_id_t> *out)
@@ -965,7 +966,8 @@ void UID_HandlePointer(
 	 * pre-hover geometry (clicks still worked via press/release dirty).
 	 */
 	if (prevHovered != hit) {
-		MarkDirty(doc, UID_DIRTY_PAINT);
+		/* Changed in Omaha debug: distinct from other null_input paint dirties. */
+		UID_MarkDirty(doc, UID_DIRTY_PAINT, hit, "input_hover");
 	}
 
 	/* Slider drag — live write if commit=change; stage until release if submit. */

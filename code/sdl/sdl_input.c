@@ -1409,7 +1409,7 @@ void IN_Init( void *windowData )
 	in_keyboardDebug = Cvar_Get( "in_keyboardDebug", "0", CVAR_ARCHIVE );
 
 	// mouse variables
-	in_mouse = Cvar_Get( "in_mouse", "1", CVAR_ARCHIVE );
+	in_mouse = Cvar_Get( "in_mouse", "-1", CVAR_ARCHIVE ); /* Changed in Omaha: raw input by default */
 	in_nograb = Cvar_Get( "in_nograb", "0", CVAR_ARCHIVE );
 
 	in_joystick = Cvar_Get( "in_joystick", "0", CVAR_ARCHIVE|CVAR_LATCH );

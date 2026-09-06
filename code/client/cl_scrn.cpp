@@ -507,7 +507,6 @@ void SCR_SimpleUpdateScreen( void ) {
 		UpdateStereoSide( STEREO_CENTER );
 	}
 
-	/* Always capture frontend/backend ms for debug NDJSON; com_speeds only gates its printf. */
 	re.EndFrame( &time_frontend, &time_backend );
 }
 
