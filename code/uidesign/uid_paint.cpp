@@ -64,6 +64,7 @@ struct uid_paint_list_t {
 	std::vector<std::string>     pathStrings;
 	bool                         valid;
 	bool                         sawHostDraw;
+	bool                         sawImageMask; /* Fixed in Omaha: soft mask-image not replayable */
 	float                        uiPxScale;
 	int                          logicalW;
 	int                          logicalH;
@@ -97,6 +98,7 @@ void ClearList(uid_paint_list_t *list)
 	list->pathStrings.clear();
 	list->valid = false;
 	list->sawHostDraw = false;
+	list->sawImageMask = false;
 }
 
 void OnRecordDraw(const uir_vert_t *v, int nv, const unsigned short *idx, int ni, int shader, void *userdata)
@@ -174,6 +176,14 @@ void UID_PaintListMarkHostDraw(void)
 {
 	if (g_recording) {
 		g_recording->sawHostDraw = true;
+	}
+}
+
+/* Added in Omaha: soft mask-image composites via layer RT; batch replay skips that. */
+void UID_PaintListMarkImageMask(void)
+{
+	if (g_recording) {
+		g_recording->sawImageMask = true;
 	}
 }
 
@@ -355,7 +365,7 @@ void UID_PaintListEndRecord(uid_document_t *doc)
 		return;
 	}
 
-	if (list->sawHostDraw || list->cmds.empty()) {
+	if (list->sawHostDraw || list->sawImageMask || list->cmds.empty()) {
 		ClearList(list);
 		return;
 	}

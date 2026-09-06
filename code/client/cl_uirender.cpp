@@ -3396,14 +3396,53 @@ typedef struct {
 	char killerTeam[16];
 	char victimTeam[16];
 	char iconTeam[16];
+	char weaponImage[64];
 	char killKind[16];
 	char text[512];
 	char color[16];
 	char headshot[8];
 	char friendly[8];
-	const char *fieldNames[11];
-	const char *fieldValues[11];
+	const char *fieldNames[12];
+	const char *fieldValues[12];
 } uid_hud_kill_feed_collection_slot_t;
+
+/* Added in Omaha: team-specific kf silhouette id (matches hud_messaging.xml sources). */
+static const char *uid_kill_feed_weapon_image(const char *weaponClass, const char *iconTeam)
+{
+	const qboolean axis = (iconTeam && !Q_stricmp(iconTeam, "axis")) ? qtrue : qfalse;
+
+	if (!weaponClass || !weaponClass[0]) {
+		weaponClass = "unknown";
+	}
+	if (!Q_stricmp(weaponClass, "pistol")) {
+		return axis ? "modernhud-p38-kf" : "modernhud-colt45-kf";
+	}
+	if (!Q_stricmp(weaponClass, "rifle")) {
+		return axis ? "modernhud-kar98-kf" : "modernhud-m1-garand-kf";
+	}
+	if (!Q_stricmp(weaponClass, "sniper")) {
+		return axis ? "modernhud-kar98sniper-kf" : "modernhud-springfield-kf";
+	}
+	if (!Q_stricmp(weaponClass, "smg")) {
+		return axis ? "modernhud-mp40-kf" : "modernhud-thompsonsmg-kf";
+	}
+	if (!Q_stricmp(weaponClass, "mg")) {
+		return axis ? "modernhud-mp44-kf" : "modernhud-bar-kf";
+	}
+	if (!Q_stricmp(weaponClass, "shotgun")) {
+		return "modernhud-shotgun-kf";
+	}
+	if (!Q_stricmp(weaponClass, "grenade")) {
+		return axis ? "modernhud-steilhandgranate-kf" : "modernhud-m2frag-grenade-kf";
+	}
+	if (!Q_stricmp(weaponClass, "rocket")) {
+		return axis ? "modernhud-panzerschreck-kf" : "modernhud-bazooka-kf";
+	}
+	if (!Q_stricmp(weaponClass, "bash")) {
+		return "modernhud-glove-50";
+	}
+	return axis ? "modernhud-kar98-kf" : "modernhud-m1-garand-kf";
+}
 
 static int uid_query_collection_hud_kill_feed(
 	int offset,
@@ -3422,6 +3461,7 @@ static int uid_query_collection_hud_kill_feed(
 		"killer_team",
 		"victim_team",
 		"icon_team",
+		"weapon_image",
 		"headshot",
 		"kill_kind",
 		"friendly",
@@ -3464,13 +3504,18 @@ static int uid_query_collection_hud_kill_feed(
 		Q_strncpyz(slot->killerTeam, row.killerTeam, sizeof(slot->killerTeam));
 		Q_strncpyz(slot->victimTeam, row.victimTeam, sizeof(slot->victimTeam));
 		Q_strncpyz(slot->iconTeam, row.iconTeam, sizeof(slot->iconTeam));
+		Q_strncpyz(
+			slot->weaponImage,
+			uid_kill_feed_weapon_image(row.weaponClass, row.iconTeam),
+			sizeof(slot->weaponImage)
+		);
 		Q_strncpyz(slot->killKind, row.killKind, sizeof(slot->killKind));
 		Q_strncpyz(slot->text, row.text, sizeof(slot->text));
 		Q_strncpyz(slot->color, row.color, sizeof(slot->color));
 		Com_sprintf(slot->headshot, sizeof(slot->headshot), "%d", row.headshot);
 		Com_sprintf(slot->friendly, sizeof(slot->friendly), "%d", row.friendly);
 
-		for (f = 0; f < 11; f++) {
+		for (f = 0; f < 12; f++) {
 			slot->fieldNames[f] = kFieldNames[f];
 		}
 		slot->fieldValues[0] = slot->killer;
@@ -3479,16 +3524,17 @@ static int uid_query_collection_hud_kill_feed(
 		slot->fieldValues[3] = slot->killerTeam;
 		slot->fieldValues[4] = slot->victimTeam;
 		slot->fieldValues[5] = slot->iconTeam;
-		slot->fieldValues[6] = slot->headshot;
-		slot->fieldValues[7] = slot->killKind;
-		slot->fieldValues[8] = slot->friendly;
-		slot->fieldValues[9] = slot->text;
-		slot->fieldValues[10] = slot->color;
+		slot->fieldValues[6] = slot->weaponImage;
+		slot->fieldValues[7] = slot->headshot;
+		slot->fieldValues[8] = slot->killKind;
+		slot->fieldValues[9] = slot->friendly;
+		slot->fieldValues[10] = slot->text;
+		slot->fieldValues[11] = slot->color;
 
 		out[written].key = slot->key;
 		out[written].value = slot->key;
 		out[written].label = slot->text;
-		out[written].nfields = 11;
+		out[written].nfields = 12;
 		out[written].fieldNames = slot->fieldNames;
 		out[written].fieldValues = slot->fieldValues;
 		out[written].flags = 0;
@@ -5188,7 +5234,13 @@ static void uid_end_shape_clip(void)
 /* Added in Omaha: soft mask coverage for container + subtree (image path or gradient brush). */
 static bool uid_begin_image_mask(float x, float y, float w, float h, const char *vfsPathOrBrush, int fit)
 {
-	return UIR_BeginImageMask(x, y, w, h, vfsPathOrBrush, static_cast<uir_image_fit_t>(fit)) == UIR_OK;
+	const uir_status_t st =
+		UIR_BeginImageMask(x, y, w, h, vfsPathOrBrush, static_cast<uir_image_fit_t>(fit));
+	if (st == UIR_OK) {
+		/* Fixed in Omaha: paint-list cannot replay soft mask-image layer RT. */
+		UID_PaintListMarkImageMask();
+	}
+	return st == UIR_OK;
 }
 
 static void uid_end_image_mask(void)

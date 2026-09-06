@@ -38,7 +38,6 @@ source tree, or write to the Free Software Foundation, Inc.,
 void UID_SetLayoutScoped(int enabled);
 int  UID_LayoutScopedEnabled(void);
 
-
 /*
  * Added in Omaha: re-layout dirtyLayoutNodes from nearest layout boundaries using
  * cached LayoutNode inputs. Returns UID_OK on success, or an error to force a

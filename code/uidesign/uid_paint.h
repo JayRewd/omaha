@@ -41,6 +41,8 @@ int  UID_PaintListEnabled(void);
 
 void UID_PaintListInvalidate(uid_document_t *doc);
 void UID_PaintListMarkHostDraw(void); /* model/host — list cannot replay */
+/* Added in Omaha: soft mask-image uses a layer RT; retained list cannot replay it. */
+void UID_PaintListMarkImageMask(void);
 void UID_PaintListFree(uid_document_t *doc);
 
 /* Added in Omaha: record SVG shape child-clips so shaped HUD/scoreboard can replay. */

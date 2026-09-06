@@ -6,7 +6,11 @@
 	<import src="ui/modern/lib/hud_modern_images.xml"/>
 
 	<sources>
-		<!-- Added in Omaha: kill-feed weapon_class stem → team-specific kf silhouettes. -->
+		<!--
+		  Weapon silhouette catalog kept for reference / other HUDs.
+		  Kill-feed rows bind item.field.weapon_image from the host (icon_team + weapon_class)
+		  to avoid nested dual-source foreach src cross-talk.
+		-->
 		<source id="killfeed-weapon-icons-allies">
 			<item value="pistol" label="Pistol" image="modernhud-colt45-kf"/>
 			<item value="rifle" label="Rifle" image="modernhud-m1-garand-kf"/>
@@ -48,24 +52,9 @@
 						       visible="{item.field.killer != ''}">
 							{item.field.killer}
 						</label>
-						<!-- weapon_class stem + icon_team → allies/axis kf sources.
-						     Leaf <image> sizes width from texel aspect at height 20px. -->
-						<container type="overlap" width="auto" height="20px" fill="{var.fill-transparent}">
-							<container width="auto" height="20px" fill="{var.fill-transparent}"
-							           source="killfeed-weapon-icons-allies" bind="item.field:weapon_class"
-							           visible="{item.field.icon_team != &quot;axis&quot;}">
-								<foreach mode="selected" width="auto" height="20px">
-									<image src="{item.field.image}" height="20px" width="auto" fit="contain"/>
-								</foreach>
-							</container>
-							<container width="auto" height="20px" fill="{var.fill-transparent}"
-							           source="killfeed-weapon-icons-axis" bind="item.field:weapon_class"
-							           visible="{item.field.icon_team == &quot;axis&quot;}">
-								<foreach mode="selected" width="auto" height="20px">
-									<image src="{item.field.image}" height="20px" width="auto" fit="contain"/>
-								</foreach>
-							</container>
-						</container>
+						<!-- Fixed in Omaha: host resolves weapon_image from icon_team+weapon_class
+						     (nested dual-source foreach was flipping axis rows onto allies art). -->
+						<image src="{item.field.weapon_image}" height="20px" width="auto" fit="contain"/>
 						<!-- Suicide marker beside weapon (e.g. grenade + skull). -->
 						<image src="modernhud-skull-50" height="18px" width="auto" fit="contain"
 						       visible="{item.field.kill_kind == &quot;suicide&quot;}"/>

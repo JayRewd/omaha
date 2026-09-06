@@ -1138,25 +1138,27 @@ int fake_queryCollectionItems(const uid_collection_query_t *query, uid_collectio
 		static char killKillerTeam[6][16];
 		static char killVictimTeam[6][16];
 		static char killIconTeam[6][16];
+		static char killWeaponImage[6][48];
 		static char killKind[6][16];
 		static char killText[6][64];
 		static char killColor[6][16];
 		static char killHs[6][4];
 		static char killFr[6][4];
-		static const char *killFieldNames[11] = {
+		static const char *killFieldNames[12] = {
 			"killer",
 			"victim",
 			"weapon_class",
 			"killer_team",
 			"victim_team",
 			"icon_team",
+			"weapon_image",
 			"headshot",
 			"kill_kind",
 			"friendly",
 			"text",
 			"color"
 		};
-		static const char *killFieldValues[6][11];
+		static const char *killFieldValues[6][12];
 		const int total = 2;
 		if (query->outTotal) {
 			*query->outTotal = total;
@@ -1172,6 +1174,11 @@ int fake_queryCollectionItems(const uid_collection_query_t *query, uid_collectio
 			std::snprintf(killKillerTeam[written], sizeof(killKillerTeam[written]), i == 0 ? "allies" : "axis");
 			std::snprintf(killVictimTeam[written], sizeof(killVictimTeam[written]), i == 0 ? "axis" : "allies");
 			std::snprintf(killIconTeam[written], sizeof(killIconTeam[written]), killKillerTeam[written]);
+			std::snprintf(
+				killWeaponImage[written],
+				sizeof(killWeaponImage[written]),
+				i == 0 ? "modernhud-springfield-kf" : "modernhud-mp40-kf"
+			);
 			std::snprintf(killKind[written], sizeof(killKind[written]), "player");
 			std::snprintf(
 				killText[written],
@@ -1190,16 +1197,17 @@ int fake_queryCollectionItems(const uid_collection_query_t *query, uid_collectio
 			killFieldValues[written][3] = killKillerTeam[written];
 			killFieldValues[written][4] = killVictimTeam[written];
 			killFieldValues[written][5] = killIconTeam[written];
-			killFieldValues[written][6] = killHs[written];
-			killFieldValues[written][7] = killKind[written];
-			killFieldValues[written][8] = killFr[written];
-			killFieldValues[written][9] = killText[written];
-			killFieldValues[written][10] = killColor[written];
+			killFieldValues[written][6] = killWeaponImage[written];
+			killFieldValues[written][7] = killHs[written];
+			killFieldValues[written][8] = killKind[written];
+			killFieldValues[written][9] = killFr[written];
+			killFieldValues[written][10] = killText[written];
+			killFieldValues[written][11] = killColor[written];
 			std::snprintf(keyBuf[written], sizeof(keyBuf[written]), "kill_%d", i);
 			out[written].key = keyBuf[written];
 			out[written].value = keyBuf[written];
 			out[written].label = killText[written];
-			out[written].nfields = 11;
+			out[written].nfields = 12;
 			out[written].fieldNames = killFieldNames;
 			out[written].fieldValues = killFieldValues[written];
 			out[written].flags = 0;

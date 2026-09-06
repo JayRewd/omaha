@@ -2714,18 +2714,32 @@ void UID_SyncBindings(uid_document_t *doc, const uid_backend_t *backend)
 			self(self, c);
 		}
 	};
-	if (doc->rootNode != UID_INVALID_NODE_ID) {
-		applyVisibility(applyVisibility, doc->rootNode);
-	}
-	if (UID_IsModalActive(doc)) {
-		const uid_node_id_t modalRoot = UID_GetModalRoot(doc);
-		if (modalRoot != UID_INVALID_NODE_ID) {
-			applyVisibility(applyVisibility, modalRoot);
+	auto applyVisibilityTree = [&]() {
+		if (doc->rootNode != UID_INVALID_NODE_ID) {
+			applyVisibility(applyVisibility, doc->rootNode);
 		}
-	}
+		if (UID_IsModalActive(doc)) {
+			const uid_node_id_t modalRoot = UID_GetModalRoot(doc);
+			if (modalRoot != UID_INVALID_NODE_ID) {
+				applyVisibility(applyVisibility, modalRoot);
+			}
+		}
+	};
+	applyVisibilityTree();
 	UID_ProfileEnd(UID_PROF_FRAME_COLLECTION_CULL);
 
 	UID_SyncCollections(doc, backend);
+
+	/*
+	 * Fixed in Omaha: foreach expand clones nodes with visible="{expr}" still in the
+	 * property bag. PropBool cannot parse that and falls back to true, so kill-feed
+	 * skull/headshot/team-icon rows all lay out for one frame (huge gaps). applyVisibility
+	 * ran before SyncCollections and never saw the new nodes; syncOneNodeBody intentionally
+	 * skips visibleExpr. Re-apply after expand so layout in this frame sees true/false.
+	 */
+	UID_ProfileBegin(UID_PROF_FRAME_COLLECTION_CULL);
+	applyVisibilityTree();
+	UID_ProfileEnd(UID_PROF_FRAME_COLLECTION_CULL);
 
 	/*
 	 * Stage 6b: do NOT force-resync the whole tree on UID_DIRTY_BINDING.

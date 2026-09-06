@@ -1184,6 +1184,7 @@ float IntrinsicBorderSize(
 		float texW = 32.0f;
 		float texH = 32.0f;
 		std::string imageId;
+		std::string vfs;
 		if (!node->properties.Get("src", &imageId) || imageId.empty()) {
 			(void)node->properties.Get("background-image", &imageId);
 		}
@@ -1194,7 +1195,6 @@ float IntrinsicBorderSize(
 					imageId = resolved;
 				}
 			}
-			std::string vfs;
 			const auto iit = doc->definitions.images.find(imageId);
 			if (iit != doc->definitions.images.end()) {
 				vfs = iit->second.src;
@@ -2953,8 +2953,10 @@ uid_result_t UID_LayoutDocument(
 	doc->dirty = static_cast<uid_dirty_flags_t>(doc->dirty & ~UID_DIRTY_LAYOUT);
 	doc->dirty = static_cast<uid_dirty_flags_t>(doc->dirty | UID_DIRTY_PAINT);
 	doc->dirtyLayoutNodes.clear();
+
 	return UID_OK;
 }
+
 
 /* Added in Omaha: translate-only box shift (paint dirty); re-intersect effectiveClip with parent. */
 void UID_ShiftSubtreeBoxes(uid_document_t *doc, uid_node_id_t id, float dx, float dy, const uid_rect_t &parentClip)
