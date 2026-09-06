@@ -31,7 +31,7 @@ class UIGMBox : public UIWidget
         UColor   color;
         UIFont  *font;
         int      flags;
-        uint64_t stableId; /* Added in OPM: foreach lifetime key */
+        uint64_t stableId; /* Added in Omaha: foreach lifetime key */
     };
 
 protected:

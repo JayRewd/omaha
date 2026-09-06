@@ -80,7 +80,7 @@ static const char *AnimPrefixList[] = {
     "PIAT"
 };
 
-/* Added in OPM: display names aligned with AnimPrefixList / CS_WEAPONS. */
+/* Added in Omaha: display names aligned with AnimPrefixList / CS_WEAPONS. */
 static const char *AnimPrefixDisplayName[] = {
     "",
     "Unarmed",
@@ -193,7 +193,7 @@ enum animPrefix_e {
 ===============
 CG_VMAnimPrefixIndexFromModelPath
 
-Added in OPM: match a world/view weapon model path to AnimPrefixList.
+Added in Omaha: match a world/view weapon model path to AnimPrefixList.
 ===============
 */
 int CG_VMAnimPrefixIndexFromModelPath(const char *modelPath)
@@ -232,7 +232,7 @@ int CG_VMAnimPrefixIndexFromModelPath(const char *modelPath)
 ===============
 CG_VMAnimWeaponDisplayName
 
-Added in OPM: CS_WEAPONS-style name for a prefix index (zoom overlay / VM anim).
+Added in Omaha: CS_WEAPONS-style name for a prefix index (zoom overlay / VM anim).
 ===============
 */
 void CG_VMAnimWeaponDisplayName(int prefixIndex, char *out, int outSize)
@@ -449,7 +449,7 @@ void CG_ViewModelAnimation(refEntity_t *pModel)
 ===============
 CG_ViewModelAnimationEx
 
-Added in OPM: optional overrides for client-side FP spectate (does not mutate snap).
+Added in Omaha: optional overrides for client-side FP spectate (does not mutate snap).
 ===============
 */
 void CG_ViewModelAnimationEx(refEntity_t *pModel, const cgVMAnimOverride_t *ovr)

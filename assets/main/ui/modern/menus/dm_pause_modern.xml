@@ -1,6 +1,6 @@
 <ui version="1">
 	<!--
-		Added in OPM: modern HUD MP pause shell — main-menu styling, no retail art/models.
+		Added in Omaha: modern HUD MP pause shell — main-menu styling, no retail art/models.
 		Panel router: ui_om_pause_panel (root | team | weapon | vote_*).
 	-->
 	<definitions menu-id="dm_pause_modern" draw-order="7">

@@ -67,7 +67,7 @@ uir_status_t UIR_PathFill(
 	int                   crisp
 );
 
-/* Added in OPM: expand centerline to a filled strip (round caps/joins; closed = annulus). */
+/* Added in Omaha: expand centerline to a filled strip (round caps/joins; closed = annulus). */
 typedef struct uir_stroke_opts_s {
 	uir_fill_rule_t fillRule;    /* default EVEN_ODD (annulus hole) */
 	int             arcSteps;    /* 0 → 8 */
@@ -78,7 +78,7 @@ typedef struct uir_stroke_opts_s {
 
 void UIR_StrokeOptsInit(uir_stroke_opts_t *opts);
 uir_status_t UIR_BuildStrokePath(const uir_path_t *src, float widthPx, uir_path_t *out);
-/* Added in OPM: single-contour outside band for GPU stroke tessellation. */
+/* Added in Omaha: single-contour outside band for GPU stroke tessellation. */
 uir_status_t UIR_BuildOutsideStrokePath(const uir_path_t *src, float widthPx, uir_path_t *out);
 uir_status_t UIR_BuildStrokePathOpts(
 	const uir_path_t *src,
@@ -95,13 +95,13 @@ uir_status_t UIR_PathStroke(
 	int                   crisp
 );
 
-/* Added in OPM: rotate path points around cx/cy; degrees clockwise in screen Y-down. */
+/* Added in Omaha: rotate path points around cx/cy; degrees clockwise in screen Y-down. */
 uir_status_t UIR_PathRotate(const uir_path_t *src, float cx, float cy, float degrees, uir_path_t *out);
 
 /* Axis-aligned bounding box of all path points. */
 uir_status_t UIR_PathBounds(const uir_path_t *path, uir_rect_t *out);
 
-/* Added in OPM: golden reference for GPU fill coverage tests. */
+/* Added in Omaha: golden reference for GPU fill coverage tests. */
 int UIR_PathContainsPoint(const uir_path_t *path, float x, float y);
 
 #ifdef __cplusplus

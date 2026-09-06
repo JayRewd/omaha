@@ -36,12 +36,12 @@ static uir_menuworld_backend_t g_mw;
 static uir_menuworld_state_t   g_mwState = UIR_MW_UNLOADED;
 static int                     g_mwLoggedMissing = 0;
 static int                     g_mwLoggedSwitchFail = 0;
-/* Fixed in OPM: only clearWorld when this module loaded the shared slot. */
+/* Fixed in Omaha: only clearWorld when this module loaded the shared slot. */
 static int                     g_mwOwnsWorld = 0;
 static uir_menu_map_view_t     g_mwDesiredView;
 static uir_menu_map_view_t     g_mwActiveView;
 static int                     g_mwDesiredDirty = 1;
-/* Fixed in OPM: skip draw on the frame that loads/switches the menu world (renderer flush mid-frame). */
+/* Fixed in Omaha: skip draw on the frame that loads/switches the menu world (renderer flush mid-frame). */
 static int                     g_mwDeferDraw = 0;
 
 static int uir_mw_same_bsp(const uir_menu_map_view_t *a, const uir_menu_map_view_t *b)

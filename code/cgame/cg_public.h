@@ -477,7 +477,7 @@ functions exported to the main executable
         qboolean (*CG_ConsoleCommand)(void);
         void (*CG_GetRendererConfig)(void);
         void (*CG_Draw2D)(void);
-        void (*CG_DrawZoomOverlay)(void); /* Added in OPM: PK3 / retail zoom under modern HUD */
+        void (*CG_DrawZoomOverlay)(void); /* Added in Omaha: PK3 / retail zoom under modern HUD */
         void (*CG_SyncModernHudCvars)(void);
         void (*CG_EyePosition)(vec3_t *eyePos);
         void (*CG_EyeOffset)(vec3_t *eyeOffset);

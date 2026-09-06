@@ -216,7 +216,7 @@ void UILayout::ProcessCommands(bool bFullLoad)
 
 void UILayout::Load(const char *filename, bool bFullLoad)
 {
-	/* Added in OPM: ui_profile legacy_load phase (URC parse + widget create). */
+	/* Added in Omaha: ui_profile legacy_load phase (URC parse + widget create). */
 	UID_ProfileResetLoad();
 	UID_ProfileSetLoadLabel(filename ? filename : "<urc>");
 	UID_ProfileBegin(UID_PROF_LEGACY_LOAD);

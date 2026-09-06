@@ -246,7 +246,7 @@ void UIWindowManager::UpdateViews(void)
         /* Background is View3D — timed as legacy_view3d inside View3D::Draw. */
         m_backgroundwidget->Display(m_frame, 1.0);
 
-        /* Added in OPM: URC/menu/HUD widgets only (excludes View3D). */
+        /* Added in Omaha: URC/menu/HUD widgets only (excludes View3D). */
         UID_ProfileBegin(UID_PROF_LEGACY_URC);
         n = m_children.NumObjects();
         for (i = 1; i <= n; i++) {

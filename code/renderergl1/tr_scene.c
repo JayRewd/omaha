@@ -636,7 +636,7 @@ void RE_RenderScene( const refdef_t *fd ) {
 	R_ClearRealDlights();
 	R_RenderView( &parms );
 
-	/* Fixed in OPM: HUD/menu model scenes queue RC_DRAW_SURFS that skin from the
+	/* Fixed in Omaha: HUD/menu model scenes queue RC_DRAW_SURFS that skin from the
 	 * global TIKI_Skel_Bones cache. Flush before the next scene can overwrite
 	 * those bones (two profile previews back-to-back looked frozen/identical). */
 	if (fd->rdflags & RDF_HUD) {

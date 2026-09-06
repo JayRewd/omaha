@@ -273,7 +273,7 @@ size_t FindMatchingBraceEnd(const std::string &input, size_t openIdx)
 }
 
 /*
- * Added in OPM: bake template./parent. idents inside a mixed brace expr when
+ * Added in Omaha: bake template./parent. idents inside a mixed brace expr when
  * the whole expression cannot evaluate at expand (e.g. still contains cvar.).
  * Runtime lookup has no template bag - without this, mixed exprs break.
  * Nested {embeds} are left alone; non-numeric template props are left intact.
@@ -327,7 +327,7 @@ bool RewriteContextIdentsInExpr(
 				std::string v;
 				if (st.templateProps && st.templateProps->Get(key, &v)) {
 					/*
-					 * Changed in OPM: inline string template props in bool/style
+					 * Changed in Omaha: inline string template props in bool/style
 					 * exprs (e.g. visible="{template.slider-visible}") so gates
 					 * passed as props evaluate at runtime. Strip outer braces.
 					 */
@@ -439,7 +439,7 @@ bool SubstituteContextRefs(
 		}
 
 		/*
-		 * Added in OPM: expand nested {template.} embeds first, then bake any
+		 * Added in Omaha: expand nested {template.} embeds first, then bake any
 		 * remaining bare numeric template./parent. idents for mixed cvar exprs.
 		 */
 		std::string nestedOut;
@@ -630,7 +630,7 @@ void ApplyContextToNode(
 		}
 	}
 
-	/* Added in OPM: brace-expand select appearance / optionSource like bind. */
+	/* Added in Omaha: brace-expand select appearance / optionSource like bind. */
 	if (!node->appearance.empty() && node->appearance.find('{') != std::string::npos) {
 		if (!SubstituteContextRefs(ctx.doc,node->appearance, templateProps, parentProps, &exprLim, false, &resolved, &diag)) {
 			ctx.Errorf(node->source, diag);
@@ -662,7 +662,7 @@ void ApplyContextToNode(
 			UID_VisibleIfToBoolExpr(resolved, &node->visibleExpr);
 		}
 	}
-	/* Added in OPM: brace-expand bool/style expression fields with {template.*}. */
+	/* Added in Omaha: brace-expand bool/style expression fields with {template.*}. */
 	if (!node->visibleExpr.empty() && node->visibleExpr.find('{') != std::string::npos) {
 		if (!SubstituteContextRefs(ctx.doc,node->visibleExpr, templateProps, parentProps, &exprLim, false, &resolved, &diag)) {
 			ctx.Errorf(node->source, diag);
@@ -688,7 +688,7 @@ void ApplyContextToNode(
 		kv.second = resolved;
 	}
 	/*
-	 * Added in OPM: style/bool exprs store the brace-stripped body. Bake bare
+	 * Added in Omaha: style/bool exprs store the brace-stripped body. Bake bare
 	 * template./parent. idents (mixed with cvar.) the same as braced attrs.
 	 */
 	if (templateProps || parentProps) {
@@ -724,7 +724,7 @@ void ApplyContextToNode(
 		}
 		node->setValue = resolved;
 	}
-	/* Added in OPM: brace-expand keybind binding="{template.*}" like bind. */
+	/* Added in Omaha: brace-expand keybind binding="{template.*}" like bind. */
 	if (!node->binding.empty() && node->binding.find('{') != std::string::npos) {
 		if (!SubstituteContextRefs(ctx.doc,node->binding, templateProps, parentProps, &exprLim, false, &resolved, &diag)) {
 			ctx.Errorf(node->source, diag);
@@ -827,7 +827,7 @@ uid_property_set_t BuildTemplatePropValues(
 		}
 	}
 	/*
-	 * Fixed in OPM: literal commit= on <use> may live on hasCommit only; still
+	 * Fixed in Omaha: literal commit= on <use> may live on hasCommit only; still
 	 * feed template.commit so nested sliders honor submit vs change.
 	 */
 	{
@@ -964,11 +964,11 @@ uid_node_id_t ExpandUse(
 	if (!useNode.enabledIf.empty()) {
 		rootNode.enabledIf = useNode.enabledIf;
 	}
-	/* Added in OPM: forward brace expr attrs from <use> onto expanded root. */
+	/* Added in Omaha: forward brace expr attrs from <use> onto expanded root. */
 	if (!useNode.visibleExpr.empty()) {
 		if (!rootNode.visibleExpr.empty()) {
 			/*
-			 * Changed in OPM: parenthesize both sides so use-site gates stay
+			 * Changed in Omaha: parenthesize both sides so use-site gates stay
 			 * effective when the template root uses `or` (e.g. search filter).
 			 * Without parens, `gate and search == '' or icontains(...)` ignores
 			 * the gate when icontains matches the empty needle.
@@ -982,7 +982,7 @@ uid_node_id_t ExpandUse(
 	}
 	if (!useNode.enabledExpr.empty()) {
 		if (!rootNode.enabledExpr.empty()) {
-			/* Changed in OPM: parenthesize when combining enabled exprs (same as visible). */
+			/* Changed in Omaha: parenthesize when combining enabled exprs (same as visible). */
 			rootNode.enabledExpr =
 				"(" + useNode.enabledExpr + ") and (" + rootNode.enabledExpr + ")";
 		} else {
@@ -990,7 +990,7 @@ uid_node_id_t ExpandUse(
 		}
 		rootNode.enabledExprBound = useNode.enabledExprBound;
 	}
-	/* Added in OPM: forward style ternaries from <use> onto expanded root. */
+	/* Added in Omaha: forward style ternaries from <use> onto expanded root. */
 	for (const auto &kv : useNode.styleExprs) {
 		rootNode.styleExprs[kv.first] = kv.second;
 	}
@@ -1098,7 +1098,7 @@ uid_node_id_t ExpandNode(
 		dst.properties.Set("bind", dst.bind);
 	}
 
-	/* Added in OPM: resolve deferred commit="{template.*}" after expand. */
+	/* Added in Omaha: resolve deferred commit="{template.*}" after expand. */
 	{
 		std::string commitStr;
 		if (dst.properties.Get("commit", &commitStr) && !commitStr.empty()) {
@@ -1124,7 +1124,7 @@ uid_node_id_t ExpandNode(
 		}
 	}
 
-	/* Added in OPM: resolve deferred slider/input min/max/step after {template.*} expand. */
+	/* Added in Omaha: resolve deferred slider/input min/max/step after {template.*} expand. */
 	if (dst.kind == UID_NODE_SLIDER && !UID_SyncSliderBounds(&dst)) {
 		ctx.Error(dst.source, "<slider> requires valid min, max, and step after template expand");
 		return UID_INVALID_NODE_ID;

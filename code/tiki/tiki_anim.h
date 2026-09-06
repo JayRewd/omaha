@@ -32,7 +32,7 @@ extern "C" {
 
     const char *TIKI_Anim_NameForNum(dtiki_t *pmdl, int animnum);
     int         TIKI_Anim_NumForName(dtiki_t *pmdl, const char *name);
-    /* Added in OPM: deterministic variant pick inside a TAF_RANDOM alias group. */
+    /* Added in Omaha: deterministic variant pick inside a TAF_RANDOM alias group. */
     int         TIKI_Anim_NumForNameVariant(dtiki_t *pmdl, const char *name, int variant);
     void        TIKI_Anim_GroupBounds(dtiki_t *pmdl, int stableIdx, int *outTop, int *outBottom);
     int         TIKI_Anim_Random(dtiki_t *pmdl, const char *name);

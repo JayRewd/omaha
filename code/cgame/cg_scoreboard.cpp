@@ -31,7 +31,7 @@ static qboolean CG_Scoreboard_UseModern(void)
 }
 
 /*
- * Added in OPM: publish Allied/Axis team totals for the modern HUD score strip.
+ * Added in Omaha: publish Allied/Axis team totals for the modern HUD score strip.
  * scoreField is the mode's real score (round wins or team kills); atoi skips a
  * trailing " Wins" suffix used on round-mode headers.
  */
@@ -51,7 +51,7 @@ static void CG_Hud_SetTeamScoreCvar(int team, const char *scoreField)
 }
 
 /*
- * Added in OPM: request scores without opening the scoreboard. Reuses the retail
+ * Added in Omaha: request scores without opening the scoreboard. Reuses the retail
  * 2s throttle on cg.scoresRequestTime so TAB and the HUD strip share one budget.
  */
 void CG_RequestHudTeamScoresSilent(void)
@@ -100,7 +100,7 @@ static void CG_Scoreboard_ColorToHex(const float *rgba, char *out, int outSize)
 }
 
 /*
- * Added in OPM: modern scoreboard row fill from parse backColor only.
+ * Added in Omaha: modern scoreboard row fill from parse backColor only.
  * Team chrome (Allies/Axis banners) is colored in XML, not per-player fills.
  */
 static void CG_Scoreboard_ModernRowFill(char *out, int outSize, int clientTeam, const float *backColor)
@@ -561,7 +561,7 @@ void CG_ParseScores_ver_15()
             Q_strncpyz(szString6, cgi.Argv(4 + iCurrentEntry + iDatumCount * i), sizeof(szString6));
             Q_strncpyz(szString7, cgi.Argv(5 + iCurrentEntry + iDatumCount * i), sizeof(szString7));
 
-            /* Added in OPM: cache real team score (m_teamwins) before " Wins" suffix. */
+            /* Added in Omaha: cache real team score (m_teamwins) before " Wins" suffix. */
             if (bIsHeader && (iClientTeam == TEAM_ALLIES || iClientTeam == TEAM_AXIS)) {
                 CG_Hud_SetTeamScoreCvar(iClientTeam, szString4);
             }
@@ -825,7 +825,7 @@ void CG_ParseScores_ver_6()
             Q_strncpyz(szString6, cgi.Argv(5 + iCurrentEntry + iDatumCount * i), sizeof(szString6));
 
             /*
-             * Added in OPM: ver6 round headers put m_teamwins in deaths (szString4);
+             * Added in Omaha: ver6 round headers put m_teamwins in deaths (szString4);
              * TDM headers put team kills in kills (szString3).
              */
             if (bIsHeader && (iClientTeam == TEAM_ALLIES || iClientTeam == TEAM_AXIS)) {

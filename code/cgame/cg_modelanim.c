@@ -1008,7 +1008,7 @@ void CG_ModelAnim(centity_t *cent, qboolean bDoShaderTime)
     bThirdPerson |= (cg.snap->ps.pm_flags & PMF_CAMERA_VIEW && !(cg.snap->ps.pm_flags & PMF_TURRET));
 
     /*
-     * Added in OPM: FP spectate — hide followed body / attachments / local chase
+     * Added in Omaha: FP spectate — hide followed body / attachments / local chase
      * ghost, but still run anims + ClientCommands so gunshot frame sounds fire.
      * Early return previously muted weapon sounds and broke attach parents.
      */
@@ -1292,7 +1292,7 @@ void CG_ModelAnim(centity_t *cent, qboolean bDoShaderTime)
     // set surfaces
     memcpy(model.surfaces, s1->surfaces, MAX_MODEL_SURFACES);
 
-    /* Added in OPM: invisible but still in the scene (attach + frame cmds). */
+    /* Added in Omaha: invisible but still in the scene (attach + frame cmds). */
     if (spectateFpHide) {
         for (i = 0; i < MAX_MODEL_SURFACES; i++) {
             model.surfaces[i] |= MDL_SURFACE_NODRAW;

@@ -72,7 +72,7 @@ static bool UID_ParseLengthToken(const char *begin, const char *end, uid_length_
 		return false;
 	}
 
-	/* Added in OPM: trim without heap allocation. */
+	/* Added in Omaha: trim without heap allocation. */
 	while (begin < end && std::isspace(static_cast<unsigned char>(*begin))) {
 		++begin;
 	}
@@ -344,7 +344,7 @@ bool UID_ParseBool(const char *text, bool *out, std::string *diagMessage)
 		return false;
 	}
 
-	/* Added in OPM: compare trimmed C string without heap allocation. */
+	/* Added in Omaha: compare trimmed C string without heap allocation. */
 	const char *p = UID_SkipWs(text);
 	const char *end = p + std::strlen(p);
 	while (end > p && std::isspace(static_cast<unsigned char>(*(end - 1)))) {
@@ -1109,7 +1109,7 @@ void UID_ApplyBuiltinDefaults(uid_property_set_t *out)
 		return;
 	}
 	/*
-	 * Changed in OPM: do not stamp halign/valign onto every node.
+	 * Changed in Omaha: do not stamp halign/valign onto every node.
 	 * Layout still falls back to "start" via UID_BuiltinDefault / PropCStr.
 	 * Leaf text (buttons, etc.) uses kind-specific defaults when unset.
 	 */

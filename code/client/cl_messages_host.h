@@ -37,7 +37,7 @@ typedef struct {
 	char  color[16];
 	float alpha;
 	int   bold;
-	uint64_t stableId; /* Added in OPM: monotonic key for foreach lifetime */
+	uint64_t stableId; /* Added in Omaha: monotonic key for foreach lifetime */
 } uir_hud_message_row_t;
 
 typedef struct {
@@ -49,10 +49,10 @@ typedef struct {
 	int         bold;
 	int         beginDecay;
 	int         endDecay;
-	uint64_t    stableId; /* Added in OPM */
+	uint64_t    stableId; /* Added in Omaha */
 } uir_hud_message_input_t;
 
-/* Added in OPM: structured kill-feed rows for hud-kill-feed collection. */
+/* Added in Omaha: structured kill-feed rows for hud-kill-feed collection. */
 typedef struct {
 	char     killer[64];
 	char     victim[64];
@@ -102,7 +102,7 @@ int  UIR_HudGameMessages_GetRowCount(void);
 void UIR_HudGameMessages_GetRow(int index, uir_hud_message_row_t *out);
 uint64_t UIR_HudGameMessages_GetRevision(void);
 
-/* Added in OPM: chat-only collection (MESSAGE_CHAT_WHITE / non-death dmbox rows). */
+/* Added in Omaha: chat-only collection (MESSAGE_CHAT_WHITE / non-death dmbox rows). */
 void UIR_HudChat_Clear(void);
 void UIR_HudChat_SetAlphaScale(float scale);
 void UIR_HudChat_AddRow(const uir_hud_message_input_t *row);
@@ -111,7 +111,7 @@ int  UIR_HudChat_GetRowCount(void);
 void UIR_HudChat_GetRow(int index, uir_hud_message_row_t *out);
 uint64_t UIR_HudChat_GetRevision(void);
 
-/* Added in OPM: structured kill-feed collection from printdeathmsg. */
+/* Added in Omaha: structured kill-feed collection from printdeathmsg. */
 void UIR_HudKillFeed_Clear(void);
 void UIR_HudKillFeed_AddRow(const uir_hud_kill_feed_input_t *row);
 void UIR_HudKillFeed_NotifyChanged(void);

@@ -395,8 +395,7 @@ static void IN_DeactivateMouse( qboolean isFullscreen )
 	if( !SDL_WasInit( SDL_INIT_VIDEO ) )
 		return;
 
-	// Always show the cursor when the mouse is disabled,
-	// but not when fullscreen
+	/* Windowed: show OS cursor. Fullscreen GUI path enables it from IN_Frame. */
 	if( !isFullscreen )
 		SDL_ShowCursor( SDL_TRUE );
 
@@ -407,11 +406,8 @@ static void IN_DeactivateMouse( qboolean isFullscreen )
 	{
 		IN_GobbleMotionEvents( );
 
-		SDL_SetWindowGrab( SDL_window, SDL_FALSE );
-		SDL_SetRelativeMouseMode( SDL_FALSE );
-
 		/*
-		 * Fixed in OPM: do not center-warp on in_guimouse-only deactivates while
+		 * Fixed in Omaha: do not center-warp on in_guimouse-only deactivates while
 		 * in-game (catcher has no UI/console). Scoreboard pointer / brief MouseOn
 		 * flickers were warping to window center and snapping aim; vid_restart
 		 * cleared the bad grab/relative cycle. Real menus still warp (KEYCATCH_UI).
@@ -419,7 +415,7 @@ static void IN_DeactivateMouse( qboolean isFullscreen )
 		{
 			const int catcher = Key_GetCatcher();
 			/*
-			 * Fixed in OPM: never center-warp while CA_ACTIVE on modern UI.
+			 * Fixed in Omaha: never center-warp while CA_ACTIVE on modern UI.
 			 * Scoreboard pointer calls EnterModernInputModeKeepKeys → View3D::OnDeactivate
 			 * latches KEYCATCH_UI, which previously made allowWarp true and snapped aim
 			 * (same dead-zone class as guimouse-only warps). Chat is KEYCATCH_UI without
@@ -436,7 +432,7 @@ static void IN_DeactivateMouse( qboolean isFullscreen )
 				int warpH = 0;
 
 				/*
-				 * Changed in OPM: modern warps to SDL window center; ui_legacy uses
+				 * Changed in Omaha: modern warps to SDL window center; ui_legacy uses
 				 * glconfig (vanilla).
 				 */
 				if( Cvar_VariableIntegerValue( "ui_legacy" ) )
@@ -460,6 +456,17 @@ static void IN_DeactivateMouse( qboolean isFullscreen )
 
 		mouseActive = qfalse;
 	}
+
+	/*
+	 * Fixed in Omaha: leave relative look mode for menus/chat/console, but keep
+	 * window grab in fullscreen so the OS cursor cannot walk onto another
+	 * monitor. Absolute UI coordinates still work with grab held.
+	 */
+	SDL_SetRelativeMouseMode( SDL_FALSE );
+	if( isFullscreen && !( in_nograb && in_nograb->integer ) )
+		SDL_SetWindowGrab( SDL_window, SDL_TRUE );
+	else
+		SDL_SetWindowGrab( SDL_window, SDL_FALSE );
 }
 
 // We translate axes movement into keypresses
@@ -1302,9 +1309,11 @@ void IN_Frame( void )
 	cls.glconfig.isFullscreen = Cvar_VariableIntegerValue( "r_fullscreen" ) != 0;
 
 	/*
-	 * Changed in OPM: modern UI needs absolute mouse in fullscreen (layout uses
+	 * Changed in Omaha: modern UI needs absolute mouse in fullscreen (layout uses
 	 * surface size S, not glconfig). ui_legacy restores vanilla: KEYCATCH only
 	 * deactivates when windowed; FS keeps relative/grab except HUD in_guimouse.
+	 * Fixed in Omaha: DeactivateMouse keeps window grab in fullscreen so the
+	 * cursor cannot leave the game display (menus still get absolute coords).
 	 */
 	if( Cvar_VariableIntegerValue( "ui_legacy" ) )
 	{
@@ -1339,10 +1348,9 @@ void IN_Frame( void )
 	else if( Key_GetCatcher( ) & KEYCATCH_UI )
 	{
 		/*
-		 * Fixed in OPM: KEYCATCH_UI without in_guimouse is keyboard-only UI
-		 * (in-HUD chat compose). Release relative look so aim freezes while
-		 * typing, but do not show an OS cursor — menus that need a pointer
-		 * call IN_MouseOn / EnterModernInputMode first.
+		 * Fixed in Omaha: KEYCATCH_UI without in_guimouse is keyboard-only UI
+		 * (in-HUD chat compose). Freeze look (no relative mouse), hide OS cursor,
+		 * keep fullscreen grab via IN_DeactivateMouse — no pointer on chat.
 		 */
 		IN_DeactivateMouse( cls.glconfig.isFullscreen );
 		SDL_ShowCursor( SDL_DISABLE );
@@ -1393,7 +1401,7 @@ void IN_Init( void *windowData )
 	Com_DPrintf( "\n------- Input Initialization -------\n" );
 
 	/*
-	 * Fixed in OPM: prefer raw relative mouse; warp-relative fallback can feel
+	 * Fixed in Omaha: prefer raw relative mouse; warp-relative fallback can feel
 	 * like a center dead-zone that only clears after vid_restart.
 	 */
 	SDL_SetHintWithPriority( SDL_HINT_MOUSE_RELATIVE_MODE_WARP, "0", SDL_HINT_OVERRIDE );

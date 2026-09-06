@@ -43,7 +43,7 @@ void UIR_LayerSetBackend(const uir_layer_backend_t *backend);
 int UIR_LayerAvailable(void);
 
 /*
- * Added in OPM: begin soft mask coverage for subsequent draws (full subtree).
+ * Added in Omaha: begin soft mask coverage for subsequent draws (full subtree).
  * maskSpec is either a VFS image path or a linear(...)/radial(...) gradient brush.
  * Uses a UI-only layer RT when available; returns UIR_ERR_NOT_READY / WRONG_PHASE otherwise.
  * Pair with UIR_EndImageMask. Nested calls fail.

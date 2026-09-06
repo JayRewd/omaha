@@ -32,7 +32,7 @@ extern "C" {
 
 #define UIR_MP_MODEL_SCALE_DEFAULT 1.5f
 #define UIR_MP_FOV_DEFAULT         30.0f
-/* Added in OPM: skeletor cache slots for menu previews (below ENTITYNUM_WORLD). */
+/* Added in Omaha: skeletor cache slots for menu previews (below ENTITYNUM_WORLD). */
 #define UIR_MP_ENTITY_BASE 1008
 #define UIR_MP_ENTITY_COUNT 14
 
@@ -82,17 +82,17 @@ void UIR_ModelPreviewSetBackend(const uir_modelpreview_backend_t *backend);
 /* Pure helpers (menu-model-draw.md framing + origin). */
 void UIR_ModelPreviewComputeFraming(float w, float h, float *outScale, float outOffset[3]);
 void UIR_ModelPreviewComputeOrigin(const float mins[3], const float maxs[3], float framingScale, float outOrigin[3]);
-/* Added in OPM: max axis extent of a bbox (for shared bake camera distance). */
+/* Added in Omaha: max axis extent of a bbox (for shared bake camera distance). */
 float UIR_ModelPreviewBBoxExtent(const float mins[3], const float maxs[3]);
-/* Added in OPM: AABB of mins/maxs after entity-style axis transform (columns). */
+/* Added in Omaha: AABB of mins/maxs after entity-style axis transform (columns). */
 void UIR_ModelPreviewAxisTransformBounds(
 	const float mins[3], const float maxs[3], const float axis[3][3], float outMins[3], float outMaxs[3]
 );
-/* Added in OPM: shift AABB by delta (e.g. TIKI load_origin * load_scale). */
+/* Added in Omaha: shift AABB by delta (e.g. TIKI load_origin * load_scale). */
 void UIR_ModelPreviewShiftBounds(
 	const float mins[3], const float maxs[3], const float delta[3], float outMins[3], float outMaxs[3]
 );
-/* Added in OPM: center from (optionally oriented) mins/maxs; sharedExtent > 0 fixes cam distance. */
+/* Added in Omaha: center from (optionally oriented) mins/maxs; sharedExtent > 0 fixes cam distance. */
 void UIR_ModelPreviewComputeOriginShared(
 	const float mins[3],
 	const float maxs[3],
@@ -103,15 +103,15 @@ void UIR_ModelPreviewComputeOriginShared(
 );
 uir_status_t UIR_ModelPreviewCalcFov(int w, int h, float fovXIn, float *fovX, float *fovY);
 
-/* Added in OPM: testable loop wrap for menu model preview animation time. */
+/* Added in Omaha: testable loop wrap for menu model preview animation time. */
 void UIR_ModelPreviewWrapAnimTime(float *animTime, float animLength);
 
-/* Added in OPM: map [0,1) phase onto clip seconds (wraps; length<=0 => 0). */
+/* Added in Omaha: map [0,1) phase onto clip seconds (wraps; length<=0 => 0). */
 float UIR_ModelPreviewPhaseToAnimTime(float animPhase, float animLength);
 
 uir_status_t UIR_ModelPreviewDraw(const uir_rect_t *destPx, const uir_model_preview_params_t *params);
 
-/* Added in OPM: transparent PNG model bake (weapon icons, etc.). */
+/* Added in Omaha: transparent PNG model bake (weapon icons, etc.). */
 typedef struct {
 	int         modelHandle;
 	float       angles[3]; /* pitch yaw roll */
@@ -125,7 +125,7 @@ typedef struct {
 	const char *outPath;
 } uir_model_bake_params_t;
 
-/* Added in OPM: max ModelBounds extent at modelScale (0 if unavailable).
+/* Added in Omaha: max ModelBounds extent at modelScale (0 if unavailable).
  * When angles != NULL, uses oriented AABB extent (matches bake framing). */
 float UIR_ModelBakeExtent(int modelHandle, float modelScale, const float angles[3]);
 

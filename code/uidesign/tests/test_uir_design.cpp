@@ -189,7 +189,7 @@ struct FakeBackendState {
 	std::vector<std::string>        imageDrawLog;
 	std::vector<std::string>        hostRegionLog;
 	std::vector<std::string>        clipRects;
-	/* Added in OPM: vfs path → texel size for leaf <image> layout tests. */
+	/* Added in Omaha: vfs path → texel size for leaf <image> layout tests. */
 	std::map<std::string, std::pair<float, float>> imageSizes;
 	int                             clipDepth = 0;
 	int                             shapeClipBegins = 0;
@@ -201,7 +201,7 @@ struct FakeBackendState {
 	int                             imageMaskDepth = 0;
 	std::vector<std::string>        imageMaskLog;
 	float                           lastPathRotation = 0.0f;
-	/* Added in OPM: mutable host feed for foreach lifetime tests. */
+	/* Added in Omaha: mutable host feed for foreach lifetime tests. */
 	struct LifetimeItem {
 		std::string key;
 		std::string text;
@@ -209,7 +209,7 @@ struct FakeBackendState {
 	std::vector<LifetimeItem> lifetimeItems;
 	uint64_t                 lifetimeRevision = 1;
 	bool                     lifetimeFeedActive = false;
-	/* Added in OPM: per-byte advance for caret/layout measure tests (default 8). */
+	/* Added in Omaha: per-byte advance for caret/layout measure tests (default 8). */
 	float                    fontMeasurePx = 8.0f;
 };
 
@@ -247,7 +247,7 @@ bool fake_cvarWrite(const char *name, const char *value)
 	}
 	auto it = g_fake->cvars.find(name);
 	if (it == g_fake->cvars.end()) {
-		/* Added in OPM: allow creating companion cvars (e.g. r_noborder). */
+		/* Added in Omaha: allow creating companion cvars (e.g. r_noborder). */
 		g_fake->cvars[name] = FakeCvar{value, 0};
 		return true;
 	}
@@ -562,7 +562,7 @@ void fake_drawImage(
 	g_fake->imageDrawLog.push_back(buf);
 }
 
-/* Added in OPM: fake texel size for leaf <image> intrinsic layout. */
+/* Added in Omaha: fake texel size for leaf <image> intrinsic layout. */
 bool fake_imageMeasure(const char *vfsPath, float *outW, float *outH)
 {
 	if (!g_fake || !vfsPath || !outW || !outH) {
@@ -726,7 +726,7 @@ static void fake_drawImageUir(
 	);
 }
 
-/* Added in OPM: host option arrays for cyclic source= tests. */
+/* Added in Omaha: host option arrays for cyclic source= tests. */
 int fake_queryOptions(const char *source, char **values, char **labels, int max)
 {
 	static char valueBuf[8][64];
@@ -914,7 +914,7 @@ int fake_queryCollectionItems(const uid_collection_query_t *query, uid_collectio
 		}
 		return written;
 	}
-	/* Added in OPM: tiny host feed for join() label aggregate tests. */
+	/* Added in Omaha: tiny host feed for join() label aggregate tests. */
 	if (std::strcmp(query->source, "join-demo") == 0) {
 		static char nameBuf[4][32];
 		static char specBuf[4][4];
@@ -1094,7 +1094,7 @@ int fake_queryCollectionItems(const uid_collection_query_t *query, uid_collectio
 		}
 		return written;
 	}
-	/* Added in OPM: hud-chat and hud-kill-feed fake providers. */
+	/* Added in Omaha: hud-chat and hud-kill-feed fake providers. */
 	if (std::strcmp(query->source, "hud-chat") == 0) {
 		static char chatTextBuf[5][64];
 		static char chatColorBuf[5][16];
@@ -1449,7 +1449,7 @@ const char *kBindDoc = R"UID(
 </ui>
 )UID";
 
-/* Added in OPM: select modal= opens type=relative modal (no procedural overlay paint). */
+/* Added in Omaha: select modal= opens type=relative modal (no procedural overlay paint). */
 const char *kOverlayDoc = R"UID(
 <ui version="1">
   <definitions>
@@ -1562,7 +1562,7 @@ void TestValues(void)
 	CHECK(UID_ParseExactCvarBraceBinding("{cvar:ui_om_hud_health}", &cvarName));
 	CHECK(cvarName == "ui_om_hud_health");
 	CHECK(!UID_ParseExactCvarBraceBinding("textures/hud/clip_rifle", &cvarName));
-	/* Fixed in OPM: style ternaries that start with cvar. are not exact cvar binds. */
+	/* Fixed in Omaha: style ternaries that start with cvar. are not exact cvar binds. */
 	CHECK(!UID_ParseExactCvarBraceBinding(
 		"{cvar.ui_om_hud_last_gun != cvar.ui_om_hud_primary_name ? var.fill-panel : var.fill-transparent}",
 		&cvarName
@@ -1659,7 +1659,7 @@ void TestModuloExpression(void)
 	CHECK_EQ_F(v, 1.0, 1e-5);
 }
 
-/* Added in OPM: whitelisted abs/min/max/clamp numeric helpers. */
+/* Added in Omaha: whitelisted abs/min/max/clamp numeric helpers. */
 void TestNumericHelperFunctions(void)
 {
 	uid_expr_limits_t lim;
@@ -1811,7 +1811,7 @@ void TestForeachCountExpansion(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: {var.*} on foreach template props (stroke, etc.) must resolve. */
+/* Added in Omaha: {var.*} on foreach template props (stroke, etc.) must resolve. */
 void TestForeachTemplateVarStrokeResolve(void)
 {
 	static const char *kDoc = R"(
@@ -1996,26 +1996,38 @@ void TestAmmoClipTopSync(void)
 	CHECK(UID_CompileDocument(doc, &diags) == UID_OK);
 	UID_SyncBindings(doc, &be);
 
-	bool foundClip = false;
-	for (const uid_node_def_t &n : doc->nodes) {
-		if (!n.foreachGenerated || n.properties.GetCStr("shape", nullptr) == nullptr) {
-			continue;
+	auto findClipTop = [&](double *outTop) -> bool {
+		for (const uid_node_def_t &n : doc->nodes) {
+			if (!n.foreachGenerated || n.properties.GetCStr("shape", nullptr) == nullptr) {
+				continue;
+			}
+			const char *shape = n.properties.GetCStr("shape", "");
+			if (std::strcmp(shape, "edge-clip") != 0) {
+				continue;
+			}
+			const char *top = n.properties.GetCStr("top", nullptr);
+			CHECK(top != nullptr);
+			CHECK(UID_ParseNumber(top, outTop, nullptr));
+			const char *bg = n.properties.GetCStr("background-image", nullptr);
+			CHECK(bg != nullptr);
+			CHECK(std::strcmp(bg, "textures/hud/clip_pistol") == 0);
+			return true;
 		}
-		const char *shape = n.properties.GetCStr("shape", "");
-		if (std::strcmp(shape, "edge-clip") != 0) {
-			continue;
-		}
-		const char *top = n.properties.GetCStr("top", nullptr);
-		CHECK(top != nullptr);
-		double topVal = 0.0;
-		CHECK(UID_ParseNumber(top, &topVal, nullptr));
-		CHECK_EQ_F(topVal, 0.25, 1e-5);
-		const char *bg = n.properties.GetCStr("background-image", nullptr);
-		CHECK(bg != nullptr);
-		CHECK(std::strcmp(bg, "textures/hud/clip_pistol") == 0);
-		foundClip = true;
-	}
-	CHECK(foundClip);
+		return false;
+	};
+
+	double topVal = 0.0;
+	CHECK(findClipTop(&topVal));
+	CHECK_EQ_F(topVal, 0.25, 1e-5);
+
+	/*
+	 * Fixed in Omaha: same-weapon foreach revision must still refresh exprBound
+	 * top when clip ammo changes (edge-clip bullets).
+	 */
+	st.cvars["ui_om_hud_clip"] = FakeCvar{"4", 0};
+	UID_SyncBindings(doc, &be);
+	CHECK(findClipTop(&topVal));
+	CHECK_EQ_F(topVal, 0.5, 1e-5);
 
 	g_testImportFiles.clear();
 	UID_DestroyDocument(doc);
@@ -2383,7 +2395,7 @@ void TestExprBoundMarginDoubleMultiply(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: auto container sizes to fixed children + padding + stroke (modern weapons_bar). */
+/* Added in Omaha: auto container sizes to fixed children + padding + stroke (modern weapons_bar). */
 void TestWeaponsBarAutoChildrenPadding(void)
 {
 	static const char *kDoc = R"(
@@ -2439,7 +2451,7 @@ void TestWeaponsBarAutoChildrenPadding(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: stroke-layout=false keeps auto size at children+padding only. */
+/* Added in Omaha: stroke-layout=false keeps auto size at children+padding only. */
 void TestStrokeLayoutFalseAutoSize(void)
 {
 	static const char *kDoc = R"(
@@ -2484,7 +2496,7 @@ void TestStrokeLayoutFalseAutoSize(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: non-rect shape clips descendants during paint (layout unchanged). */
+/* Added in Omaha: non-rect shape clips descendants during paint (layout unchanged). */
 void TestShapeClipsChildrenPaint(void)
 {
 	static const char *kDoc = R"(
@@ -2538,7 +2550,7 @@ void TestShapeClipsChildrenPaint(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: mask-image wraps background + children; nested mask fails. */
+/* Added in Omaha: mask-image wraps background + children; nested mask fails. */
 void TestImageMaskPaint(void)
 {
 	static const char *kDoc = R"(
@@ -2661,7 +2673,7 @@ void TestImageMaskNullHooksSafe(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: mask-image accepts linear/radial gradient brushes. */
+/* Added in Omaha: mask-image accepts linear/radial gradient brushes. */
 void TestImageMaskGradientBrush(void)
 {
 	static const char *kDoc = R"XML(
@@ -2842,7 +2854,7 @@ void TestAutoParentExpandsForFill(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Fixed in OPM: horizontal height=auto + width=fill children must not steal vertical fill. */
+/* Fixed in Omaha: horizontal height=auto + width=fill children must not steal vertical fill. */
 void TestHorizontalAutoHeightNotPromotedInVerticalParent(void)
 {
 	static const char *kDoc = R"(
@@ -3522,7 +3534,7 @@ const char *kCanvasUnknownAttrDoc = R"(
 </ui>
 )";
 
-/* Added in OPM: canvas pointer="{bool expr}" menu cursor ownership. */
+/* Added in Omaha: canvas pointer="{bool expr}" menu cursor ownership. */
 void TestCanvasPointerAttr(void)
 {
 	uid_limits_t lim;
@@ -4452,7 +4464,7 @@ void TestMainXmlLoads(void)
 	CHECK(status == UID_OK);
 	CHECK(!diags.HasErrors());
 
-	/* Added in OPM: player-model selects must wire modal= to relative modal defs. */
+	/* Added in Omaha: player-model selects must wire modal= to relative modal defs. */
 	CHECK(doc->definitions.modals.count("player-model-allies") == 1);
 	CHECK(doc->definitions.modals.count("player-model-axis") == 1);
 	CHECK(doc->definitions.modals["player-model-allies"].type == "relative");
@@ -4470,7 +4482,7 @@ void TestMainXmlLoads(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: click-release on select modal= must mount relative modal with items. */
+/* Added in Omaha: click-release on select modal= must mount relative modal with items. */
 void TestSelectModalClickOpen(void)
 {
 	const char *xml = R"(
@@ -4583,7 +4595,7 @@ void TestSelectModalClickOpen(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: full main.xml Allies select click mounts player-model-allies. */
+/* Added in Omaha: full main.xml Allies select click mounts player-model-allies. */
 void TestMainSelectModalClick(void)
 {
 	std::string path = std::string(UID_TEST_FIXTURE_DIR) + "/main.xml";
@@ -4722,7 +4734,7 @@ void TestOverlayPaint(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: appearance=cyclic steps/wraps; Enter does not open overlay. */
+/* Added in Omaha: appearance=cyclic steps/wraps; Enter does not open overlay. */
 void TestCyclicSelect(void)
 {
 	uid_limits_t lim;
@@ -4815,7 +4827,7 @@ void TestCyclicSelect(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: cyclic select filled from source= + queryOptions. */
+/* Added in Omaha: cyclic select filled from source= + queryOptions. */
 void TestCyclicSelectSource(void)
 {
 	static const char *kDoc = R"(
@@ -4863,7 +4875,7 @@ void TestCyclicSelectSource(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: Off/On + Sensitivity Mode two-button groups. */
+/* Added in Omaha: Off/On + Sensitivity Mode two-button groups. */
 void TestSettingsOnOffButtons(void)
 {
 	static const char *kDoc = R"(
@@ -4996,7 +5008,7 @@ void TestBindSelectedNumericMatch(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: use-site visible AND template search `or` must keep parent gate. */
+/* Added in Omaha: use-site visible AND template search `or` must keep parent gate. */
 void TestUseVisibleAndSearchOrPrecedence(void)
 {
 	static const char *kDoc = R"(
@@ -5065,7 +5077,7 @@ void TestUseVisibleAndSearchOrPrecedence(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: percent / invert-mouse / cm360 value-types. */
+/* Added in Omaha: percent / invert-mouse / cm360 value-types. */
 void TestValueTypeTransforms(void)
 {
 	static const char *kDoc = R"(
@@ -5193,7 +5205,7 @@ void TestInvertMouseBindSelected(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: slider/number display precision follows authored step. */
+/* Added in Omaha: slider/number display precision follows authored step. */
 void TestSteppedNumberDisplay(void)
 {
 	char buf[64];
@@ -5246,7 +5258,7 @@ void TestSteppedNumberDisplay(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: enabled-if="cvar:name=value" toggles node enabled. */
+/* Added in Omaha: enabled-if="cvar:name=value" toggles node enabled. */
 void TestEnabledIf(void)
 {
 	static const char *kDoc = R"(
@@ -5292,7 +5304,7 @@ void TestEnabledIf(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: brace bool expressions on visible/enabled. */
+/* Added in Omaha: brace bool expressions on visible/enabled. */
 void TestBoolExpr(void)
 {
 	bool result = false;
@@ -5318,7 +5330,7 @@ void TestBoolExpr(void)
 	CHECK(UID_EvalBool("cvar.ui_om_settings_tab == video and cvar.ui_om_main_panel == play", &ctx, &lim, &result, &diag) && result);
 	CHECK(UID_EvalBool("cvar.ui_om_settings_tab == video or cvar.ui_om_main_panel == settings", &ctx, &lim, &result, &diag) && result);
 	CHECK(UID_EvalBool("!false", &ctx, &lim, &result, &diag) && result);
-	/* Changed in OPM: C-style && / || are rejected in favor of and / or. */
+	/* Changed in Omaha: C-style && / || are rejected in favor of and / or. */
 	CHECK(!UID_EvalBool("true && false", &ctx, &lim, &result, &diag));
 	CHECK(diag.find("and") != std::string::npos || diag.find("or") != std::string::npos);
 	CHECK(!UID_EvalBool("true || false", &ctx, &lim, &result, &diag));
@@ -5372,13 +5384,13 @@ void TestBoolExpr(void)
 	st.cvars["ui_om_hud_active_weapon"] = FakeCvar{"", 0};
 	CHECK(UID_EvalBool("cvar.ui_om_hud_active_weapon != ''", &ctx, &lim, &result, &diag) && !result);
 
-	/* Added in OPM: classic HUD MP visibility gates. */
+	/* Added in Omaha: classic HUD MP visibility gates. */
 	st.cvars["ui_om_hud_stopwatch_ms"] = FakeCvar{"0", 0};
 	CHECK(UID_EvalBool("cvar.ui_om_hud_stopwatch_ms > 0", &ctx, &lim, &result, &diag) && !result);
 	st.cvars["ui_om_hud_stopwatch_ms"] = FakeCvar{"15000", 0};
 	CHECK(UID_EvalBool("cvar.ui_om_hud_stopwatch_ms > 0", &ctx, &lim, &result, &diag) && result);
 
-	/* Added in OPM: arithmetic in bool compare operands (visible/style conditions). */
+	/* Added in Omaha: arithmetic in bool compare operands (visible/style conditions). */
 	st.cvars["ui_om_hud_health"] = FakeCvar{"55", 0};
 	ctx.itemIndex = 5;
 	ctx.itemCount = 10;
@@ -5423,7 +5435,7 @@ void TestBoolExpr(void)
 	CHECK(UID_EvalStyleTernary("item.last ? 5px : 3px", &ctx, &lim, &styleVal, &diag));
 	CHECK(styleVal == "3px");
 
-	/* Added in OPM: nested style ternaries in else branch. */
+	/* Added in Omaha: nested style ternaries in else branch. */
 	st.cvars["ui_om_hud_health"] = FakeCvar{"55", 0};
 	ctx.itemIndex = 3;
 	ctx.itemCount = 10;
@@ -5648,7 +5660,7 @@ void TestSettingsFixtureFile(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: authored px scales; % of canvas does not. */
+/* Added in Omaha: authored px scales; % of canvas does not. */
 void TestUiPxScale(void)
 {
 	const char *xml = R"(
@@ -5688,7 +5700,7 @@ void TestUiPxScale(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: composed slider track/range/thumb layout from value. */
+/* Added in Omaha: composed slider track/range/thumb layout from value. */
 void TestComposedSlider(void)
 {
 	const char *xml = R"(
@@ -5763,7 +5775,7 @@ void TestComposedSlider(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: focused text caret X uses fontMeasure of the prefix, not 8px/codepoint. */
+/* Added in Omaha: focused text caret X uses fontMeasure of the prefix, not 8px/codepoint. */
 void TestInputCaretUsesFontMeasure(void)
 {
 	const char *xml = R"(
@@ -5829,7 +5841,7 @@ void TestInputCaretUsesFontMeasure(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: number <input> min/max/step may use {template.*} like <slider>. */
+/* Added in Omaha: number <input> min/max/step may use {template.*} like <slider>. */
 void TestTemplateInputBounds(void)
 {
 	const char *xml = R"(
@@ -5887,7 +5899,7 @@ void TestTemplateInputBounds(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: border* attrs are compile errors after stroke-only migration. */
+/* Added in Omaha: border* attrs are compile errors after stroke-only migration. */
 void TestBorderAttrRejected(void)
 {
 	const char *xml = R"(
@@ -5911,7 +5923,7 @@ void TestBorderAttrRejected(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: built-in rectangle shape when definitions omit it. */
+/* Added in Omaha: built-in rectangle shape when definitions omit it. */
 void TestBuiltinRectangleShape(void)
 {
 	const char *xml = R"(
@@ -5944,7 +5956,7 @@ void TestBuiltinRectangleShape(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: shape-rotation compile validation. */
+/* Added in Omaha: shape-rotation compile validation. */
 void TestShapeRotationRejected(void)
 {
 	const char *xml = R"(
@@ -5968,7 +5980,7 @@ void TestShapeRotationRejected(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: shape-rotation is paint-only; layout unchanged, drawPath gets rotation. */
+/* Added in Omaha: shape-rotation is paint-only; layout unchanged, drawPath gets rotation. */
 void TestShapeRotationPaint(void)
 {
 	const char *xml = R"(
@@ -6093,7 +6105,7 @@ void TestTextRotationPaint(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: rotated rectangles route through drawPath, not solid rect fast path. */
+/* Added in Omaha: rotated rectangles route through drawPath, not solid rect fast path. */
 void TestRotatedRectangleUsesPath(void)
 {
 	const char *xml = R"(
@@ -6137,7 +6149,7 @@ void TestRotatedRectangleUsesPath(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: nested shape containers inside buttons get laid out and painted. */
+/* Added in Omaha: nested shape containers inside buttons get laid out and painted. */
 void TestButtonNestedShapeChild(void)
 {
 	const char *xml = R"(
@@ -6187,7 +6199,7 @@ void TestButtonNestedShapeChild(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: width=auto on icon buttons includes child shapes and padding. */
+/* Added in Omaha: width=auto on icon buttons includes child shapes and padding. */
 void TestButtonAutoWidthIconPadding(void)
 {
 	const char *xml = R"(
@@ -6235,7 +6247,7 @@ void TestButtonAutoWidthIconPadding(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: settings-cyclic template paints foreach label and chevron paths. */
+/* Added in Omaha: settings-cyclic template paints foreach label and chevron paths. */
 void TestSettingsCyclicTemplatePaint(void)
 {
 	static const char *kDoc = R"(
@@ -6311,9 +6323,13 @@ void TestSettingsCyclicTemplatePaint(void)
 	CHECK(UID_LayoutDocument(doc, 320, 80, 1.0f, 1.0f, &be, &diags) == UID_OK);
 
 	bool foundResolvedLabel = false;
-	for (const uid_node_def_t &n : doc->nodes) {
-		if (n.kind == UID_NODE_LABEL &&
-		    (n.text == "Fullscreen" || n.text == "Borderless" || n.text == "Windowed")) {
+	for (size_t i = 0; i < doc->nodes.size(); ++i) {
+		const uid_node_def_t &n = doc->nodes[i];
+		if (n.kind != UID_NODE_LABEL) {
+			continue;
+		}
+		const std::string shown = UID_NodeDisplayText(doc, static_cast<uid_node_id_t>(i));
+		if (shown == "Fullscreen" || shown == "Borderless" || shown == "Windowed") {
 			foundResolvedLabel = true;
 		}
 	}
@@ -6352,7 +6368,7 @@ void TestSettingsCyclicTemplatePaint(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: stroke/stroke-width on the using element drill into drawPath. */
+/* Added in Omaha: stroke/stroke-width on the using element drill into drawPath. */
 void TestElementStroke(void)
 {
 	const char *xml = R"(
@@ -6431,7 +6447,7 @@ void TestElementStroke(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: label/button drop-shadow paints five black offset passes before main text. */
+/* Added in Omaha: label/button drop-shadow paints five black offset passes before main text. */
 void TestDropShadow(void)
 {
 	static const char *kDoc = R"(
@@ -6582,7 +6598,7 @@ void TestDropShadow(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: parent containers cascade extended text-style props to descendants. */
+/* Added in Omaha: parent containers cascade extended text-style props to descendants. */
 void TestTextStyleInheritance(void)
 {
 	static const char *kDoc = R"(
@@ -6647,7 +6663,7 @@ void TestTextStyleInheritance(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: drop-shadow inherited from parent container paints on child label. */
+/* Added in Omaha: drop-shadow inherited from parent container paints on child label. */
 void TestInheritedDropShadowPaint(void)
 {
 	static const char *kDoc = R"(
@@ -6837,7 +6853,7 @@ void TestDesignVarsImportMerge(void)
 	g_testImportFiles.clear();
 }
 
-/* Added in OPM: composable foreach cyclic (step-index + mode=selected). */
+/* Added in Omaha: composable foreach cyclic (step-index + mode=selected). */
 void TestComposableCyclicForeach(void)
 {
 	static const char *kDoc = R"(
@@ -6884,15 +6900,16 @@ void TestComposableCyclicForeach(void)
 
 	uid_node_id_t lbl = doc->idIndex.count("lbl") ? doc->idIndex["lbl"] : UID_INVALID_NODE_ID;
 	CHECK(lbl >= 0);
-	CHECK(UID_GetNode(doc, lbl)->text == "Fullscreen");
+	CHECK(UID_GetNode(doc, lbl)->text.find("{item.") != std::string::npos);
+	CHECK(UID_NodeDisplayText(doc, lbl) == "Fullscreen");
 
 	uid_node_id_t scopeId = doc->idIndex.count("scope") ? doc->idIndex["scope"] : UID_INVALID_NODE_ID;
 	CHECK(scopeId >= 0);
 	CHECK(UID_StepCollectionIndex(doc, scopeId, 1, &be));
 	UID_SyncBindings(doc, &be);
-	lbl = doc->idIndex.count("lbl") ? doc->idIndex["lbl"] : UID_INVALID_NODE_ID;
-	CHECK(lbl >= 0);
-	CHECK(UID_GetNode(doc, lbl)->text == "Borderless");
+	const uid_node_id_t lblAfter = doc->idIndex.count("lbl") ? doc->idIndex["lbl"] : UID_INVALID_NODE_ID;
+	CHECK(lblAfter == lbl); /* Fixed in Omaha: mode=selected rebinds in place (no teardown). */
+	CHECK(UID_NodeDisplayText(doc, lblAfter) == "Borderless");
 
 	UID_DestroyDocument(doc);
 }
@@ -6950,7 +6967,8 @@ void TestCyclicCommitApplyStagesUntilFlush(void)
 	CHECK(st.cvars["r_picmip"].value == "1");
 	uid_node_id_t lbl = doc->idIndex.count("lbl") ? doc->idIndex["lbl"] : UID_INVALID_NODE_ID;
 	CHECK(lbl >= 0);
-	CHECK(UID_GetNode(doc, lbl)->text == "Medium");
+	CHECK(UID_GetNode(doc, lbl)->text.find("{item.") != std::string::npos);
+	CHECK(UID_NodeDisplayText(doc, lbl) == "Medium");
 
 	CHECK(UID_WriteAllBindings(doc, &be) == UID_OK);
 	CHECK(st.cvars["r_picmip"].value == "2");
@@ -6958,7 +6976,7 @@ void TestCyclicCommitApplyStagesUntilFlush(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: vertical list row click via set-index on foreach row. */
+/* Added in Omaha: vertical list row click via set-index on foreach row. */
 void TestComposableVerticalList(void)
 {
 	static const char *kDoc = R"(
@@ -7009,7 +7027,7 @@ void TestComposableVerticalList(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: XML-authored collection sources + default selection + tab/indicator patterns. */
+/* Added in Omaha: XML-authored collection sources + default selection + tab/indicator patterns. */
 void TestXmlCollectionSource(void)
 {
 	static const char *kDoc = R"(
@@ -7241,7 +7259,8 @@ void TestTabBarForeach(void)
 	int separators = 0;
 	for (size_t i = 0; i < doc->nodes.size(); ++i) {
 		const uid_node_def_t &n = doc->nodes[i];
-		if (n.kind == UID_NODE_BUTTON && n.text == "B") {
+		if (n.kind == UID_NODE_BUTTON &&
+			UID_NodeDisplayText(doc, static_cast<uid_node_id_t>(i)) == "B") {
 			const char *vis = n.properties.GetCStr("visible", "true");
 			if (vis && std::strcmp(vis, "false") != 0) {
 				selectedButtons++;
@@ -7297,7 +7316,8 @@ void TestCollectionDisplayValue(void)
 	CHECK(UID_LayoutDocument(doc, 200, 64, 1.0f, 1.0f, &be, &diags) == UID_OK);
 	uid_node_id_t lbl = doc->idIndex.count("val") ? doc->idIndex["val"] : UID_INVALID_NODE_ID;
 	CHECK(lbl >= 0);
-	CHECK(UID_GetNode(doc, lbl)->text == "125");
+	CHECK(UID_GetNode(doc, lbl)->text.find("{item.") != std::string::npos);
+	CHECK(UID_NodeDisplayText(doc, lbl) == "125");
 	UID_DestroyDocument(doc);
 }
 
@@ -7340,7 +7360,7 @@ void TestHostCollectionFallback(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: foreach re-expand must not use invalidated scope state after node compaction. */
+/* Added in Omaha: foreach re-expand must not use invalidated scope state after node compaction. */
 void TestForeachTemplateWrapLayout(void)
 {
 	static const char *kDoc = R"(
@@ -7506,7 +7526,7 @@ void TestCollectionSelectedFill(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: mode=window sized from viewport/row-height; scrollY drives offset; synthetic extent. */
+/* Added in Omaha: mode=window sized from viewport/row-height; scrollY drives offset; synthetic extent. */
 void TestWindowForeachScroll(void)
 {
 	static const char *kDoc = R"(
@@ -7829,7 +7849,7 @@ void TestMaxWidthClamp(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: hidden panels skip Expand/Refresh; reveal expands same SyncBindings. */
+/* Added in Omaha: hidden panels skip Expand/Refresh; reveal expands same SyncBindings. */
 void TestCollectionVisibilityCull(void)
 {
 	static const char *kDoc = R"(
@@ -8432,7 +8452,7 @@ void TestMainXmlRuntime(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: type=relative modal panel flips/clamps/scrolls vs opener. */
+/* Added in Omaha: type=relative modal panel flips/clamps/scrolls vs opener. */
 static void OpenRelativeFromOpener(
 	uid_document_t *doc,
 	FakeBackendState *st,
@@ -8675,7 +8695,7 @@ void TestScrollbarMissingDefaultTemplate(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: templated scrollbar chrome on overflow=scroll containers. */
+/* Added in Omaha: templated scrollbar chrome on overflow=scroll containers. */
 void TestScrollbarTemplated(void)
 {
 	const char *xml = R"(
@@ -8906,7 +8926,7 @@ void TestScrollbarTemplated(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: scrollbar-edge content vs border on padded scroll containers. */
+/* Added in Omaha: scrollbar-edge content vs border on padded scroll containers. */
 void TestScrollbarEdge(void)
 {
 	const char *xml = R"(
@@ -9422,7 +9442,7 @@ void TestBackgroundImageRectFastPath(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: leaf <image> parse, aspect auto width, paint fit=contain. */
+/* Added in Omaha: leaf <image> parse, aspect auto width, paint fit=contain. */
 void TestLeafImageAspectLayout(void)
 {
 	static const char kDoc[] = R"(<ui version="1">
@@ -9472,7 +9492,7 @@ void TestLeafImageAspectLayout(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: nested auto parents must inherit aspect-derived image width
+/* Added in Omaha: nested auto parents must inherit aspect-derived image width
  * (killfeed: overlap → source → foreach → image height=20 width=auto). */
 void TestLeafImageNestedIntrinsicWidth(void)
 {
@@ -9590,7 +9610,7 @@ void TestLeafImageItemFieldBind(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: atlas gradient fill paints via drawGradient; shape clip; no solid fill. */
+/* Added in Omaha: atlas gradient fill paints via drawGradient; shape clip; no solid fill. */
 void TestGradientFillPaint(void)
 {
 	static const char kDoc[] = R"XML(<ui version="1">
@@ -9677,7 +9697,7 @@ void TestGradientFillPaint(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: crosshair settings preview paints via shape instances + cvar-backed props. */
+/* Added in Omaha: crosshair settings preview paints via shape instances + cvar-backed props. */
 void TestCrosshairDisplayShape(void)
 {
 	const char *xml = R"(
@@ -9748,7 +9768,7 @@ void TestCrosshairDisplayShape(void)
 }
 
 /*
- * Added in OPM: intrinsic shape px props must not take uiPxScale twice
+ * Added in Omaha: intrinsic shape px props must not take uiPxScale twice
  * (layout box × view→dest stretch already applies DIP).
  */
 void TestIntrinsicShapePropScale(void)
@@ -10132,7 +10152,7 @@ static void TestOverlapCompassTemplateLayout(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: template.* idents bake inside mixed runtime exprs (cvar + props). */
+/* Added in Omaha: template.* idents bake inside mixed runtime exprs (cvar + props). */
 static void TestTemplatePropsInMixedRuntimeExpr(void)
 {
 	static const char *kDoc = R"(
@@ -10198,7 +10218,7 @@ static void TestTemplatePropsInMixedRuntimeExpr(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: translate-x/y post-flow offset; siblings ignore it; parent clip still applies. */
+/* Added in Omaha: translate-x/y post-flow offset; siblings ignore it; parent clip still applies. */
 static void TestTranslateOffsetLayout(void)
 {
 	static const char *kDoc = R"(
@@ -10717,7 +10737,7 @@ static void TestScoreboardKdFormat(void)
 	CHECK(std::strcmp(buf, "0.00") == 0);
 }
 
-/* Added in OPM: join(source, field, sep[, filter]) in label text. */
+/* Added in Omaha: join(source, field, sep[, filter]) in label text. */
 static void TestJoinCollectionLabel(void)
 {
 	static const char *kDoc = R"(
@@ -10765,7 +10785,7 @@ static void TestJoinCollectionLabel(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: windowed-foreach overscan must not paint row dividers below the scroll viewport. */
+/* Added in Omaha: windowed-foreach overscan must not paint row dividers below the scroll viewport. */
 static void TestWindowForeachOverscanPaintCull(void)
 {
 	static const char *kDoc = R"(
@@ -10841,7 +10861,7 @@ static void TestWindowForeachOverscanPaintCull(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: label marquee paint offset when text overflows the content box. */
+/* Added in Omaha: label marquee paint offset when text overflows the content box. */
 static void TestMarqueeLabelPaint(void)
 {
 	static const char *kDoc = R"(
@@ -11031,7 +11051,7 @@ static void TestTextOverflowEllipsis(void)
 	UID_DestroyDocument(doc);
 }
 
-/* Added in OPM: printdeathmsg phrase classifier fixtures. */
+/* Added in Omaha: printdeathmsg phrase classifier fixtures. */
 static void TestKillFeedClassify(void)
 {
 	char weapon[32];

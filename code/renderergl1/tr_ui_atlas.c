@@ -54,7 +54,7 @@ qboolean RE_UpdateUIAtlas(qhandle_t hShader, const byte *rgba, int width, int he
 		return qfalse;
 	}
 
-	/* Fixed in OPM: flush queued cmds before immediate GL texture update. */
+	/* Fixed in Omaha: flush queued cmds before immediate GL texture update. */
 	R_IssuePendingRenderCommands();
 	GL_Bind(image);
 	qglTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
@@ -98,7 +98,7 @@ qhandle_t RE_CreateUIAtlas(const char *name, const byte *rgba, int width, int he
 		}
 	}
 
-	/* Fixed in OPM: flush queued cmds before immediate GL texture create. */
+	/* Fixed in Omaha: flush queued cmds before immediate GL texture create. */
 	R_IssuePendingRenderCommands();
 	wrapMode = haveClampToEdge ? GL_CLAMP_TO_EDGE : GL_CLAMP;
 	image = R_CreateImageOld(

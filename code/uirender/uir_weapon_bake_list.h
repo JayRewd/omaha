@@ -28,7 +28,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 extern "C" {
 #endif
 
-/* Added in OPM: gun vs grenade vs misc for shared-scale bake groups. */
+/* Added in Omaha: gun vs grenade vs misc for shared-scale bake groups. */
 typedef enum {
 	UIR_BAKE_GUN = 0,
 	UIR_BAKE_GRENADE,

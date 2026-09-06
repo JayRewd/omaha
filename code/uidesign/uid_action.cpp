@@ -262,7 +262,7 @@ uid_result_t UID_DispatchEvent(
 			}
 			if (action.kind == UID_NODE_SHOW_MODAL) {
 				const char *cvarName = action.target.empty() ? UID_DefaultModalCvarName() : action.target.c_str();
-				/* Added in OPM: remember opener for type=relative modal placement. */
+				/* Added in Omaha: remember opener for type=relative modal placement. */
 				doc->modalOpenerNode = nodeId;
 				if (!backend->cvarWrite(cvarName, action.name.c_str())) {
 					result = UID_ERR_VALIDATE;

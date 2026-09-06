@@ -27,10 +27,10 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 extern "C" {
 #endif
 
-/* Added in OPM: parse TA printdeathmsg into structured kill-feed host row. */
+/* Added in Omaha: parse TA printdeathmsg into structured kill-feed host row. */
 void CL_KillFeed_HandlePrintDeathMsg(void);
 
-/* Added in OPM: Base MOH death lines arrive as print → dmbox; parse into kill-feed. */
+/* Added in Omaha: Base MOH death lines arrive as print → dmbox; parse into kill-feed. */
 void CL_KillFeed_HandleDeathPrint(const char *text, int friendly);
 
 /* Testable classifier — match raw English s1/s2 before LV_ConvertString. */
@@ -46,7 +46,7 @@ void CL_KillFeed_Classify(
 	int        *friendlyOut
 );
 
-/* Added in OPM: reverse-parse G_PrintDeathMessageEmulated English line. */
+/* Added in Omaha: reverse-parse G_PrintDeathMessageEmulated English line. */
 qboolean CL_KillFeed_ParseDeathPrint(
 	const char *text,
 	char       *victimOut,

@@ -27,7 +27,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "uid_backend.h"
 #include "uid_document.h"
 
-/* Added in OPM: mount/unmount definition modals via ui_om_modal (or custom cvar). */
+/* Added in Omaha: mount/unmount definition modals via ui_om_modal (or custom cvar). */
 void UID_SyncModals(uid_document_t *doc, const uid_backend_t *backend);
 
 bool UID_IsModalActive(const uid_document_t *doc);

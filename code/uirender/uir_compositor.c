@@ -46,11 +46,11 @@ static void                 *g_overlayUd;
 static uir_stats_t           g_stats;
 static uir_rect_t            g_clipStack[UIR_MAX_CLIP_DEPTH];
 static int                   g_clipDepth;
-/* Added in OPM: skip redundant flush+scissor when clip is unchanged. */
+/* Added in Omaha: skip redundant flush+scissor when clip is unchanged. */
 static uir_rect_t            g_appliedClip;
 static int                   g_appliedClipValid;
 static int                   g_clipDedup = 1;
-/* Added in OPM: retained chrome cache (idle blit). */
+/* Added in Omaha: retained chrome cache (idle blit). */
 static uir_chrome_cache_backend_t g_chromeCacheBe;
 static int                   g_chromeCacheEnabled;
 static int                   g_chromeCacheValid;
@@ -217,7 +217,7 @@ static void uir_apply_clip_scissor(const uir_rect_t *clip)
 	int sx, sy, sw, sh, syGl;
 	float fx0, fy0, fx1, fy1;
 
-	/* Added in OPM: skip flush+scissor when the logical clip is unchanged. */
+	/* Added in Omaha: skip flush+scissor when the logical clip is unchanged. */
 	if (g_clipDedup && g_appliedClipValid && uir_clip_rects_equal(clip, &g_appliedClip)) {
 		g_stats.clipSkips++;
 		return;
@@ -235,7 +235,7 @@ static void uir_apply_clip_scissor(const uir_rect_t *clip)
 	if (sh < 0) {
 		sh = 0;
 	}
-	/* Fixed in OPM: top-left FB → OpenGL bottom-left scissor Y. */
+	/* Fixed in Omaha: top-left FB → OpenGL bottom-left scissor Y. */
 	syGl = g_vp.vpY + g_vp.vpH - (sy + sh);
 	/* UIR_Draw2D_Scissor already flushes the batch. */
 	UIR_Draw2D_Scissor(sx, syGl, sw, sh);
@@ -261,7 +261,7 @@ void UIR_ResetClipStack(void)
 {
 	uir_rect_t full;
 	g_clipDepth = 0;
-	/* Added in OPM: force re-apply of full-viewport scissor. */
+	/* Added in Omaha: force re-apply of full-viewport scissor. */
 	g_appliedClipValid = 0;
 	full.x = g_vp.orthoL;
 	full.y = g_vp.orthoT;
@@ -419,7 +419,7 @@ uir_status_t UIR_FillPath2D(const uir_path_t *path, const uir_color_t *rgba, int
 	return UIR_Draw2D_Path(&g_vp, path, rgba, &g_stats, crisp, noFringe);
 }
 
-/* Added in OPM */
+/* Added in Omaha */
 uir_status_t UIR_StrokePath2D(const uir_path_t *path, const uir_color_t *rgba, float widthPx, int crisp)
 {
 	if (g_phase != UIR_PHASE_CHROME && g_phase != UIR_PHASE_OVERLAY) {
@@ -448,7 +448,7 @@ uir_status_t UIR_QueueModelPreview(const uir_rect_t *rect, const uir_model_previ
 	if (!slot->params.realtime) {
 		slot->params.realtime = g_realtime;
 	}
-	/* Fixed in OPM: copy anim so host stack strings survive until preview phase. */
+	/* Fixed in Omaha: copy anim so host stack strings survive until preview phase. */
 	if (params->animName && params->animName[0]) {
 		Q_strncpyz(slot->animStorage, params->animName, sizeof(slot->animStorage));
 		slot->params.animName = slot->animStorage;
@@ -463,7 +463,7 @@ uir_status_t UIR_QueueModelPreview(const uir_rect_t *rect, const uir_model_previ
 
 uir_status_t UIR_EndDisconnectedFrame(void);
 
-/* Added in OPM: chrome-only frame over live gameplay (no menu-map world). */
+/* Added in Omaha: chrome-only frame over live gameplay (no menu-map world). */
 uir_status_t UIR_BeginOverlayFrame(const uir_viewport_t *vp, int realtime)
 {
 	if (!vp) {
@@ -504,7 +504,7 @@ uir_status_t UIR_EndOverlayFrame(void)
 	UIR_BatchTargetEnd();
 
 	/*
-	 * Fixed in OPM: connected overlays (pause/team menus) queue the same model
+	 * Fixed in Omaha: connected overlays (pause/team menus) queue the same model
 	 * previews as disconnected menus.  The old overlay end path discarded that
 	 * queue, so SelectTeam rendered its wood backdrop but no player models.
 	 */
@@ -546,7 +546,7 @@ uir_status_t UIR_EndDisconnectedFrame(void)
 	UID_ProfileEnd(UID_PROF_HOST_BATCH_FLUSH);
 	UIR_BatchTargetEnd();
 
-	/* Fixed in OPM: clear leftover chrome scissors before 3D preview viewports. */
+	/* Fixed in Omaha: clear leftover chrome scissors before 3D preview viewports. */
 	uir_restore_fullscreen_2d();
 
 	g_phase = UIR_PHASE_PREVIEWS;

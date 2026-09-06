@@ -178,7 +178,7 @@
 				</container>
 			</template>
 
-			<!-- Added in OPM: composable cyclic row (foreach + step-index). -->
+			<!-- Added in Omaha: composable cyclic row (foreach + step-index). -->
 			<template id="settings-cyclic">
 				<props>
 					<prop name="bind" type="binding" required="true"/>
@@ -266,7 +266,7 @@
 				</container>
 			</template>
 
-			<!-- Added in OPM: single-title header matching settings-header-row chrome. -->
+			<!-- Added in Omaha: single-title header matching settings-header-row chrome. -->
 			<template id="settings-section-header">
 				<props>
 					<prop name="label" type="string" required="true"/>
@@ -378,7 +378,7 @@
 					<prop name="step" type="number" required="true"/>
 					<prop name="commit" type="string" required="false" default="change"/>
 					<prop name="value-type" type="string" required="false" default="none"/>
-					<!-- Added in OPM: optional bool expr to hide the slider half (e.g. when toggle is off). -->
+					<!-- Added in Omaha: optional bool expr to hide the slider half (e.g. when toggle is off). -->
 					<prop name="slider-visible" type="string" required="false" default="true"/>
 				</props>
 				<container type="horizontal" width="auto" height="48px" gap="8px" padding="0" valign="center">
@@ -436,7 +436,7 @@
 							<use template="settings-slider-compact-row" label="Size" bind="cvar:cg_crosshair_dot_size" min="1" max="20" step="1" commit="change"
 							     visible="{cvar.cg_crosshair_mode == dot}"/>
 						</container>
-						<!-- Added in OPM: gray plate so tinted hipfire stays readable. -->
+						<!-- Added in Omaha: gray plate so tinted hipfire stays readable. -->
 						<container role="crosshair-preview" width="120px" height="120px" fill="#808080FF"
 						           stroke="{var.stroke-border}" stroke-width="1px" shape="rectangle" valign="center" halign="center"/>
 					</container>
@@ -444,7 +444,7 @@
 				</container>
 			</template>
 
-			<!-- Added in OPM: sniper zoom scope settings (separate from hipfire crosshair). -->
+			<!-- Added in Omaha: sniper zoom scope settings (separate from hipfire crosshair). -->
 			<template id="settings-sniper-panel">
 				<container type="vertical" width="100%" height="auto" gap="0"
 				           visible="{(cvar.ui_om_settings_search == '' or icontains('Sniper', cvar.ui_om_settings_search))}">

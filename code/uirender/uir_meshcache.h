@@ -31,7 +31,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 extern "C" {
 #endif
 
-/* Added in OPM: Stage D tessellated mesh cache (fill + stroke). */
+/* Added in Omaha: Stage D tessellated mesh cache (fill + stroke). */
 void UIR_MeshCacheSetEnabled(int enable);
 void UIR_MeshCacheClear(void);
 int UIR_MeshCacheEnabled(void);

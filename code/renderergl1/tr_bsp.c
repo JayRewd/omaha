@@ -271,7 +271,7 @@ static	void R_LoadLightmaps(gamelump_t* l) {
             LIGHTMAP_SIZE, LIGHTMAP_SIZE, 0, 1, qfalse, qfalse, qfalse, qfalse, GL_CLAMP, GL_CLAMP);
     }
 
-    /* Fixed in OPM: cached world shaders keep image* into prior *lightmap slots;
+    /* Fixed in Omaha: cached world shaders keep image* into prior *lightmap slots;
      * after menu backdrop free/recreate those pointers are wrong/NULL. */
     R_RemountLightmapShaderImages();
 
@@ -2568,7 +2568,7 @@ void RE_LoadMenuWorld(const char *name) {
 
 	R_IssuePendingRenderCommands();
 
-	/* Fixed in OPM: each LoadWorldMap allocates *N brush models without freeing
+	/* Fixed in Omaha: each LoadWorldMap allocates *N brush models without freeing
 	 * prior ones; rapid Menu Backdrop cycling hits MAX_MOD_KNOWN and SIGSEGVs
 	 * on a NULL R_AllocModel result. */
 	for (i = 0; i < tr.numModels; i++) {
@@ -2577,7 +2577,7 @@ void RE_LoadMenuWorld(const char *name) {
 		}
 	}
 
-	/* Fixed in OPM: backdrop cycling reloads BSP lightmaps via R_CreateImageOld
+	/* Fixed in Omaha: backdrop cycling reloads BSP lightmaps via R_CreateImageOld
 	 * without freeing prior *lightmap slots, eventually hitting MAX_DRAWIMAGES. */
 	for (i = 0; i < tr.numLightmaps; i++) {
 		if (tr.lightmaps[i]) {
@@ -2592,7 +2592,7 @@ void RE_LoadMenuWorld(const char *name) {
 	s_worldLoadMode = WORLD_LOAD_NORMAL;
 	RE_LoadWorldMap(name);
 
-	/* Fixed in OPM: normal map registration forces MarkLeaves to rebuild; menu
+	/* Fixed in Omaha: normal map registration forces MarkLeaves to rebuild; menu
 	 * backdrop reloads must too. Otherwise a matching cluster id early-outs and
 	 * world brushes stay unmarked (static models still draw — their PVS check
 	 * is disabled). */
@@ -2639,7 +2639,7 @@ void RE_CommitMenuWorld(void) {
 		tr.world->vis = tr.externalVisData;
 	}
 
-	/* Fixed in OPM: terrain tessellation uses a global heap; defer until commit. */
+	/* Fixed in Omaha: terrain tessellation uses a global heap; defer until commit. */
 	R_IssuePendingRenderCommands();
 	ri.UI_LoadResource("*111");
 	R_Sphere_InitLights();
@@ -2650,7 +2650,7 @@ void RE_CommitMenuWorld(void) {
 	R_VisDebugLoad(tr.world->name);
 	ri.UI_LoadResource("*116");
 
-	/* Fixed in OPM: force PVS remark after menu world swap (see RE_LoadMenuWorld). */
+	/* Fixed in Omaha: force PVS remark after menu world swap (see RE_LoadMenuWorld). */
 	tr.viewCluster = -1;
 }
 

@@ -195,6 +195,7 @@ void UID_InitNodeState(uid_node_state_t *state)
 	state->labelCvarModCount = 0;
 	state->cvarPropsModStamp = 0;
 	state->itemBindRevision = 0;
+	state->itemBindItemIndex = -1;
 	state->cachedShapePaths.clear();
 	state->cachedShapeKey = 0;
 	state->cachedShapeValid = false;
@@ -481,7 +482,7 @@ bool UID_SyncSliderBounds(uid_node_def_t *node)
 	return true;
 }
 
-/* Added in OPM: optional number-input min/max/step from properties (after template expand). */
+/* Added in Omaha: optional number-input min/max/step from properties (after template expand). */
 bool UID_SyncInputBounds(uid_node_def_t *node)
 {
 	std::string dm;

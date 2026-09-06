@@ -31,7 +31,7 @@ typedef struct {
 	const char *weaponClass;
 } cl_killfeed_phrase_t;
 
-/* Added in OPM: distinctive Obituary English keys → weapon_class. */
+/* Added in Omaha: distinctive Obituary English keys → weapon_class. */
 static const cl_killfeed_phrase_t s_playerPhrases[] = {
 	{"was gunned down by", "", "pistol"},
 	{"was rifled by", "", "rifle"},

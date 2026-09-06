@@ -145,7 +145,7 @@ bool SubstituteVarRefsInPropertySet(
 }
 
 /*
- * Fixed in OPM: also walk foreachTemplateNodes — they are not in doc->nodes until
+ * Fixed in Omaha: also walk foreachTemplateNodes — they are not in doc->nodes until
  * ExpandForeach clones them, so stroke="{var.fill-divider}" etc. never resolved.
  */
 bool SubstituteVarRefsInNodeList(

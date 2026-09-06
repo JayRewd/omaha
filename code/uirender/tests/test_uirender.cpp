@@ -157,7 +157,7 @@ static void test_viewport()
 	CHECK_NEAR(y, 21.0f, 1e-4);
 }
 
-/* Added in OPM: reference-resolution px scale (must match CL_UIR_PushUiPxScale). */
+/* Added in Omaha: reference-resolution px scale (must match CL_UIR_PushUiPxScale). */
 static void test_ref_px_scale()
 {
 	CHECK_NEAR(UIR_RefPxScale(1920, 1080), 1.0f, 1e-5);
@@ -245,7 +245,7 @@ static void test_path_fill()
 	CHECK(stats.supersamples > 0);
 	UIR_PathFree(&path);
 
-	/* Added in OPM: crisp fill uses binary coverage (no soft AA supersamples). */
+	/* Added in Omaha: crisp fill uses binary coverage (no soft AA supersamples). */
 	UIR_PathInit(&path);
 	CHECK(UIR_PathBeginContour(&path, &c) == UIR_OK);
 	UIR_ContourAddPoint(c, 5, 5);
@@ -437,7 +437,7 @@ static void test_model_preview_helpers()
 		CHECK_NEAR(shiftedMaxs[2], 49.0f, 1e-4);
 	}
 
-	/* Added in OPM: wide weapon bbox (500x100 bake framing). */
+	/* Added in Omaha: wide weapon bbox (500x100 bake framing). */
 	{
 		const float rifleMins[3] = {-40.0f, -4.0f, -2.0f};
 		const float rifleMaxs[3] = {40.0f, 4.0f, 2.0f};

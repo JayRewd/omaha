@@ -468,7 +468,7 @@ void CG_VoteOptions_FinishReadFromServer(const char *string)
 }
 
 #if defined(CGAME_DLL)
-/* Added in OPM: mirror CL_UIR_UseModernHudPack without linking client. */
+/* Added in Omaha: mirror CL_UIR_UseModernHudPack without linking client. */
 static qboolean VO_UseModernHudPack(void)
 {
 	cvar_t *legacyHud = VO_Cvar_Get("ui_legacy", "0", 0);

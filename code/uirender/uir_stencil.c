@@ -103,7 +103,7 @@ uir_status_t UIR_BeginShapeClip(const uir_viewport_t *vp, const uir_rect_t *boun
 	}
 
 	UIR_BatchFlush();
-	/* Added in OPM: stencil mask changes GL scissor independently. */
+	/* Added in Omaha: stencil mask changes GL scissor independently. */
 	UIR_InvalidateAppliedClip();
 	g_stencilVp = *vp;
 	g_stencilBounds = *bounds;
@@ -151,11 +151,11 @@ void UIR_EndShapeClip(void)
 		g_stencilBackend.end();
 	}
 	g_stencilDepth = 0;
-	/* Added in OPM: stencil end may restore GL scissor. */
+	/* Added in Omaha: stencil end may restore GL scissor. */
 	UIR_InvalidateAppliedClip();
 }
 
-/* Added in OPM: map SVG path D into dest for stencil/AABB child clipping. */
+/* Added in Omaha: map SVG path D into dest for stencil/AABB child clipping. */
 static uir_status_t uir_build_svg_clip_path(
 	const char *pathD,
 	float x,
@@ -184,7 +184,7 @@ static uir_status_t uir_build_svg_clip_path(
 	dest.w = w;
 	dest.h = h;
 
-	/* Added in OPM: shared path cache — *outPath is cache-owned, do not free. */
+	/* Added in Omaha: shared path cache — *outPath is cache-owned, do not free. */
 	return UIR_GetMappedPathCached(pathD, &dest, &view, UIR_FIT_STRETCH, rotationDeg, 0, outPath);
 }
 

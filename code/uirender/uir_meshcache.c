@@ -27,7 +27,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include <stdlib.h>
 #include <string.h>
 
-/* Added in OPM: Stage D tessellated mesh cache. */
+/* Added in Omaha: Stage D tessellated mesh cache. */
 #define UIR_MESH_CACHE_SIZE 256
 
 typedef struct {
@@ -54,7 +54,7 @@ static unsigned uir_fnv1a_add(unsigned h, const void *data, size_t len)
 	return h;
 }
 
-/* Added in OPM: contour fingerprint (path already in dest space). */
+/* Added in Omaha: contour fingerprint (path already in dest space). */
 static unsigned uir_mesh_path_fingerprint(unsigned h, const uir_path_t *path)
 {
 	int i;

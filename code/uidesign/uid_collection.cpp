@@ -47,7 +47,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 
 namespace {
 
-/* Added in OPM: RAII for nested ui_profile detail phases. */
+/* Added in Omaha: RAII for nested ui_profile detail phases. */
 struct UidProfScope {
 	uid_prof_phase_t phase;
 	bool             armed;
@@ -158,7 +158,7 @@ bool PropBool(const uid_node_def_t &node, const char *name, bool fallback)
 	return out;
 }
 
-/* Added in OPM: mode=window visible count — viewport / row-height + overscan. */
+/* Added in Omaha: mode=window visible count — viewport / row-height + overscan. */
 constexpr int kWindowFallbackVisible = 32;
 constexpr int kWindowOverscan = 2;
 
@@ -204,7 +204,7 @@ uid_node_id_t FindOverflowScrollAncestor(
 	return UID_INVALID_NODE_ID;
 }
 
-/* Added in OPM: drive collectionScrollOffset from overflow scrollY (discrete index window). */
+/* Added in Omaha: drive collectionScrollOffset from overflow scrollY (discrete index window). */
 void SyncWindowOffsetFromOverflow(
 	uid_document_t *doc,
 	uid_node_id_t foreachId,
@@ -504,6 +504,21 @@ bool SubstituteItemToken(
 		const std::string key = text->substr(i + 1, end - i - 1);
 		std::string rep;
 		bool matched = false;
+		/*
+		 * Fixed in Omaha: paint content tokens stay live when !expandFields so
+		 * SyncBindings can update labels without expand teardown. Action handlers
+		 * still bake (expandFields=true).
+		 */
+		const bool liveIdentity =
+			!expandFields &&
+			(key == "item.index" || key == "item.key" || key == "item.value" || key == "item.label" ||
+			 key == "item.display" || key == "item.count" || key == "item.selected" ||
+			 key.rfind("item.field.", 0) == 0 || key == "item.lifetime_alpha");
+		if (liveIdentity) {
+			out += text->substr(i, end - i + 1);
+			i = end + 1;
+			continue;
+		}
 		if (key == "item.index") {
 			rep = std::to_string(itemIndex);
 			matched = true;
@@ -526,22 +541,12 @@ bool SubstituteItemToken(
 			rep = (itemIndex == selectedIndex) ? "true" : "false";
 			matched = true;
 		} else if (key.rfind("item.field.", 0) == 0) {
-			/*
-			 * Props keep {item.field.*} live for SyncBindings (message feeds, etc.).
-			 * Changed in OPM: action handlers bake field values at foreach expand so
-			 * set-cvar/invoke payloads (e.g. pause cmd) are concrete at click time.
-			 */
-			if (!expandFields) {
-				out += text->substr(i, end - i + 1);
-				i = end + 1;
-				continue;
-			}
+			/* Changed in Omaha: action handlers bake field values at foreach expand. */
 			const std::string fieldName = key.substr(11);
 			auto fit = item.fields.find(fieldName);
 			rep = (fit != item.fields.end()) ? fit->second : "";
 			matched = true;
 		} else if (key == "item.lifetime_alpha") {
-			/* Added in OPM: live token; SyncExprBoundProps / numeric lookup resolve. */
 			out += text->substr(i, end - i + 1);
 			i = end + 1;
 			continue;
@@ -573,8 +578,9 @@ void ApplyItemContextToNode(
 		return;
 	}
 	SubstituteItemToken(&node->text, item, itemIndex, itemCount, selectedIndex, displayMode, false);
-	SubstituteItemToken(&node->bind, item, itemIndex, itemCount, selectedIndex, displayMode, false);
-	SubstituteItemToken(&node->setValue, item, itemIndex, itemCount, selectedIndex, displayMode, false);
+	/* Binds/set-value need concrete strings at click time — bake identity tokens. */
+	SubstituteItemToken(&node->bind, item, itemIndex, itemCount, selectedIndex, displayMode, true);
+	SubstituteItemToken(&node->setValue, item, itemIndex, itemCount, selectedIndex, displayMode, true);
 	SubstituteItemToken(&node->visibleIf, item, itemIndex, itemCount, selectedIndex, displayMode, false);
 	SubstituteItemToken(&node->visibleIfIndex, item, itemIndex, itemCount, selectedIndex, displayMode, false);
 	SubstituteItemToken(&node->visibleExpr, item, itemIndex, itemCount, selectedIndex, displayMode, false);
@@ -600,7 +606,7 @@ void ApplyItemContextToNode(
 	}
 	for (uid_action_handler_t &handler : node->handlers) {
 		for (uid_action_t &act : handler.actions) {
-			/* Changed in OPM: bake item.field.* into click actions (set-cvar cmd payloads). */
+			/* Changed in Omaha: bake item.field.* into click actions (set-cvar cmd payloads). */
 			SubstituteItemToken(&act.target, item, itemIndex, itemCount, selectedIndex, displayMode, true);
 			SubstituteItemToken(&act.value, item, itemIndex, itemCount, selectedIndex, displayMode, true);
 			SubstituteItemToken(&act.name, item, itemIndex, itemCount, selectedIndex, displayMode, true);
@@ -643,7 +649,7 @@ uid_node_id_t CloneForeachSubtree(
 		uid_node_def_t dst = src;
 		dst.children.clear();
 		/*
-		 * Fixed in OPM: nested <foreach> must keep foreachTemplateNodes / Root so
+		 * Fixed in Omaha: nested <foreach> must keep foreachTemplateNodes / Root so
 		 * inner lists (e.g. kill-feed weapon icon source) can expand after the
 		 * outer row is cloned. Non-foreach clones drop any stale template payload.
 		 */
@@ -836,7 +842,7 @@ bool RefreshCollectionScope(uid_document_t *doc, uid_node_id_t scopeId, const ui
 		return false;
 	}
 
-	/* Added in OPM: XML sources use constant revision 1 — skip rebuild when already loaded. */
+	/* Added in Omaha: XML sources use constant revision 1 — skip rebuild when already loaded. */
 	auto itSrc = doc->definitions.sources.find(scope->collectionSource);
 	const bool isXmlSource = (itSrc != doc->definitions.sources.end());
 	if (isXmlSource) {
@@ -980,7 +986,7 @@ void WriteScopeIndexToBind(uid_document_t *doc, uid_node_id_t scopeId, const uid
 	if (scope->bind.empty() || st->collectionItems.empty()) {
 		return;
 	}
-	/* Added in OPM: item.field binds are read-only (no reverse write). */
+	/* Added in Omaha: item.field binds are read-only (no reverse write). */
 	std::string itemField;
 	if (UID_ParseItemFieldBind(scope->bind.c_str(), &itemField)) {
 		return;
@@ -1007,7 +1013,7 @@ void WriteScopeIndexToBind(uid_document_t *doc, uid_node_id_t scopeId, const uid
 }
 
 /*
- * Added in OPM: resolve item.field bind against the enclosing foreach row.
+ * Added in Omaha: resolve item.field bind against the enclosing foreach row.
  * Nested collection scopes (e.g. kill-feed weapon icons) are foreach-generated
  * with foreachScopeId / foreachItemIndex pointing at the outer list.
  */
@@ -1082,7 +1088,7 @@ void SyncScopeIndexFromBind(uid_document_t *doc, uid_node_id_t scopeId, const ui
 		return;
 	}
 
-	/* Added in OPM: select by enclosing foreach item.field (read-only). */
+	/* Added in Omaha: select by enclosing foreach item.field (read-only). */
 	std::string itemField;
 	if (UID_ParseItemFieldBind(scope->bind.c_str(), &itemField)) {
 		std::string want;
@@ -1306,16 +1312,25 @@ uint64_t ForeachExpandSig(
 		return 0;
 	}
 	uint64_t sig = 0;
+	const std::string mode = fn->foreachMode.empty() ? "all" : fn->foreachMode;
 	/*
-	 * Fixed in OPM: do not fold collectionRevision into the expand signature.
+	 * Fixed in Omaha: do not fold collectionRevision into the expand signature.
 	 * Hosts may bump revision every frame for field-only updates (e.g. message
 	 * alpha). Structure should key off item count + keys so foreach rows are not
 	 * rebuilt when only label/field text changes.
+	 *
+	 * Fixed in Omaha: selection is content, not structure. mode=selected only
+	 * encodes empty vs one slot; which item is rebound in place. mode=all ticks
+	 * use live item.selected exprs — do not rebuild on selectedIndex alone.
 	 */
 	if (scopeSt) {
-		sig ^= static_cast<uint64_t>(scopeSt->collectionSelectedIndex) << 20;
 		sig ^= static_cast<uint64_t>(scopeSt->collectionScrollOffset) << 10;
-		if (visibleIndices) {
+		if (mode == "selected") {
+			const bool hasSel = scopeSt->collectionSelectedIndex >= 0 &&
+				scopeSt->collectionSelectedIndex < scopeSt->collectionItemCount &&
+				static_cast<size_t>(scopeSt->collectionSelectedIndex) < scopeSt->collectionItems.size();
+			sig ^= hasSel ? 1u : 0u;
+		} else if (visibleIndices) {
 			sig ^= static_cast<uint64_t>(visibleIndices->size());
 			for (int idx : *visibleIndices) {
 				if (idx < 0 || static_cast<size_t>(idx) >= scopeSt->collectionItems.size()) {
@@ -1339,11 +1354,56 @@ uint64_t ForeachExpandSig(
 	if (fn->hasForeachCount) {
 		sig ^= static_cast<uint64_t>(countOverride) << 32;
 	}
-	const std::string mode = fn->foreachMode.empty() ? "all" : fn->foreachMode;
 	for (char c : mode) {
 		sig = sig * 131 + static_cast<unsigned char>(c);
 	}
 	return sig;
+}
+
+static void RebindSelectedForeachRows(
+	uid_document_t *doc,
+	uid_node_id_t foreachId,
+	uid_node_id_t scopeId,
+	int selectedIndex
+)
+{
+	if (!doc || foreachId < 0 || static_cast<size_t>(foreachId) >= doc->nodes.size()) {
+		return;
+	}
+	bool changed = false;
+	std::vector<uid_node_id_t> stack = doc->nodes[static_cast<size_t>(foreachId)].children;
+	while (!stack.empty()) {
+		const uid_node_id_t id = stack.back();
+		stack.pop_back();
+		if (id < 0 || static_cast<size_t>(id) >= doc->nodes.size() ||
+			static_cast<size_t>(id) >= doc->states.size()) {
+			continue;
+		}
+		uid_node_def_t &node = doc->nodes[static_cast<size_t>(id)];
+		uid_node_state_t &st = doc->states[static_cast<size_t>(id)];
+		if (node.foreachGenerated && node.foreachScopeId == scopeId &&
+			node.foreachItemIndex != selectedIndex) {
+			node.foreachItemIndex = selectedIndex;
+			if (node.hasSetIndex) {
+				node.setIndexValue = selectedIndex;
+			}
+			st.itemBindRevision = 0;
+			st.itemBindItemIndex = -1;
+			st.bindSyncCached = false;
+			changed = true;
+		}
+		for (uid_node_id_t c : node.children) {
+			stack.push_back(c);
+		}
+	}
+	if (changed) {
+		UID_MarkDirty(
+			doc,
+			static_cast<uid_dirty_flags_t>(UID_DIRTY_BINDING | UID_DIRTY_LAYOUT | UID_DIRTY_PAINT),
+			foreachId,
+			"foreach_selected_rebind"
+		);
+	}
 }
 
 void ExpandForeach(uid_document_t *doc, uid_node_id_t foreachId, const uid_backend_t *backend)
@@ -1390,7 +1450,7 @@ void ExpandForeach(uid_document_t *doc, uid_node_id_t foreachId, const uid_backe
 			return;
 		}
 
-	/* Added in OPM: copy templates only when rebuilding. */
+	/* Added in Omaha: copy templates only when rebuilding. */
 		const std::vector<uid_node_def_t> tmplNodes = fn->foreachTemplateNodes;
 
 		RemoveExpandedForeach(doc, foreachId);
@@ -1438,7 +1498,7 @@ void ExpandForeach(uid_document_t *doc, uid_node_id_t foreachId, const uid_backe
 		return;
 	}
 
-	/* Added in OPM: find scope without template copy; parent map only if window mode needs it. */
+	/* Added in Omaha: find scope without template copy; parent map only if window mode needs it. */
 	const std::string mode = fn->foreachMode.empty() ? "all" : fn->foreachMode;
 	UidProfScope profWindow(UID_PROF_FRAME_FOREACH_WINDOW, mode == "window");
 
@@ -1460,7 +1520,7 @@ void ExpandForeach(uid_document_t *doc, uid_node_id_t foreachId, const uid_backe
 		return;
 	}
 
-	/* Added in OPM: skip Refresh/Sync when the cull walk already refreshed this frame. */
+	/* Added in Omaha: skip Refresh/Sync when the cull walk already refreshed this frame. */
 	uid_node_state_t *scopeSt = &doc->states[static_cast<size_t>(scopeId)];
 	if (scopeSt->collectionRefreshFrame != doc->syncFrameCounter) {
 		RefreshCollectionScope(doc, scopeId, backend);
@@ -1520,6 +1580,13 @@ void ExpandForeach(uid_document_t *doc, uid_node_id_t foreachId, const uid_backe
 	 * !children.empty() guard forced STRUCTURE|LAYOUT dirty every frame.
 	 */
 	if (fnSt->foreachExpandSig == sig) {
+		/*
+		 * Fixed in Omaha: mode=selected keeps one child; on selection change only
+		 * rebind foreachItemIndex so label sync can update without teardown.
+		 */
+		if (mode == "selected" && !fn->children.empty() && collectionSelectedIndex >= 0) {
+			RebindSelectedForeachRows(doc, foreachId, scopeId, collectionSelectedIndex);
+		}
 		if (fn->hasForeachLifetime && !fn->children.empty()) {
 			/* Stage 6: skip full opacity walk when no row is in a fade window. */
 			if (ForeachLifetimeNeedsOpacityPass(fn, fnSt, scopeSt->collectionItems, nowMs, doc, foreachId)) {
@@ -1536,7 +1603,7 @@ void ExpandForeach(uid_document_t *doc, uid_node_id_t foreachId, const uid_backe
 	/* CollectionDisplayMode returns string literals — safe after RemoveExpandedForeach. */
 	const char *displayMode = CollectionDisplayMode(doc->nodes[static_cast<size_t>(scopeId)]);
 	const std::string scopeStableId = doc->nodes[static_cast<size_t>(scopeId)].id;
-	/* Added in OPM: copy templates only when rebuilding. */
+	/* Added in Omaha: copy templates only when rebuilding. */
 	const std::vector<uid_node_def_t> tmplNodes = fn->foreachTemplateNodes;
 
 	if (visibleIndices.empty()) {
@@ -1617,7 +1684,7 @@ void ExpandForeach(uid_document_t *doc, uid_node_id_t foreachId, const uid_backe
 		}
 	}
 	/*
-	 * Fixed in OPM: CloneForeachSubtree may reallocate nodes/states vectors.
+	 * Fixed in Omaha: CloneForeachSubtree may reallocate nodes/states vectors.
 	 * Rebind fn/fnSt before touching hasForeachLifetime or lifetime state.
 	 */
 	fn = &doc->nodes[static_cast<size_t>(foreachId)];
@@ -1838,7 +1905,7 @@ bool UID_SetCollectionIndex(uid_document_t *doc, uid_node_id_t scopeId, int inde
 	return true;
 }
 
-/* Added in OPM: windowed foreach under overflow=scroll — synthetic extent / no pixel shift. */
+/* Added in Omaha: windowed foreach under overflow=scroll — synthetic extent / no pixel shift. */
 bool UID_ScrollParentHasWindowedForeach(const uid_document_t *doc, uid_node_id_t parentId)
 {
 	if (!doc || parentId < 0 || static_cast<size_t>(parentId) >= doc->nodes.size()) {
@@ -1894,7 +1961,7 @@ void UID_SyncCollections(uid_document_t *doc, const uid_backend_t *backend)
 		return;
 	}
 
-	/* Added in OPM: apply {collection.*}/{index.*} field stamps only when structure changes. */
+	/* Added in Omaha: apply {collection.*}/{index.*} field stamps only when structure changes. */
 	if (!doc->collectionFieldsApplied || (doc->dirty & UID_DIRTY_STRUCTURE)) {
 		for (uid_node_def_t &node : doc->nodes) {
 			UID_ApplyCollectionAndIndexFields(&node);
@@ -1912,7 +1979,7 @@ void UID_SyncCollections(uid_document_t *doc, const uid_backend_t *backend)
 			}
 		}
 
-		/* Fixed in OPM: ExpandForeach may rebuild/remap node indices. Restart the
+		/* Fixed in Omaha: ExpandForeach may rebuild/remap node indices. Restart the
 		 * scan after any structural change so we never walk a stale index stream. */
 		for (;;) {
 			bool expanded = false;
@@ -1935,7 +2002,7 @@ void UID_SyncCollections(uid_document_t *doc, const uid_backend_t *backend)
 			}
 		}
 	} else {
-		/* Added in OPM: skip Expand under hidden ancestors (Settings stays warm).
+		/* Added in Omaha: skip Expand under hidden ancestors (Settings stays warm).
 		 * Still Refresh empty scopes once so collection defaults can seed cvars. */
 		UidProfScope profCull(UID_PROF_FRAME_COLLECTION_CULL);
 		bool remapped = false;
@@ -1946,7 +2013,7 @@ void UID_SyncCollections(uid_document_t *doc, const uid_backend_t *backend)
 			bool                *remapped;
 		};
 
-		/* Added in OPM: re-index children via doc->nodes[id] (no vector copy; safe across Expand). */
+		/* Added in Omaha: re-index children via doc->nodes[id] (no vector copy; safe across Expand). */
 		auto walkImpl = [](CullWalkCtx *ctx, uid_node_id_t id, bool ancestorVisible,
 						   auto &walkRef) -> void {
 			if (*ctx->remapped || id < 0 || static_cast<size_t>(id) >= ctx->doc->nodes.size()) {
@@ -2018,7 +2085,7 @@ void UID_SyncCollections(uid_document_t *doc, const uid_backend_t *backend)
 		}
 	}
 
-	/* Added in OPM: foreach rebuild can introduce new nodes that need field stamps. */
+	/* Added in Omaha: foreach rebuild can introduce new nodes that need field stamps. */
 	if (doc->dirty & UID_DIRTY_STRUCTURE) {
 		for (uid_node_def_t &node : doc->nodes) {
 			UID_ApplyCollectionAndIndexFields(&node);

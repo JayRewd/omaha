@@ -1425,7 +1425,7 @@ void R_Register( void )
 	r_showImages = ri.Cvar_Get( "r_showImages", "0", CVAR_TEMP );
 	r_showlod = ri.Cvar_Get("r_showlod", "0", CVAR_TEMP);
 	r_showstaticlod = ri.Cvar_Get("r_showstaticlod", "0", CVAR_TEMP);
-	// Changed in OPM: CVAR_ARCHIVE so r_uselod 0/1 can be set and saved from the console.
+	// Changed in Omaha: CVAR_ARCHIVE so r_uselod 0/1 can be set and saved from the console.
 	r_uselod = ri.Cvar_Get("r_uselod", "1", CVAR_ARCHIVE);
 	ri.Cvar_CheckRange(r_uselod, 0, 1, qtrue);
 	lod_LOD = ri.Cvar_Get("lod_LOD", "0", CVAR_TEMP);

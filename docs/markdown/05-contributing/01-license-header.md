@@ -39,7 +39,7 @@ Do **not** strip Id Software, OpenMoHAA, ioquake3, or third-party copyright bann
 When you modify an inherited file:
 
 1. Leave the existing copyright / license block intact.
-2. Annotate Omaha changes (`// Added|Changed|Fixed|Removed in OPM`).
+2. Annotate Omaha changes (`// Added|Changed|Fixed|Removed in Omaha`). Leave inherited `in OPM` markers alone.
 3. Optionally **add** a Project: Omaha copyright line below the existing notice if substantial new authorship warrants it — do not replace the upstream notice.
 
 If you are unsure whether a file is fork-only, treat it as inherited.

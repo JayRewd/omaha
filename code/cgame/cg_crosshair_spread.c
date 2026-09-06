@@ -122,7 +122,7 @@ static qboolean CG_CrosshairSpread_IsZoomed(void)
 	if (!cg.snap) {
 		return qfalse;
 	}
-	/* Added in OPM: FP spectate synthesizes zoom from followed FOV. */
+	/* Added in Omaha: FP spectate synthesizes zoom from followed FOV. */
 	if (cg.snap->ps.stats[STAT_INZOOM] || CG_SpectateFP_InZoom()) {
 		return qtrue;
 	}

@@ -271,7 +271,7 @@ static void UIR_Scoreboard_PublishLayoutCvars(int logicalHeight)
 	int i;
 
 	/*
-	 * Changed in OPM: row height/font live in scoreboard XML (theme tokens +
+	 * Changed in Omaha: row height/font live in scoreboard XML (theme tokens +
 	 * hardcoded list height). Host only publishes spectator count here.
 	 */
 	UIR_Scoreboard_EnsureMetaCvars();

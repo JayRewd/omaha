@@ -88,7 +88,7 @@ void View3D::FrameInitialized(void)
 void View3D::Pressed(Event *ev)
 {
     /*
-     * Fixed in OPM: while the fakk console (or another legacy overlay) is up,
+     * Fixed in Omaha: while the fakk console (or another legacy overlay) is up,
      * do not reclaim capture — ServiceEvents can deliver a spurious hit on the
      * full-screen View3D and steal console focus mid-intermission.
      */
@@ -588,13 +588,13 @@ void View3D::Draw2D(void)
     DrawLetterbox();
 
     /*
-     * Fixed in OPM: modern HUD + scoreboard must paint above ps.blend fades.
+     * Fixed in Omaha: modern HUD + scoreboard must paint above ps.blend fades.
      * Previously CL_UIR_DrawCrosshair ran before DrawFades, so end-of-match
      * scoreboard (and in-game HUD) sat under the intermission/damage fade.
      */
     if (clc.state != CA_DISCONNECTED) {
         /*
-         * Added in OPM: draw retail/PK3 zoom overlays under the modern HUD
+         * Added in Omaha: draw retail/PK3 zoom overlays under the modern HUD
          * layer (same order as legacy CG_Draw2D). When modern sniper is on,
          * CG_DrawZoomOverlay skips sniper types and uirender paints instead.
          */
@@ -656,7 +656,7 @@ void View3D::CenterPrint(void)
 
     alpha = Q_clamp_float(alpha, 0, 1);
 
-    /* Added in OPM: modern HUD pack paints centerprint with theme body font. */
+    /* Added in Omaha: modern HUD pack paints centerprint with theme body font. */
     if (CL_UIR_UseModernHudPack()) {
         if (!m_print_mat && p && p[0] && alpha > 0.02f) {
             Cvar_Set("ui_om_hud_centerprint", p);
@@ -817,7 +817,7 @@ void View3D::DrawFades(void)
 
 void View3D::Draw(void)
 {
-	/* Added in OPM: isolate world/cgame cost from URC widget timing (ui_profile). */
+	/* Added in Omaha: isolate world/cgame cost from URC widget timing (ui_profile). */
 	UID_ProfileBegin(UID_PROF_LEGACY_VIEW3D);
 	if (clc.state != CA_DISCONNECTED) {
 		SCR_DrawScreenField();

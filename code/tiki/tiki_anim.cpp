@@ -179,7 +179,7 @@ int TIKI_Anim_NumForName(dtiki_t *pmdl, const char *name)
 ===============
 TIKI_Anim_GroupBounds
 
-Added in OPM: for a resolved anim index, return [top,bottom] of its TAF_RANDOM group.
+Added in Omaha: for a resolved anim index, return [top,bottom] of its TAF_RANDOM group.
 ===============
 */
 void TIKI_Anim_GroupBounds(dtiki_t *pmdl, int stableIdx, int *outTop, int *outBottom)
@@ -215,7 +215,7 @@ void TIKI_Anim_GroupBounds(dtiki_t *pmdl, int stableIdx, int *outTop, int *outBo
 ===============
 TIKI_Anim_NumForNameVariant
 
-Added in OPM: pick a deterministic variant inside a TAF_RANDOM alias group (no roll).
+Added in Omaha: pick a deterministic variant inside a TAF_RANDOM alias group (no roll).
 ===============
 */
 int TIKI_Anim_NumForNameVariant(dtiki_t *pmdl, const char *name, int variant)

@@ -436,7 +436,7 @@ uir_parse_result_t UIR_SvgParsePathD(const char *d, float flatness, uir_path_t *
 			haveCubicCtrl = 0;
 			haveQuadCtrl = 0;
 			contour = NULL;
-			/* Fixed in OPM: clear cmd so trailing garbage is a parse error, not an infinite loop. */
+			/* Fixed in Omaha: clear cmd so trailing garbage is a parse error, not an infinite loop. */
 			cmd = 0;
 			continue;
 		}

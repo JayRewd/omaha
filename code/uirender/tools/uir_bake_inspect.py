@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Added in OPM: inspect baked weapon/grenade PNGs for center, margins, and clipping.
+Added in Omaha: inspect baked weapon/grenade PNGs for center, margins, and clipping.
 
 Usage:
   python3 uir_bake_inspect.py [--margin N] [--center-tol F] [--min-fill F] [--max-fill F]

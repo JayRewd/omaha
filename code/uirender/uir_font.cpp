@@ -155,7 +155,7 @@ void UIR_FontSetBackend(const uir_font_backend_t *backend)
 
 void UIR_FontShutdown(void)
 {
-	/* Fixed in OPM: release from end so swap-shrink in UIR_FontRelease cannot skip entries. */
+	/* Fixed in Omaha: release from end so swap-shrink in UIR_FontRelease cannot skip entries. */
 	while (g_fontCount > 0) {
 		UIR_FontRelease(g_fonts[g_fontCount - 1]);
 	}
@@ -166,7 +166,7 @@ void UIR_FontInvalidateGpu(void)
 	int i;
 
 	g_gpuGeneration++;
-	/* Fixed in OPM: drop stale GPU handles so re-upload always CreateUIAtlas. */
+	/* Fixed in Omaha: drop stale GPU handles so re-upload always CreateUIAtlas. */
 	for (i = 0; i < g_fontCount; i++) {
 		if (g_fonts[i]) {
 			g_fonts[i]->shader = 0;
@@ -183,7 +183,7 @@ static int uir_font_upload(uir_font_t *font)
 		return 0;
 	}
 	snprintf(name, sizeof(name), "*uir_font_%p", (void *)font);
-	/* Fixed in OPM: Update only when handle is live for the current GPU generation. */
+	/* Fixed in Omaha: Update only when handle is live for the current GPU generation. */
 	if (font->shader != 0 && font->gpuGeneration == g_gpuGeneration && g_fontBackend.updateAtlas) {
 		if (g_fontBackend.updateAtlas(font->shader, font->atlasRgba, font->atlasW, font->atlasH)) {
 			font->gpuGeneration = g_gpuGeneration;
@@ -310,10 +310,10 @@ uir_font_t *UIR_FontResolve(const char *vfsPath, float logicalPx, float fbScale)
 	if (!(fbScale > 0.0f)) {
 		fbScale = 1.0f;
 	}
-	/* Changed in OPM: quantize so ui_scale drag does not create a unique atlas per step. */
+	/* Changed in Omaha: quantize so ui_scale drag does not create a unique atlas per step. */
 	logicalPx = UIR_FontQuantizeLogical(logicalPx);
 	bakePx = logicalPx * fbScale;
-	/* Fixed in OPM: clamp bake size so atlas pack cannot overflow / thrash. */
+	/* Fixed in Omaha: clamp bake size so atlas pack cannot overflow / thrash. */
 	if (bakePx < 4.0f) {
 		bakePx = 4.0f;
 	} else if (bakePx > 128.0f) {
@@ -363,7 +363,7 @@ uir_font_t *UIR_FontResolve(const char *vfsPath, float logicalPx, float fbScale)
 		return NULL;
 	}
 
-	/* Fixed in OPM: always track fonts; evict LRU when full (was leaking atlases). */
+	/* Fixed in Omaha: always track fonts; evict LRU when full (was leaking atlases). */
 	if (g_fontCount >= UIR_FONT_REGISTRY_MAX) {
 		if (UIR_DebugEnabled()) {
 			fprintf(

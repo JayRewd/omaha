@@ -30,7 +30,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 
 #include <string.h>
 
-/* Added in OPM: Stage D path cache (256 direct-mapped slots). */
+/* Added in Omaha: Stage D path cache (256 direct-mapped slots). */
 #define UIR_PATH_CACHE_SIZE 256
 
 typedef struct {
@@ -85,7 +85,7 @@ void UIR_PathCacheClear(void)
 	}
 }
 
-/* Added in OPM: store mapped path; *out points at the slot (zero-copy). */
+/* Added in Omaha: store mapped path; *out points at the slot (zero-copy). */
 static uir_status_t uir_path_cache_store(unsigned int key, const uir_path_t *src, const uir_path_t **out)
 {
 	uir_path_cache_entry_t *slot;
@@ -128,7 +128,7 @@ static uir_status_t uir_path_cache_store(unsigned int key, const uir_path_t *src
 	return UIR_OK;
 }
 
-/* Added in OPM: zero-copy hit — pointer into the cache slot (or NULL). */
+/* Added in Omaha: zero-copy hit — pointer into the cache slot (or NULL). */
 static const uir_path_t *uir_path_cache_lookup(unsigned int key)
 {
 	uir_path_cache_entry_t *slot = &g_pathCache[key % UIR_PATH_CACHE_SIZE];
@@ -182,7 +182,7 @@ uir_status_t UIR_GetMappedPathCached(
 		stats->pathCacheMisses++;
 	}
 
-	/* Added in OPM: path-space flatness so dest-space chord error stays ~0.25px. */
+	/* Added in Omaha: path-space flatness so dest-space chord error stays ~0.25px. */
 	sx = (viewBox->width > 1e-6f) ? (dest->w / viewBox->width) : 1.0f;
 	sy = (viewBox->height > 1e-6f) ? (dest->h / viewBox->height) : 1.0f;
 	scale = sx < sy ? sx : sy;

@@ -230,16 +230,16 @@ bool IsCommonBoxAttr(const std::string &name)
 		"max-width", "max-height",
 		"border", "border-top", "border-right", "border-bottom", "border-left",
 		"stroke", "stroke-width", "stroke-layout", "shape-rotation", "rotation", "rotation-origin", "opacity",
-		"crisp", /* Added in OPM: binary path coverage (no soft AA), e.g. crosshair */
-		"translate-x", "translate-y", /* Added in OPM: post-flow layout offset */
+		"crisp", /* Added in Omaha: binary path coverage (no soft AA), e.g. crosshair */
+		"translate-x", "translate-y", /* Added in Omaha: post-flow layout offset */
 		"background-image", "background-fit", "background-scale",
-		"mask-image", "mask-fit", /* Added in OPM: soft coverage mask for subtree */
-		"src", "fit", "scale", /* Added in OPM: leaf <image> (aliases of background-*) */
+		"mask-image", "mask-fit", /* Added in Omaha: soft coverage mask for subtree */
+		"src", "fit", "scale", /* Added in Omaha: leaf <image> (aliases of background-*) */
 		"left", "top", "right", "bottom",
 		"font", "font-size", "font-weight", "text-skew", "letter-spacing", "text-wrap", "line-height",
-		"halign", "valign", /* Added in OPM: text/box align on labels and other box nodes */
+		"halign", "valign", /* Added in Omaha: text/box align on labels and other box nodes */
 		"drop-shadow",
-		/* Added in OPM: paint-time marquee on labels (clip via parent overflow=hidden). */
+		/* Added in Omaha: paint-time marquee on labels (clip via parent overflow=hidden). */
 		"marquee", "marquee-speed", "marquee-gap", "marquee-delay",
 		/* Added in Omaha: paint-time single-line ellipsis when text overflows content box. */
 		"text-overflow",
@@ -256,7 +256,7 @@ bool IsCommonBoxAttr(const std::string &name)
 
 bool IsImageAttr(const std::string &name)
 {
-	/* Added in OPM: leaf <image> — common box + src/fit/scale (background-* accepted as aliases). */
+	/* Added in Omaha: leaf <image> — common box + src/fit/scale (background-* accepted as aliases). */
 	return IsCommonBoxAttr(name);
 }
 
@@ -271,7 +271,7 @@ bool IsCommonControlAttr(const std::string &name)
 		"confirm-modal", "modal-cvar", "slot", "text-cvar", "modal-role",
 		"hoverfill", "pressed-fill", "focus-fill", "disabled-fill", "selected-fill",
 		"hover-color", "pressed-color", "focus-color", "disabled-color",
-		/* Added in OPM: pack children like a container (flatten layout-only wrappers). */
+		/* Added in Omaha: pack children like a container (flatten layout-only wrappers). */
 		"type", "gap"
 	};
 	for (const char *a : kAttrs) {
@@ -304,7 +304,7 @@ bool IsModelAttr(const std::string &name)
 	    || name == "bbox-from-model" || name == "framing-scale" || name == "color";
 }
 
-/* Added in OPM */
+/* Added in Omaha */
 bool IsServerListAttr(const std::string &name)
 {
 	if (IsCommonBoxAttr(name)) {
@@ -342,7 +342,7 @@ bool IsForeachAttr(const std::string &name)
 		|| name == "index" || IsCommonBoxAttr(name);
 }
 
-/* Added in OPM: per-item foreach template wrap inherits layout axis from <foreach>. */
+/* Added in Omaha: per-item foreach template wrap inherits layout axis from <foreach>. */
 static bool ForeachTemplateMainAxisAllFill(const uid_node_def_t &foreachNode, bool horizontalForeach)
 {
 	const char *mainProp = horizontalForeach ? "width" : "height";
@@ -932,7 +932,7 @@ bool CollectAttrs(
 			continue;
 		}
 		if (canonical == "commit") {
-			/* Added in OPM: defer brace/template commit until expand (like bind). */
+			/* Added in Omaha: defer brace/template commit until expand (like bind). */
 			if (std::strchr(rawValue, '{') != nullptr) {
 				out->props.Set("commit", rawValue);
 				continue;
@@ -942,7 +942,7 @@ bool CollectAttrs(
 				return false;
 			}
 			out->hasCommit = true;
-			/* Fixed in OPM: template uses read commit from properties (BuildTemplatePropValues). */
+			/* Fixed in Omaha: template uses read commit from properties (BuildTemplatePropValues). */
 			out->props.Set("commit", rawValue);
 			continue;
 		}
@@ -1063,7 +1063,7 @@ void ApplyCommonControlFields(AttrBucket &attrs, uid_node_def_t *node)
 		node->commit = attrs.commit;
 		node->hasCommit = true;
 	}
-	/* Added in OPM: promote extended control attrs onto the node. */
+	/* Added in Omaha: promote extended control attrs onto the node. */
 	std::string tmp;
 	if (node->properties.Get("value-type", &tmp)) {
 		node->valueType = (tmp == "none") ? std::string() : tmp;
@@ -1094,7 +1094,7 @@ void ApplyCommonControlFields(AttrBucket &attrs, uid_node_def_t *node)
 			node->enabledExprBound = true;
 		}
 	}
-	/* Added in OPM: style ternaries on any property (except visible/enabled bool exprs). */
+	/* Added in Omaha: style ternaries on any property (except visible/enabled bool exprs). */
 	node->styleExprs.clear();
 	for (const auto &kv : node->properties.Attrs()) {
 		if (kv.first == "visible" || kv.first == "enabled") {
@@ -1232,7 +1232,7 @@ bool ParseChildren(
 			continue;
 		}
 
-		/* Added in OPM: slider chrome parts (track / range / thumb). */
+		/* Added in Omaha: slider chrome parts (track / range / thumb). */
 		if (parentNode().kind == UID_NODE_SLIDER && UID_IsSliderPartKind(SliderPartKindFromTag(tag))) {
 			const uid_node_kind_t partKind = SliderPartKindFromTag(tag);
 			for (uid_node_id_t existing : parentNode().children) {
@@ -1252,7 +1252,7 @@ bool ParseChildren(
 			continue;
 		}
 
-		/* Added in OPM: scrollbar chrome parts (track / thumb). */
+		/* Added in Omaha: scrollbar chrome parts (track / thumb). */
 		if (parentNode().kind == UID_NODE_SCROLLBAR && UID_IsScrollbarPartKind(ScrollbarPartKindFromTag(tag))) {
 			const uid_node_kind_t partKind = ScrollbarPartKindFromTag(tag);
 			for (uid_node_id_t existing : parentNode().children) {
@@ -1595,7 +1595,7 @@ bool ParseRenderable(
 			return false;
 		}
 		ApplyCommonControlFields(attrs, &node);
-		/* Added in OPM: allow source= on <foreach> (same as parent container scope). */
+		/* Added in Omaha: allow source= on <foreach> (same as parent container scope). */
 		::UID_ApplyCollectionAndIndexFields(&node);
 		std::string tmp;
 		if (node.properties.Get("mode", &tmp) && !tmp.empty()) {
@@ -1763,7 +1763,7 @@ bool ParseRenderable(
 		if (source) {
 			node.optionSource = source;
 		}
-		/* Added in OPM: appearance=cyclic|dropdown (default dropdown overlay). */
+		/* Added in Omaha: appearance=cyclic|dropdown (default dropdown overlay). */
 		const char *appearance = el->Attribute("appearance");
 		if (appearance && appearance[0]) {
 			if (std::strcmp(appearance, "cyclic") != 0 && std::strcmp(appearance, "dropdown") != 0) {
@@ -1772,7 +1772,7 @@ bool ParseRenderable(
 			}
 			node.appearance = appearance;
 		}
-		/* Added in OPM: modal= opens a definitions modal instead of procedural overlay. */
+		/* Added in Omaha: modal= opens a definitions modal instead of procedural overlay. */
 		const char *modalAttr = el->Attribute("modal");
 		if (modalAttr && modalAttr[0]) {
 			node.openModal = modalAttr;
@@ -1787,7 +1787,7 @@ bool ParseRenderable(
 			ctx.Error(loc, "<select> cannot combine source with static options");
 			return false;
 		}
-		/* Added in OPM: allow option-less select inside templates (options/source filled at use/expand). */
+		/* Added in Omaha: allow option-less select inside templates (options/source filled at use/expand). */
 		if (!insideTemplate && stored.optionSource.empty() && stored.options.empty()) {
 			ctx.Error(loc, "<select> requires source or options");
 			return false;
@@ -1867,7 +1867,7 @@ bool ParseRenderable(
 		return !ctx.failed;
 	}
 
-	/* Added in OPM: leaf bitmap with intrinsic size (not definitions <images>). */
+	/* Added in Omaha: leaf bitmap with intrinsic size (not definitions <images>). */
 	if (std::strcmp(tag, "image") == 0) {
 		node.kind = UID_NODE_IMAGE;
 		AttrBucket attrs;
@@ -1922,7 +1922,7 @@ bool ParseRenderable(
 		return !ctx.failed;
 	}
 
-	/* Added in OPM: player model preview leaf */
+	/* Added in Omaha: player model preview leaf */
 	if (std::strcmp(tag, "model") == 0) {
 		node.kind = UID_NODE_MODEL;
 		AttrBucket attrs;
@@ -2057,7 +2057,7 @@ bool ParseRenderable(
 		return !ctx.failed;
 	}
 
-	/* Added in OPM: host-drawn server browser region */
+	/* Added in Omaha: host-drawn server browser region */
 	if (std::strcmp(tag, "server-list") == 0) {
 		node.kind = UID_NODE_SERVER_LIST;
 		AttrBucket attrs;
@@ -2509,7 +2509,7 @@ bool ParseModalDef(ParseContext &ctx, XMLElement *el)
 	modal.type.clear();
 	modal.rootNode = UID_INVALID_NODE_ID;
 
-	/* Added in OPM: type=relative → opener-anchored panel (role=relative-panel). */
+	/* Added in Omaha: type=relative → opener-anchored panel (role=relative-panel). */
 	const char *type = el->Attribute("type");
 	if (type && type[0]) {
 		if (std::strcmp(type, "relative") != 0) {
@@ -2970,7 +2970,7 @@ bool ParseDefinitions(ParseContext &ctx, XMLElement *defs)
 			ctx.Error(loc, "HUD pack backdrop must be none or omitted");
 			return false;
 		}
-		/* Added in OPM: HUD packs are not menu-registry entries; meta validated here only. */
+		/* Added in Omaha: HUD packs are not menu-registry entries; meta validated here only. */
 		ctx.doc->drawOrder = drawOrder;
 	} else if (drawOrderStr && drawOrderStr[0]) {
 		ctx.Error(loc, "<definitions draw-order> requires menu-id or hud-id");
@@ -3068,7 +3068,7 @@ void UID_ApplyCollectionAndIndexFields(uid_node_def_t *node)
 	}
 	if (node->properties.Get("visible-if-index", &tmp) && !tmp.empty()) {
 		node->visibleIfIndex = tmp;
-		/* Added in OPM: migrate visible-if-index to brace bool expr. */
+		/* Added in Omaha: migrate visible-if-index to brace bool expr. */
 		if (node->visibleExpr.empty()) {
 			UID_VisibleIfIndexToBoolExpr(tmp, &node->visibleExpr);
 		}

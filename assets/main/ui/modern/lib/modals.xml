@@ -90,7 +90,7 @@
 				</container>
 			</modal>
 
-			<!-- Added in OPM: relative modals anchored to opener (select modal= / show-modal). -->
+			<!-- Added in Omaha: relative modals anchored to opener (select modal= / show-modal). -->
 			<modal id="player-model-allies" type="relative">
 				<container type="overlap" width="100%" height="100%" fill="#00000000">
 					<button width="100%" height="100%" fill="#00000000"

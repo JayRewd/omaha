@@ -55,7 +55,7 @@ struct uid_runtime_s {
 	int               framebufferW;
 	int               framebufferH;
 	float             fbScale;
-	float             uiPxScale; /* Added in OPM: authored px × refScale × ui_scale */
+	float             uiPxScale; /* Added in Omaha: authored px × refScale × ui_scale */
 };
 
 namespace {
@@ -337,7 +337,7 @@ uid_result_t UID_LoadFile(uid_runtime_t *runtime, const char *vfsPath)
 		return UID_ERR_NOT_READY;
 	}
 
-	/* Added in OPM: phase timings for ui_profile (read → parse → expand → compile). */
+	/* Added in Omaha: phase timings for ui_profile (read → parse → expand → compile). */
 	UID_ProfileResetLoad();
 	UID_ProfileSetLoadLabel(vfsPath);
 
@@ -489,7 +489,7 @@ void UID_Update(uid_runtime_t *runtime, int realtime, const uid_pointer_state_t 
 
 	uid_document_t *doc = runtime->doc;
 	int             layoutRan = 0;
-	/* Added in OPM: drive foreach lifetime / fade from update clock. */
+	/* Added in Omaha: drive foreach lifetime / fade from update clock. */
 	doc->updateTimeMs = realtime;
 	UID_ProfileBegin(UID_PROF_FRAME_BIND);
 	UID_SyncBindings(doc, &runtime->backend);

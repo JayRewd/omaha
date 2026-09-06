@@ -811,7 +811,7 @@ static void R_MarkLeaves (void) {
 	// if the cluster is the same and the area visibility matrix
 	// hasn't changed, we don't need to mark everything again
 	//
-	// Fixed in OPM: viewCluster == -1 is the "force remark" sentinel used after
+	// Fixed in Omaha: viewCluster == -1 is the "force remark" sentinel used after
 	// map/menu-world loads. Cameras outside the world also report cluster -1, so
 	// treating (-1 == -1) as a hit skips marking forever (Algiers / Southern France
 	// menu backdrops: brushes vanish, static models still draw).

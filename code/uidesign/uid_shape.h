@@ -36,14 +36,14 @@ source tree, or write to the Free Software Foundation, Inc.,
 struct uid_shape_resolve_params_t {
 	float                     parentWidth;
 	float                     parentHeight;
-	float                     uiPxScale; /* Added in OPM: authored shape prop px multiplier */
+	float                     uiPxScale; /* Added in Omaha: authored shape prop px multiplier */
 	const uid_property_set_t *parentProps; /* owner box props (e.g. fill) */
 	const uid_property_set_t *shapeProps;  /* instance props (e.g. radius) */
 	const uid_limits_t       *limits;      /* optional; defaults used if null */
-	const uid_backend_t      *backend;     /* Added in OPM: resolve {cvar:} shape props */
-	uid_document_t           *doc;         /* Added in OPM: live numeric edge props */
-	uid_node_id_t             nodeId;    /* Added in OPM: foreach item context for expr eval */
-	/* Added in OPM: optional overrides for {parent.fill}/{parent.stroke} without cloning props. */
+	const uid_backend_t      *backend;     /* Added in Omaha: resolve {cvar:} shape props */
+	uid_document_t           *doc;         /* Added in Omaha: live numeric edge props */
+	uid_node_id_t             nodeId;    /* Added in Omaha: foreach item context for expr eval */
+	/* Added in Omaha: optional overrides for {parent.fill}/{parent.stroke} without cloning props. */
 	const char               *fillOverride;        /* nullptr = use parentProps fill */
 	const char               *strokeOverride;      /* nullptr = use parentProps stroke */
 	const char               *strokeWidthOverride; /* nullptr = use parentProps stroke-width */

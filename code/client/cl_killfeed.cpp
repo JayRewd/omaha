@@ -31,7 +31,7 @@ extern "C" char *Cmd_Argv(int arg);
 
 static uint64_t s_killFeedNextId = 1;
 
-/* Added in OPM: match sanitized death-message names to CS_PLAYERS team. */
+/* Added in Omaha: match sanitized death-message names to CS_PLAYERS team. */
 static int CL_KillFeed_TeamForPlayerName(const char *name)
 {
 	char want[MAX_NAME_LENGTH];
@@ -80,7 +80,7 @@ static int CL_KillFeed_TeamForPlayerName(const char *name)
 	return TEAM_NONE;
 }
 
-/* Added in OPM: "allies" / "axis" / "" for HUD fields (icon_team never empty). */
+/* Added in Omaha: "allies" / "axis" / "" for HUD fields (icon_team never empty). */
 static const char *CL_KillFeed_TeamToken(int team, qboolean forIcon)
 {
 	if (team == TEAM_AXIS) {

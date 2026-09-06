@@ -60,7 +60,7 @@ uir_font_t *UIR_FontLoad(const char *vfsPath, float pixelHeight);
 uir_font_t *UIR_FontResolve(const char *vfsPath, float logicalPx, float fbScale);
 void UIR_FontRelease(uir_font_t *font);
 
-/* Added in OPM: registry pressure while ui_scale / DIP changes thrash bakes. */
+/* Added in Omaha: registry pressure while ui_scale / DIP changes thrash bakes. */
 int UIR_FontRegistryCount(void);
 int UIR_FontRegistryCapacity(void);
 

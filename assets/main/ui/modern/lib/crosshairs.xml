@@ -1,6 +1,6 @@
 <ui-library version="1">
 	<shapes>
-		<!-- Added in OPM: procedural crosshair previews (intrinsic 64×64, stretched to parent). -->
+		<!-- Added in Omaha: procedural crosshair previews (intrinsic 64×64, stretched to parent). -->
 		<shape id="crosshair-solid" width="64px" height="64px">
 			<props>
 				<prop name="size" type="length" default="8px"/>

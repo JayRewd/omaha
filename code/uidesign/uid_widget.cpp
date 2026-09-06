@@ -69,7 +69,7 @@ bool IsPaintKind(uid_node_kind_t kind)
 	case UID_NODE_SELECT:
 	case UID_NODE_KEYBIND:
 	case UID_NODE_SHAPE_INSTANCE:
-	case UID_NODE_IMAGE: /* Added in OPM: leaf bitmap */
+	case UID_NODE_IMAGE: /* Added in Omaha: leaf bitmap */
 	case UID_NODE_MODEL:
 	case UID_NODE_SERVER_LIST:
 	case UID_NODE_FOREACH:
@@ -268,7 +268,7 @@ float FontLogicalPx(const uid_document_t *doc, const uid_node_def_t &node)
 }
 
 /*
- * Fixed in OPM: leaf text used contentBox origin + an extra font-size Y offset,
+ * Fixed in Omaha: leaf text used contentBox origin + an extra font-size Y offset,
  * so button/label glyphs sat low-left instead of respecting halign/valign.
  * fontDraw's Y is the top of the typographic box (ascent applied inside UIR).
  */
@@ -354,7 +354,7 @@ uint64_t HashTextCacheKey(
 	return h;
 }
 
-/* Added in OPM: FNV-1a key for per-node resolved shape cache. */
+/* Added in Omaha: FNV-1a key for per-node resolved shape cache. */
 unsigned long long HashShapeKey(
 	const char *shapeName,
 	float parentW,
@@ -400,7 +400,7 @@ unsigned long long HashShapeKey(
 }
 
 /*
- * Added in OPM: resolve shape paths with optional per-node cache (UID_OPT_SHAPE_CACHE).
+ * Added in Omaha: resolve shape paths with optional per-node cache (UID_OPT_SHAPE_CACHE).
  * outPaths points at st->cachedShapePaths on hit/miss with cache on, else a thread_local scratch.
  */
 bool ResolveShapeCached(
@@ -808,7 +808,7 @@ size_t Utf8ByteOffsetForCodepoint(const std::string &s, size_t codepoint)
 }
 
 /*
- * Fixed in OPM: caret used a hardcoded 8px/codepoint advance while glyphs use
+ * Fixed in Omaha: caret used a hardcoded 8px/codepoint advance while glyphs use
  * fontMeasure (+ letter-spacing). Measure the prefix up to the caret instead.
  */
 float MeasureCaretAdvance(
@@ -902,7 +902,7 @@ bool IsDefaultRectShape(const uid_node_def_t &node)
 }
 
 /*
- * Added in OPM: resolve non-rect owner shape paths for descendant stencil clipping.
+ * Added in Omaha: resolve non-rect owner shape paths for descendant stencil clipping.
  * Layout ignores shape; paint clips children to this geometry. Returns false when
  * no clip should be applied (default rectangle, edge-clip, missing shape, etc.).
  */
@@ -1051,7 +1051,7 @@ void DrawSolid(const uid_backend_t *backend, const uid_rect_t &box, const uid_co
 }
 
 /*
- * Added in OPM: resolve mask-image to a VFS path or linear(...)/radial(...) brush.
+ * Added in Omaha: resolve mask-image to a VFS path or linear(...)/radial(...) brush.
  * Returns false when missing or invalid.
  */
 bool ResolveMaskImageSpec(
@@ -1107,7 +1107,7 @@ static void PaintBackgroundImage(
 )
 {
 	std::string imageId;
-	/* Added in OPM: leaf <image> prefers src; containers keep background-image. */
+	/* Added in Omaha: leaf <image> prefers src; containers keep background-image. */
 	if (node.kind == UID_NODE_IMAGE) {
 		if (!node.properties.Get("src", &imageId) || imageId.empty()) {
 			(void)node.properties.Get("background-image", &imageId);
@@ -1287,7 +1287,7 @@ static void PaintBackgroundImage(
 					params.parentHeight = geom.h;
 				}
 				/*
-			 * Fixed in OPM: intrinsic viewbox props must not also take uiPxScale —
+			 * Fixed in Omaha: intrinsic viewbox props must not also take uiPxScale —
 				 * layout already sized geom and SvgMap stretches view→dest.
 				 */
 				if (sit->second.hasIntrinsicSize && (viewW != geom.w || viewH != geom.h)) {
@@ -1330,7 +1330,7 @@ static void PaintBackgroundImage(
 				params.parentWidth = geom.w;
 				params.parentHeight = geom.h;
 			}
-			/* Fixed in OPM: intrinsic stretch already applies DIP; avoid uiPxScale². */
+			/* Fixed in Omaha: intrinsic stretch already applies DIP; avoid uiPxScale². */
 			if (sit->second.hasIntrinsicSize && (viewW != geom.w || viewH != geom.h)) {
 				params.uiPxScale = 1.0f;
 			} else {
@@ -1376,7 +1376,7 @@ static void PaintBackgroundImage(
 	);
 }
 
-/* Added in OPM: atlas gradient fill, clipped like background-image. */
+/* Added in Omaha: atlas gradient fill, clipped like background-image. */
 static void PaintGradientFill(
 	uid_document_t           *doc,
 	uid_node_id_t             nodeId,
@@ -1473,7 +1473,7 @@ bool IsDropdownSelect(const uid_node_def_t &node)
 	return node.kind == UID_NODE_SELECT && node.appearance != "cyclic";
 }
 
-/* Added in OPM: closed dropdown field = value label + trailing caret. */
+/* Added in Omaha: closed dropdown field = value label + trailing caret. */
 void PaintDropdownSelect(uid_document_t *doc, uid_node_id_t id, const uid_backend_t *backend, float opacityMul)
 {
 	uid_node_def_t *node = UID_GetNode(doc, id);
@@ -1543,7 +1543,7 @@ void PaintDropdownSelect(uid_document_t *doc, uid_node_id_t id, const uid_backen
 		/* Still try caret shape below. */
 	}
 
-	/* Added in OPM: fonts are ASCII-only — UTF-8 ▾ becomes "???"; draw a triangle path. */
+	/* Added in Omaha: fonts are ASCII-only — UTF-8 ▾ becomes "???"; draw a triangle path. */
 	if (backend->drawPath) {
 		const float tw = UID_ScaleAuthoredPx(doc, 10.0f);
 		const float th = UID_ScaleAuthoredPx(doc, 6.0f);
@@ -1600,7 +1600,7 @@ int CyclicOptionIndex(const uid_node_def_t &node, const uid_node_state_t &st)
 	return 0;
 }
 
-/* Added in OPM: HTML-parity cyclic select (chevrons + centered value + ticks). */
+/* Added in Omaha: HTML-parity cyclic select (chevrons + centered value + ticks). */
 void PaintCyclicSelect(uid_document_t *doc, uid_node_id_t id, const uid_backend_t *backend)
 {
 	uid_node_def_t *node = UID_GetNode(doc, id);
@@ -1775,7 +1775,7 @@ void PaintChromeNode(
 		return;
 	}
 
-	/* Added in OPM: descendant clips are intersections of this clip, so an empty
+	/* Added in Omaha: descendant clips are intersections of this clip, so an empty
 	   clip means the whole subtree is invisible. */
 	if (UID_OptEnabled(UID_OPT_PAINT_CULL)) {
 		if (st->effectiveClip.w <= 0.0f || st->effectiveClip.h <= 0.0f) {
@@ -1784,7 +1784,7 @@ void PaintChromeNode(
 	}
 
 	/*
-	 * Fixed in OPM: windowed-foreach overscan rows sit below overflow=scroll
+	 * Fixed in Omaha: windowed-foreach overscan rows sit below overflow=scroll
 	 * viewports with overflow=none, so effectiveClip stays the full viewport
 	 * (non-empty). They used to keep recursing and paint 1px row dividers past
 	 * the list (and past the parent panel). Skip the whole subtree when the
@@ -2107,6 +2107,14 @@ std::string UID_NodeDisplayText(const uid_document_t *doc, uid_node_id_t id)
 		return UID_KeybindEmptyLabel(*node);
 	}
 	if (node->kind == UID_NODE_BUTTON) {
+		/*
+		 * Bound toggle buttons store the cvar in runtimeValue; keep authored label.
+		 * Foreach rows keep live {item.*} in text and resolve via runtimeValue.
+		 */
+		if (node->foreachGenerated && node->text.find("{item.") != std::string::npos && st &&
+			st->runtimeValue.hasValue) {
+			return st->runtimeValue.stringValue;
+		}
 		return node->text;
 	}
 	if (st && st->runtimeValue.hasValue && !st->runtimeValue.stringValue.empty()) {
@@ -2237,7 +2245,7 @@ void UID_PaintNodeBackground(uid_document_t *doc, uid_node_id_t id, const uid_ba
 		bgRotationDeg = cs->bgRotationDeg;
 	} else {
 		/*
-	 * Fixed in OPM: if fill is still an unresolved style ternary, evaluate it
+	 * Fixed in Omaha: if fill is still an unresolved style ternary, evaluate it
 		 * without writing properties (Version bumps defeat shape cache).
 		 */
 		std::string fillOverride;
@@ -2254,7 +2262,7 @@ void UID_PaintNodeBackground(uid_document_t *doc, uid_node_id_t id, const uid_ba
 		hasGradient = resolvedPaint && !gradientBrush.empty();
 		hasFill = resolvedPaint && !hasGradient && fill.a > 0.0f;
 
-	/* Added in OPM: element-owned stroke drilled into shape path draw. */
+	/* Added in Omaha: element-owned stroke drilled into shape path draw. */
 		{
 			const char *strokeStr = PropCStr(*node, "stroke", nullptr);
 			if (strokeStr && strokeStr[0]) {
@@ -2324,7 +2332,7 @@ void UID_PaintNodeBackground(uid_document_t *doc, uid_node_id_t id, const uid_ba
 	}
 
 	/*
-	 * Changed in OPM: authored size (incl. width=100%) is the outer box that
+	 * Changed in Omaha: authored size (incl. width=100%) is the outer box that
 	 * includes stroke. Fill/shape geometry is inset by stroke-width; outside-
 	 * aligned stroke then sits in that margin and is not clipped.
 	 */
@@ -2425,7 +2433,7 @@ void UID_PaintNodeBackground(uid_document_t *doc, uid_node_id_t id, const uid_ba
 				params.parentHeight = geom.h;
 			}
 			/*
-			 * Fixed in OPM: intrinsic viewbox props must not also take uiPxScale —
+			 * Fixed in Omaha: intrinsic viewbox props must not also take uiPxScale —
 			 * layout already sized geom and SvgMap stretches view→dest (else uiPxScale²).
 			 * Owner-sized shapes (view == geom) still scale props via uiPxScale.
 			 */
@@ -2442,10 +2450,10 @@ void UID_PaintNodeBackground(uid_document_t *doc, uid_node_id_t id, const uid_ba
 			params.parentProps = &node->properties;
 
 			/*
-			 * Fixed in OPM: parent.fill must always be a parseable color for shape
+			 * Fixed in Omaha: parent.fill must always be a parseable color for shape
 			 * paths (fill="{parent.fill}"). Unresolved ternaries used to make
 			 * ResolveShape fail and drop stroke entirely.
-			 * Added in OPM: overrides avoid cloning the full property map.
+			 * Added in Omaha: overrides avoid cloning the full property map.
 			 */
 			char fillBuf[32];
 			char strokeBuf[32];
@@ -2454,7 +2462,7 @@ void UID_PaintNodeBackground(uid_document_t *doc, uid_node_id_t id, const uid_ba
 				uid_color_t parentFillColor{};
 				const char *fp = node->properties.GetCStr("fill", "#00000000");
 				if (hasGradient) {
-					/* Added in OPM: gradient is drawn via atlas; shape fill stays transparent. */
+					/* Added in Omaha: gradient is drawn via atlas; shape fill stays transparent. */
 					std::snprintf(fillBuf, sizeof(fillBuf), "#00000000");
 				} else if (hasFill) {
 					formatColor(fill, fillBuf, sizeof(fillBuf));
@@ -2503,7 +2511,7 @@ void UID_PaintNodeBackground(uid_document_t *doc, uid_node_id_t id, const uid_ba
 					if (!fillPtr && !strokePtr) {
 						continue;
 					}
-					/* Added in OPM: crisp disables soft path AA (crosshair pixel marks). */
+					/* Added in Omaha: crisp disables soft path AA (crosshair pixel marks). */
 					const int crisp = PropBool(*node, "crisp", false) ? 1 : 0;
 					backend->drawPath(
 						p.d.c_str(),
@@ -2550,7 +2558,7 @@ void UID_PaintNodeContent(uid_document_t *doc, uid_node_id_t id, const uid_backe
 		return;
 	}
 
-	/* Added in OPM: model preview queues into compositor via host hook */
+	/* Added in Omaha: model preview queues into compositor via host hook */
 	if (node->kind == UID_NODE_MODEL) {
 		if (!backend->queueModelPreview) {
 			return;
@@ -2634,7 +2642,7 @@ void UID_PaintNodeContent(uid_document_t *doc, uid_node_id_t id, const uid_backe
 		return;
 	}
 
-	/* Added in OPM: host draws server-list header+body */
+	/* Added in Omaha: host draws server-list header+body */
 	if (node->kind == UID_NODE_SERVER_LIST) {
 		if (backend->drawHostRegion) {
 			const char *role = node->role.empty() ? "server-list" : node->role.c_str();
@@ -2729,12 +2737,12 @@ void UID_PaintNodeContent(uid_document_t *doc, uid_node_id_t id, const uid_backe
 		return;
 	}
 
-	/* Added in OPM: cyclic select paints its own chrome (not dropdown field text). */
+	/* Added in Omaha: cyclic select paints its own chrome (not dropdown field text). */
 	if (IsCyclicSelect(*node)) {
 		PaintCyclicSelect(doc, id, backend);
 		return;
 	}
-	/* Added in OPM: dropdown select paints value + trailing caret. */
+	/* Added in Omaha: dropdown select paints value + trailing caret. */
 	if (IsDropdownSelect(*node)) {
 		PaintDropdownSelect(doc, id, backend, opacityMul);
 		return;
@@ -2779,7 +2787,7 @@ void UID_PaintNodeContent(uid_document_t *doc, uid_node_id_t id, const uid_backe
 				}
 			}
 
-			/* Added in OPM: paint-time marquee (parent overflow=hidden clips). */
+			/* Added in Omaha: paint-time marquee (parent overflow=hidden clips). */
 			enum { kMarqueeNone = 0, kMarqueeH = 1, kMarqueeV = 2 };
 			int marqueeAxis = kMarqueeNone;
 			const char *marqueeProp = node->properties.GetCStr("marquee", "none");
@@ -3051,7 +3059,7 @@ void UID_PaintChrome(uid_document_t *doc, const uid_backend_t *backend)
 		PaintChromeNode(doc, chromeRoot, backend, true);
 	}
 	/*
-	 * Fixed in OPM: modals paint in UID_PaintOverlay (after 3D model previews).
+	 * Fixed in Omaha: modals paint in UID_PaintOverlay (after 3D model previews).
 	 * Chrome still queues <model> previews; drawing the modal here put dropdowns
 	 * under the player previews on the Profile panel.
 	 */
@@ -3099,7 +3107,7 @@ void UID_PaintOverlay(uid_document_t *doc, const uid_backend_t *backend)
 			}
 		}
 	}
-	/* Added in OPM: modals (incl. type=relative dropdowns) draw above model previews. */
+	/* Added in Omaha: modals (incl. type=relative dropdowns) draw above model previews. */
 	if (UID_IsModalActive(doc)) {
 		const uid_node_id_t modalRoot = UID_GetModalRoot(doc);
 		if (modalRoot != UID_INVALID_NODE_ID) {

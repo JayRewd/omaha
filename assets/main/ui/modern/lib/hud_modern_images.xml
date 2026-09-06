@@ -1,6 +1,6 @@
 <ui-library version="1">
 	<images>
-		<!-- Fixed in OPM: GL1 RegisterShaderNoMip defaults extensionless names to .tga;
+		<!-- Fixed in Omaha: GL1 RegisterShaderNoMip defaults extensionless names to .tga;
 		     these assets are PNG, so src must include .png (same as ui/modern/lib/images.xml). -->
 		<image id="modernhud-m1-garand" src="ui/modern/textures/modernhud/m1_garand.png"/>
 		<image id="modernhud-m1-garand-filled" src="ui/modern/textures/modernhud/m1_garand_filled.png"/>
@@ -47,7 +47,7 @@
 		<image id="modernhud-steilhandgranate" src="ui/modern/textures/modernhud/steilhandgranate.png"/>
 		<image id="modernhud-steilhandgranate-filled" src="ui/modern/textures/modernhud/steilhandgranate_filled.png"/>
 		<image id="modernhud-steilhandgranate-kf" src="ui/modern/textures/modernhud/steilhandgranate_kf.png"/>
-		<!-- Added in OPM: kill-feed headshot / bash / suicide markers (50px source, scaled in HUD). -->
+		<!-- Added in Omaha: kill-feed headshot / bash / suicide markers (50px source, scaled in HUD). -->
 		<image id="modernhud-headshot-50" src="ui/modern/textures/modernhud/headshot_50.png"/>
 		<image id="modernhud-glove-50" src="ui/modern/textures/modernhud/glove_50.png"/>
 		<image id="modernhud-skull-50" src="ui/modern/textures/modernhud/skull_50.png"/>

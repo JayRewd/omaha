@@ -23,7 +23,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 */
 
 /*
- * Added in OPM: headless main-menu / HUD frame benchmark for UID CPU stages.
+ * Added in Omaha: headless main-menu / HUD frame benchmark for UID CPU stages.
  * Loads a modern UI XML fixture, runs bind/layout/paint for N frames, and
  * optionally dumps a deterministic DRAW/CLIP call log for golden diffs.
  */

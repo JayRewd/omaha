@@ -395,7 +395,7 @@ qboolean CL_ProcessServerCommand(const char* origString, const char* cmd, qboole
 		return qfalse;
 	}
 
-	/* Added in OPM: structured kill-feed from TA printdeathmsg (cgame still handles Printf). */
+	/* Added in Omaha: structured kill-feed from TA printdeathmsg (cgame still handles Printf). */
 	if (!strcmp(cmd, "printdeathmsg")) {
 		CL_KillFeed_HandlePrintDeathMsg();
 		return qtrue;

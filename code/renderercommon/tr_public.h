@@ -199,10 +199,10 @@ typedef struct {
 	void (*CancelMenuWorldStaging)(void);
 	qboolean (*HasActiveWorld)(void);
 
-	/* Added in OPM: offscreen transparent model preview PNG export (GL2). */
+	/* Added in Omaha: offscreen transparent model preview PNG export (GL2). */
 	qboolean (*ExportModelPreviewPNG)( const refdef_t *fd, const char *vfsPath );
 
-	/* Added in OPM: batched 2D UI geometry. NULL on renderers without a GPU UI path. */
+	/* Added in Omaha: batched 2D UI geometry. NULL on renderers without a GPU UI path. */
 	qboolean (*UI2DBatchSupported)(void);
 	qboolean (*UI2DCanBatchShader)(qhandle_t hShader);
 	void     (*DrawUI2D)(const ui2dVert_t *verts, int numVerts,
@@ -211,7 +211,7 @@ typedef struct {
 	void     (*UI2DBatchBegin)(void);
 	void     (*UI2DBatchEnd)(void);
 
-	/* Added in OPM: optional offscreen MSAA UI target (GL1). */
+	/* Added in Omaha: optional offscreen MSAA UI target (GL1). */
 	qboolean (*UI2DTargetAvailable)(void);
 	qboolean (*BeginUI2DTarget)(void);
 	void     (*EndUI2DTarget)(void);
@@ -219,13 +219,13 @@ typedef struct {
 	int      (*UI2DTargetSamples)(void);
 	void     (*UI2DTargetRebind)(void);
 
-	/* Added in OPM: soft mask-image layer RT (GL1 UI FBO). */
+	/* Added in Omaha: soft mask-image layer RT (GL1 UI FBO). */
 	qboolean (*UiLayerAvailable)(void);
 	qboolean (*BeginUiLayer)(int fbX, int fbY, int fbW, int fbH, float uiX, float uiY, float uiW, float uiH);
 	void     (*UiLayerApplyMask)(qhandle_t hShader, float x, float y, float w, float h, float s1, float t1, float s2, float t2);
 	void     (*EndUiLayer)(void);
 
-	/* Added in OPM: retained chrome cache RT (GL1); blit on idle frames. */
+	/* Added in Omaha: retained chrome cache RT (GL1); blit on idle frames. */
 	qboolean (*UiChromeCacheAvailable)(void);
 	qboolean (*BeginUiChromeCacheCapture)(float uiX, float uiY, float uiW, float uiH);
 	void     (*EndUiChromeCacheCapture)(void);

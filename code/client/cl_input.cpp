@@ -96,7 +96,7 @@ void IN_MouseOn( void ) {
 =================
 IN_MouseOnKeepKeys
 
-Added in OPM: enable GUI mouse without synthesizing key-ups. Hold-TAB overlays
+Added in Omaha: enable GUI mouse without synthesizing key-ups. Hold-TAB overlays
 (scoreboard) must keep the binding key down or -scores closes immediately.
 =================
 */
@@ -461,7 +461,7 @@ void CL_MouseEvent( int dx, int dy, int time ) {
 		cl.mousey += dy;
 
 		/*
-		 * Changed in OPM: modern clamps to UiVid S (surface/layout); legacy to
+		 * Changed in Omaha: modern clamps to UiVid S (surface/layout); legacy to
 		 * glconfig. Absolute path keeps cl.mouse in window space — clamp to
 		 * window when S matches window, else still clamp to window so MapMouse
 		 * can scale into S.

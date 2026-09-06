@@ -139,7 +139,7 @@ void UIDMBox::PostMoveinEvent(void)
 
 void UIDMBox::PostDecayEvent(void)
 {
-    /* Changed in OPM: modern HUD foreach lifetime owns expiry; capacity trim only. */
+    /* Changed in Omaha: modern HUD foreach lifetime owns expiry; capacity trim only. */
     if (CL_UIR_UseModernHudPack()) {
         return;
     }
@@ -172,7 +172,7 @@ void UIDMBox::PostDecayEvent(void)
             fDelayTime = iNumLines * 5.0;
         }
 
-        /* Fixed in OPM: tiny wrap widths create huge line counts and multi-minute
+        /* Fixed in Omaha: tiny wrap widths create huge line counts and multi-minute
          * decay timers that freeze the modern kill/chat feed at capacity. */
         if (fDelayTime < 1.0f) {
             fDelayTime = 1.0f;
@@ -306,7 +306,7 @@ void UIDMBox::Print(const char *text)
 {
     const char *text1 = text;
 
-    /* Changed in OPM: capacity aligned with UIR_HUD_MESSAGES_MAX_ROWS. */
+    /* Changed in Omaha: capacity aligned with UIR_HUD_MESSAGES_MAX_ROWS. */
     if (m_numitems >= UIR_HUD_MESSAGES_MAX_ROWS) {
         RemoveTopItem();
     }
@@ -335,7 +335,7 @@ void UIDMBox::Print(const char *text)
         m_items[m_numitems].color = m_foreground_color;
         m_items[m_numitems].font  = m_font;
     }
-    /* Added in OPM: Base (protocol < TA) deaths are print→dmbox only; feed kill-feed here.
+    /* Added in Omaha: Base (protocol < TA) deaths are print→dmbox only; feed kill-feed here.
      * TA uses printdeathmsg (CL_KillFeed_HandlePrintDeathMsg) then also Printf into dmbox —
      * skip here to avoid duplicate rows. */
     if ((m_items[m_numitems].flags & DMBOX_ITEM_FLAG_DEATH) && com_protocol
@@ -347,7 +347,7 @@ void UIDMBox::Print(const char *text)
         CalculateBreaks(m_items[m_numitems].font, Sys_LV_CL_ConvertString(text1),
                         s_dmboxWidth < 64.0f ? 64.0f : s_dmboxWidth);
 
-    /* Added in OPM: monotonic id for hud-messages foreach lifetime. */
+    /* Added in Omaha: monotonic id for hud-messages foreach lifetime. */
     {
         static uint64_t s_nextHudMessageId = 1;
         m_items[m_numitems].stableId = s_nextHudMessageId++;
@@ -397,14 +397,14 @@ void UIDMBox::DecayEvent(Event *ev)
 /*
 ====================
 UIDMBox::ForceDueDecay
-Fixed in OPM: modern HUD publishes via Draw and never runs the legacy overflow
+Fixed in Omaha: modern HUD publishes via Draw and never runs the legacy overflow
 force-decay. If the scheduled EV_DMBox_Decay is lost/stuck, rows freeze at max.
 Drive the same RemoveTopItem path from Draw when the deadline has elapsed.
 ====================
 */
 void UIDMBox::ForceDueDecay(void)
 {
-    /* Changed in OPM: modern HUD skips timer decay (foreach lifetime). */
+    /* Changed in Omaha: modern HUD skips timer decay (foreach lifetime). */
     if (CL_UIR_UseModernHudPack()) {
         return;
     }
@@ -436,14 +436,14 @@ void UIDMBox::Draw(void)
 
     if (!m_numitems) {
         if (CL_UIR_UseModernHudPack()) {
-            /* Fixed in OPM: only publish an empty snapshot when rows were present.
+            /* Fixed in Omaha: only publish an empty snapshot when rows were present.
              * Calling Clear+NotifyChanged every idle frame bumped collection revision
              * and forced classic HUD foreach/layout thrash. */
             if (UIR_HudMessages_GetRowCount() > 0) {
                 UIR_HudMessages_Clear();
                 UIR_HudMessages_NotifyChanged();
             }
-            /* Added in OPM: chat-only collection mirrors mixed clear. */
+            /* Added in Omaha: chat-only collection mirrors mixed clear. */
             if (UIR_HudChat_GetRowCount() > 0) {
                 UIR_HudChat_Clear();
                 UIR_HudChat_NotifyChanged();
@@ -452,7 +452,7 @@ void UIDMBox::Draw(void)
         return;
     }
 
-    /* Added in OPM: modern HUD pack paints chat via hud-messages collection. */
+    /* Added in Omaha: modern HUD pack paints chat via hud-messages collection. */
     if (CL_UIR_UseModernHudPack()) {
         uir_hud_message_input_t row;
 
@@ -487,7 +487,7 @@ void UIDMBox::Draw(void)
             row.bold = (m_items[i].flags & DMBOX_ITEM_FLAG_BOLD) ? 1 : 0;
             row.stableId = m_items[i].stableId;
             UIR_HudMessages_AddRow(&row);
-            /* Added in OPM: hud-chat excludes death/kill lines. */
+            /* Added in Omaha: hud-chat excludes death/kill lines. */
             if (!(m_items[i].flags & DMBOX_ITEM_FLAG_DEATH)) {
                 UIR_HudChat_AddRow(&row);
             }

@@ -49,7 +49,7 @@ enum {
 bool UID_ParseCvarBind(const char *bind, std::string *cvarNameOut);
 
 /*
- * Added in OPM: parse bind="item.field:name" (or item.field.name) for read-only
+ * Added in Omaha: parse bind="item.field:name" (or item.field.name) for read-only
  * collection selection driven by an enclosing foreach item field.
  */
 bool UID_ParseItemFieldBind(const char *bind, std::string *fieldNameOut);
@@ -79,18 +79,18 @@ uid_result_t UID_WriteAllBindings(uid_document_t *doc, const uid_backend_t *back
 /* Added in Omaha: clear commit=apply staged runtime so sync can pull again (defaults). */
 void UID_ClearApplyStagedBindings(uid_document_t *doc);
 
-/* Added in OPM: collection scope bind helpers. */
+/* Added in Omaha: collection scope bind helpers. */
 std::string UID_TransformCvarToUi(
 	const uid_node_def_t &node,
 	const std::string &cvarValue,
 	const uid_backend_t *backend
 );
 
-/* Added in OPM: keybind display strings from empty-label / capture-label attrs. */
+/* Added in Omaha: keybind display strings from empty-label / capture-label attrs. */
 std::string UID_KeybindEmptyLabel(const uid_node_def_t &node);
 std::string UID_KeybindCaptureLabel(const uid_node_def_t &node);
 
-/* Added in OPM: keybind capture with optional confirm-modal on conflict. */
+/* Added in Omaha: keybind capture with optional confirm-modal on conflict. */
 uid_result_t UID_TryCommitKeybindCapture(
 	uid_document_t *doc,
 	uid_node_id_t nodeId,
@@ -98,19 +98,19 @@ uid_result_t UID_TryCommitKeybindCapture(
 	const uid_backend_t *backend
 );
 
-/* Added in OPM: commit keybind from ui_modal_bind_* context cvars (modal yes). */
+/* Added in Omaha: commit keybind from ui_modal_bind_* context cvars (modal yes). */
 uid_result_t UID_CommitKeybindFromModalCvars(uid_document_t *doc, const uid_backend_t *backend);
 
-/* Added in OPM: shared cvar reads for shape props / cvar-rgba fills. */
+/* Added in Omaha: shared cvar reads for shape props / cvar-rgba fills. */
 bool   UID_ReadCvarString(const uid_backend_t *backend, const char *name, std::string *out);
 double UID_ReadCvarNumber(const uid_backend_t *backend, const char *name, double fallback);
 bool   UID_ResolvePropString(const uid_backend_t *backend, const std::string &input, std::string *out);
 bool   UID_ResolveCvarRgba(const uid_backend_t *backend, const char *spec, uid_color_t *out);
-/* Added in OPM: exact {cvar:name} / {cvar.name} property bindings */
+/* Added in Omaha: exact {cvar:name} / {cvar.name} property bindings */
 bool   UID_ParseExactCvarBraceBinding(const std::string &value, std::string *cvarNameOut);
 void   UID_RegisterCvarBoundProps(uid_node_def_t *node);
 
-/* Added in OPM: evaluate runtime numeric expressions on layout/paint props. */
+/* Added in Omaha: evaluate runtime numeric expressions on layout/paint props. */
 bool UID_EvalRuntimeNumericExpr(
 	uid_document_t      *doc,
 	uid_node_id_t        nodeId,

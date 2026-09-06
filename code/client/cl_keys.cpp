@@ -1149,7 +1149,7 @@ void CL_KeyEvent(int key, qboolean down, unsigned time)
 
         if (in_guimouse || (CL_UIMenu_HasPointerMenuOpen() && clc.state == CA_ACTIVE)) {
             /*
-             * Fixed in OPM: while capturing a keybind, mouse buttons must reach
+             * Fixed in Omaha: while capturing a keybind, mouse buttons must reach
              * the design capture path (legacy UIBindButton binds MOUSE1..5).
              */
             if (!CL_UIR_IsCapturingKeybind()) {
@@ -1159,7 +1159,7 @@ void CL_KeyEvent(int key, qboolean down, unsigned time)
     }
 
     /*
-     * Fixed in OPM: spectator / intermission scoreboard shows a pointer but does
+     * Fixed in Omaha: spectator / intermission scoreboard shows a pointer but does
      * not ShouldOwnInput. Route MWHEEL into the design wheel delta so overflow=
      * scroll lists move; otherwise weapnext/weapprev bindings steal the wheel.
      * Also route while hold-TAB scoreboard is open without a pointer so lists
@@ -1180,7 +1180,7 @@ void CL_KeyEvent(int key, qboolean down, unsigned time)
     }
 
     /*
-     * Added in OPM: design keybind capture beats menubound F-keys and Escape
+     * Added in Omaha: design keybind capture beats menubound F-keys and Escape
      * menu routing. Engine emergency shortcuts (console, Alt+Enter) already
      * returned above.
      */
@@ -1229,16 +1229,16 @@ void CL_KeyEvent(int key, qboolean down, unsigned time)
             }
             return;
         } else {
-            /* Changed in OPM: deliver Escape key-up to modern for modifier clear. */
+            /* Changed in Omaha: deliver Escape key-up to modern for modifier clear. */
             if (CL_UIR_IsModernMainActive() && !CL_UIR_LegacyModalOwnsInput()) {
                 CL_UIR_KeyEvent(key, qfalse, time);
             }
         }
     } else if (down) {
         /*
-         * Changed in OPM: when modern owns input (or capturing), include menubound
+         * Changed in Omaha: when modern owns input (or capturing), include menubound
          * keys so F-keys reach design before bound-command dispatch.
-         * Fixed in OPM: do not swallow menubound binds (e.g. F12 screenshotJPEG)
+         * Fixed in Omaha: do not swallow menubound binds (e.g. F12 screenshotJPEG)
          * after UI handling — only non-menubound keys stay UI-exclusive.
          */
         const qboolean modernOwns =
@@ -1311,7 +1311,7 @@ void CL_KeyEvent(int key, qboolean down, unsigned time)
         }
         return;
     } else {
-        /* Changed in OPM: route key-up whenever modern UI owns input (Shift clear, HUD chat). */
+        /* Changed in Omaha: route key-up whenever modern UI owns input (Shift clear, HUD chat). */
         if (CL_UIR_ShouldOwnInput() && !CL_UIR_LegacyModalOwnsInput()) {
             CL_UIR_KeyEvent(key, qfalse, time);
         }

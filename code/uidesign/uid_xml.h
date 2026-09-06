@@ -30,7 +30,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 
 #include <stddef.h>
 
-/* Added in OPM: optional VFS reader for <import> resolution during parse. */
+/* Added in Omaha: optional VFS reader for <import> resolution during parse. */
 typedef struct uid_parse_io_s {
 	long (*readFile)(const char *path, void **buf);
 	void (*freeFile)(void *buf);
@@ -51,10 +51,10 @@ uid_result_t UID_ParseXml(
 	uid_diag_list_t *diags
 );
 
-/* Added in OPM: sync collection/index fields from properties after template expand. */
+/* Added in Omaha: sync collection/index fields from properties after template expand. */
 void UID_ApplyCollectionAndIndexFields(uid_node_def_t *node);
 
-/* Added in OPM: lightweight menu registration metadata from <definitions> attributes. */
+/* Added in Omaha: lightweight menu registration metadata from <definitions> attributes. */
 typedef struct uid_menu_meta_s {
 	char                 menuId[64];
 	int                  drawOrder;
@@ -69,7 +69,7 @@ uid_result_t UID_PeekMenuMetadata(
 	uid_diag_list_t *diags
 );
 
-/* Added in OPM: HUD pack registration metadata from <definitions hud-id hud-label draw-order>. */
+/* Added in Omaha: HUD pack registration metadata from <definitions hud-id hud-label draw-order>. */
 /* Changed in Omaha: pause-menu / scoreboard-menu companions are required on HUD packs. */
 typedef struct uid_hud_meta_s {
 	char hudId[64];

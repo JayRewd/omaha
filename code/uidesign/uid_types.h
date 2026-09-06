@@ -62,27 +62,27 @@ typedef enum {
 	UID_NODE_INPUT,
 	UID_NODE_TOGGLE,
 	UID_NODE_SLIDER,
-	UID_NODE_SLIDER_TRACK, /* Added in OPM: composed slider part */
-	UID_NODE_SLIDER_RANGE, /* Added in OPM: composed slider part */
-	UID_NODE_SLIDER_THUMB, /* Added in OPM: composed slider part */
-	UID_NODE_SCROLLBAR,       /* Added in OPM: scroll container chrome root */
-	UID_NODE_SCROLLBAR_TRACK, /* Added in OPM: scrollbar rail background */
-	UID_NODE_SCROLLBAR_THUMB, /* Added in OPM: scrollbar draggable handle */
+	UID_NODE_SLIDER_TRACK, /* Added in Omaha: composed slider part */
+	UID_NODE_SLIDER_RANGE, /* Added in Omaha: composed slider part */
+	UID_NODE_SLIDER_THUMB, /* Added in Omaha: composed slider part */
+	UID_NODE_SCROLLBAR,       /* Added in Omaha: scroll container chrome root */
+	UID_NODE_SCROLLBAR_TRACK, /* Added in Omaha: scrollbar rail background */
+	UID_NODE_SCROLLBAR_THUMB, /* Added in Omaha: scrollbar draggable handle */
 	UID_NODE_SELECT,
 	UID_NODE_OPTION,
 	UID_NODE_KEYBIND,
 	UID_NODE_SHAPE_INSTANCE,
-	UID_NODE_IMAGE,       /* Added in OPM: leaf bitmap (intrinsic size; not registry <images>) */
-	UID_NODE_MODEL,       /* Added in OPM: player model preview */
-	UID_NODE_SERVER_LIST, /* Added in OPM: host-drawn server browser region (deprecated) */
-	UID_NODE_FOREACH,     /* Added in OPM: composable collection row template */
+	UID_NODE_IMAGE,       /* Added in Omaha: leaf bitmap (intrinsic size; not registry <images>) */
+	UID_NODE_MODEL,       /* Added in Omaha: player model preview */
+	UID_NODE_SERVER_LIST, /* Added in Omaha: host-drawn server browser region (deprecated) */
+	UID_NODE_FOREACH,     /* Added in Omaha: composable collection row template */
 	UID_NODE_USE,
 	UID_NODE_ON,
 	UID_NODE_SET,
 	UID_NODE_SET_CVAR,
 	UID_NODE_INVOKE,
-	UID_NODE_SHOW_MODAL, /* Added in OPM: sets ui_om_modal (or modal-cvar) */
-	UID_NODE_HIDE_MODAL, /* Added in OPM: clears modal dispatch cvar */
+	UID_NODE_SHOW_MODAL, /* Added in Omaha: sets ui_om_modal (or modal-cvar) */
+	UID_NODE_HIDE_MODAL, /* Added in Omaha: clears modal dispatch cvar */
 	UID_NODE_PROP,
 	UID_NODE_FONT_DEF,
 	UID_NODE_SHAPE_DEF,
@@ -119,13 +119,13 @@ typedef enum {
 	UID_OVERFLOW_SCROLL
 } uid_overflow_t;
 
-/* Added in OPM: trailing-edge anchor for overflow=scroll scrollbar chrome. */
+/* Added in Omaha: trailing-edge anchor for overflow=scroll scrollbar chrome. */
 typedef enum {
 	UID_SCROLLBAR_EDGE_CONTENT = 0, /* inside padding (content box trailing edge) */
 	UID_SCROLLBAR_EDGE_BORDER       /* border box trailing edge */
 } uid_scrollbar_edge_t;
 
-/* Added in OPM: menu dispatcher backdrop mode (definitions menu-id documents). */
+/* Added in Omaha: menu dispatcher backdrop mode (definitions menu-id documents). */
 typedef enum {
 	UID_MENU_BACKDROP_NONE = 0,
 	UID_MENU_BACKDROP_MENU_MAP
@@ -217,9 +217,9 @@ typedef struct {
 	int    maxActionsPerHandler;
 	int    maxOptionsPerSelect;
 	int    maxDiagnostics;
-	int    maxImportDepth; /* Added in OPM */
-	int    maxImportFiles; /* Added in OPM */
-	int    maxVars;        /* Added in OPM */
+	int    maxImportDepth; /* Added in Omaha */
+	int    maxImportFiles; /* Added in Omaha */
+	int    maxVars;        /* Added in Omaha */
 } uid_limits_t;
 
 static inline void UID_DefaultLimits(uid_limits_t *out)

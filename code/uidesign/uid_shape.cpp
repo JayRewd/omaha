@@ -198,7 +198,7 @@ void IngestPropMaps(
 			std::string dm;
 			if (UID_ParseLength(resolved.c_str(), &len, &dm)) {
 				if (len.unit == UID_LENGTH_PX) {
-					/* Added in OPM: shape prop px are CSS-like DIPs. */
+					/* Added in Omaha: shape prop px are CSS-like DIPs. */
 					st->numbers[path] = static_cast<double>(len.value) * static_cast<double>(pxScale);
 				} else if (len.unit == UID_LENGTH_PERCENT) {
 					/* Percent of parent width by convention for shape props. */
@@ -254,7 +254,7 @@ void IngestPropMaps(
 		}
 	}
 
-	/* Added in OPM: optional overrides without cloning parent prop maps. */
+	/* Added in Omaha: optional overrides without cloning parent prop maps. */
 	if (params) {
 		if (params->fillOverride) {
 			std::string raw = params->fillOverride;

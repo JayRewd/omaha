@@ -198,14 +198,14 @@ void UID_MountModal(uid_document_t *doc, const char *modalId)
 			}
 		}
 		/*
-		 * Fixed in OPM: foreachTemplateRoot indexes foreachTemplateNodes (usually 0),
+		 * Fixed in Omaha: foreachTemplateRoot indexes foreachTemplateNodes (usually 0),
 		 * not doc->nodes — do not offset it by modalOverlayBase or ExpandForeach
 		 * never clones rows (relative dropdowns stayed empty / 2px tall).
 		 */
 		if (n.foreachScopeId != UID_INVALID_NODE_ID) {
 			n.foreachScopeId = static_cast<uid_node_id_t>(base + static_cast<size_t>(n.foreachScopeId));
 		}
-		/* Fixed in OPM: stamp source→collectionSource on mount (defs are outside the canvas apply pass). */
+		/* Fixed in Omaha: stamp source→collectionSource on mount (defs are outside the canvas apply pass). */
 		UID_ApplyCollectionAndIndexFields(&n);
 		doc->nodes.push_back(n);
 		uid_node_state_t st;

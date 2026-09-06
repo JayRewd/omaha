@@ -32,7 +32,7 @@
 		</template>
 
 		<!--
-		  Added in OPM: inventory grenade panel left of weapons bar.
+		  Added in Omaha: inventory grenade panel left of weapons bar.
 		  Half weapons-bar height (64) and half skew (25); fill-panel / fill-divider stroke.
 		  Visible while inventory has grenades (count > 0); stays up when switching guns.
 		  One <image>: team via src ternary, mute via opacity (weapons-bar style). Size with

@@ -64,7 +64,7 @@ static int      g_lastDamageDir = 0;
 static int      g_damageFlashTime = 0;
 static int      g_lastDamageHealth = -1;
 
-/* Added in OPM: modern weapons-bar sticky caches (primary / sidearm / last gun). */
+/* Added in Omaha: modern weapons-bar sticky caches (primary / sidearm / last gun). */
 static char g_modernPrimaryName[MAX_QPATH];
 static char g_modernSidearmName[MAX_QPATH];
 static char g_modernLastGun[MAX_QPATH];
@@ -74,9 +74,9 @@ static int  g_modernSidearmClip = 0;
 static int  g_modernSidearmAmmo = 0;
 static int      g_modernLastGunClip = 0;
 static int      g_modernLastGunAmmo = 0;
-/* Added in OPM: sticky grenade inventory count (ammo pool can read 0 while unequipped). */
+/* Added in Omaha: sticky grenade inventory count (ammo pool can read 0 while unequipped). */
 static int      g_modernGrenadeCount = 0;
-/* Added in OPM: -2 = playing; -1 = free spectate; else followed client. */
+/* Added in Omaha: -2 = playing; -1 = free spectate; else followed client. */
 static int      g_modernFollowClient = -2;
 
 static const char *kWeaponSlotClassNames[] = {
@@ -291,7 +291,7 @@ static float UIR_Hud_CompassSpringAngleDeg(void)
 	return anglemod(fNeedleOffset + fLastYaw);
 }
 
-/* Added in OPM: raw heading for modern tape compass (no classic needle spring bounce). */
+/* Added in Omaha: raw heading for modern tape compass (no classic needle spring bounce). */
 static float UIR_Hud_CompassHeadingDeg(void)
 {
 	if (!cge || !cge->CG_EyeAngles) {
@@ -368,44 +368,52 @@ static void UIR_Hud_SyncWeaponsBar(void)
 	const cvar_t *ui_weaponsbartime = Cvar_Get("ui_weaponsbartime", "2500", 0);
 	const int     weaponsStat = cl.snap.ps.stats[STAT_WEAPONS];
 	const int     equippedStat = cl.snap.ps.stats[STAT_EQUIPPED_WEAPON];
-	const int     owned = weaponsStat & 0x3F;
-	const int     equipped = equippedStat & 0x3F;
+	const int     ownedMask = weaponsStat & 0x3F;
+	const int     equippedMask = equippedStat & 0x3F;
 	qboolean      show = qfalse;
 
 	if (ui_weaponsbar && ui_weaponsbar->integer && !(cl.snap.ps.pm_flags & PMF_NO_WEAPONBAR)) {
-		if (ui_weaponsbar->integer == 2) {
-			g_weapHudHideTime = cls.realtime + (int)ui_weaponsbartime->value;
-		} else if (ui_weaponsbar->integer != 3 && g_itemHudHideTime && g_itemsBarShowing) {
-			g_weapHudHideTime = 0;
-		}
-
-		if (g_lastWeaponsOwned != weaponsStat || g_lastWeaponsEquipped != equippedStat) {
-			const int ownedDiff = weaponsStat ^ g_lastWeaponsOwned & 0x3F;
-			const int equippedDiff = (g_lastWeaponsEquipped ^ equippedStat) & 0x3F;
-
-			if (ownedDiff || equippedDiff) {
-				g_weapHudHideTime = cls.realtime + ui_weaponsbartime->integer;
-			}
-		}
-
-		if (!g_weapHudHideTime) {
-			show = qfalse;
-		} else if (g_weapHudHideTime < cls.realtime || g_itemHudHideTime > g_weapHudHideTime) {
-			g_weapHudHideTime = 0;
-			show = qfalse;
-		} else {
+		/*
+		 * Fixed in Omaha: match settings labels — 1 On = always visible, 2 Fade =
+		 * show on weapon/equip change then hide after ui_weaponsbartime.
+		 * Compare masked weapon bits only (STAT_WEAPONS high byte is items).
+		 */
+		if (ui_weaponsbar->integer == 1) {
 			show = qtrue;
+			g_weapHudHideTime = 0;
+		} else {
+			if (ui_weaponsbar->integer != 3 && g_itemHudHideTime && g_itemsBarShowing) {
+				g_weapHudHideTime = 0;
+			}
+
+			if ((g_lastWeaponsOwned & 0x3F) != ownedMask || (g_lastWeaponsEquipped & 0x3F) != equippedMask) {
+				const int ownedDiff = (g_lastWeaponsOwned ^ weaponsStat) & 0x3F;
+				const int equippedDiff = (g_lastWeaponsEquipped ^ equippedStat) & 0x3F;
+
+				if (ownedDiff || equippedDiff) {
+					g_weapHudHideTime = cls.realtime + ui_weaponsbartime->integer;
+				}
+			}
+
+			if (!g_weapHudHideTime) {
+				show = qfalse;
+			} else if (g_weapHudHideTime < cls.realtime || g_itemHudHideTime > g_weapHudHideTime) {
+				g_weapHudHideTime = 0;
+				show = qfalse;
+			} else {
+				show = qtrue;
+			}
 		}
 	} else {
 		g_weapHudHideTime = 0;
 	}
 
-	g_lastWeaponsOwned = weaponsStat & 0x3F | g_lastWeaponsOwned & ~0x3F;
-	g_lastWeaponsEquipped = equippedStat & 0x3F | g_lastWeaponsEquipped & ~0x3F;
+	g_lastWeaponsOwned = ownedMask | (g_lastWeaponsOwned & ~0x3F);
+	g_lastWeaponsEquipped = equippedMask | (g_lastWeaponsEquipped & ~0x3F);
 	g_weaponsBarShowing = show;
 
-	UIR_Hud_SetCvarInt("ui_om_hud_weapons_owned", owned);
-	UIR_Hud_SetCvarInt("ui_om_hud_weapons_equipped", equipped);
+	UIR_Hud_SetCvarInt("ui_om_hud_weapons_owned", ownedMask);
+	UIR_Hud_SetCvarInt("ui_om_hud_weapons_equipped", equippedMask);
 	UIR_Hud_SetCvarInt("ui_om_hud_weapons_visible", show ? 1 : 0);
 }
 
@@ -418,6 +426,8 @@ static void UIR_Hud_SyncItemsBar(void)
 	const int     equippedStat = cl.snap.ps.stats[STAT_EQUIPPED_WEAPON];
 	const int     owned = (weaponsStat >> 8) & 0xF;
 	const int     equipped = (equippedStat >> 8) & 0xF;
+	const int     ownedItemsMask = weaponsStat & 0xF00;
+	const int     equippedItemsMask = equippedStat & 0xF00;
 	qboolean      show = qfalse;
 
 	if (ui_weaponsbar && ui_weaponsbar->integer && ui_itemsbar && ui_itemsbar->integer) {
@@ -429,12 +439,22 @@ static void UIR_Hud_SyncItemsBar(void)
 			}
 		}
 
-		if (g_lastWeaponsOwned != weaponsStat || g_lastWeaponsEquipped != equippedStat) {
-			const int ownedDiff = weaponsStat ^ g_lastWeaponsOwned & 0xF00;
+		/*
+		 * Fixed in Omaha: item-bit compare used `^`/`&` precedence wrong and ran
+		 * against a last-state word that often lacked 0xF00, so ownedDiff stayed
+		 * dirty every frame and kept bumping the weapons fade timer forever.
+		 */
+		if ((g_lastWeaponsOwned & 0xF00) != ownedItemsMask ||
+			(g_lastWeaponsEquipped & 0xF00) != equippedItemsMask) {
+			const int ownedDiff = (g_lastWeaponsOwned ^ weaponsStat) & 0xF00;
 			const int equippedDiff = (g_lastWeaponsEquipped ^ equippedStat) & 0xF00;
 
 			if (ownedDiff || equippedDiff) {
-				g_weapHudHideTime = cls.realtime + ui_weaponsbartime->integer;
+				/* Retail: item pickup also restarts the weapons-bar fade clock. */
+				if (ui_weaponsbar->integer == 2) {
+					g_weapHudHideTime = cls.realtime + ui_weaponsbartime->integer;
+				}
+				g_itemHudHideTime = cls.realtime + ui_weaponsbartime->integer;
 			}
 		}
 
@@ -450,8 +470,8 @@ static void UIR_Hud_SyncItemsBar(void)
 		g_itemHudHideTime = 0;
 	}
 
-	g_lastWeaponsOwned = weaponsStat & 0xF00 | (g_lastWeaponsOwned & 0xF0);
-	g_lastWeaponsEquipped = equippedStat & 0xF00 | (g_lastWeaponsEquipped & 0xF0);
+	g_lastWeaponsOwned = ownedItemsMask | (g_lastWeaponsOwned & ~0xF00);
+	g_lastWeaponsEquipped = equippedItemsMask | (g_lastWeaponsEquipped & ~0xF00);
 	g_itemsBarShowing = show;
 
 	UIR_Hud_SetCvarInt("ui_om_hud_items_owned", owned);
@@ -469,7 +489,7 @@ static void UIR_Hud_SyncCompassCvars(void)
 	const int swMs = Cvar_VariableIntegerValue("ui_om_hud_stopwatch_ms");
 
 	/*
-	 * Fixed in OPM: retail headingspinner only retriggers when the damage-dir
+	 * Fixed in Omaha: retail headingspinner only retriggers when the damage-dir
 	 * stat changes. Chip damage from the same direction leaves the stat unchanged
 	 * so the fade never restarts. Also restart when health drops while a damage
 	 * direction is active (covers repeated low-damage hits).
@@ -494,7 +514,7 @@ static void UIR_Hud_SyncCompassCvars(void)
 
 	const float compassAngle = UIR_Hud_CompassSpringAngleDeg();
 	UIR_Hud_SetCvarAngleDeg("ui_om_hud_compass_angle", compassAngle);
-	/* Added in OPM: stable heading for modern scrolling compass. */
+	/* Added in Omaha: stable heading for modern scrolling compass. */
 	UIR_Hud_SetCvarAngleDeg("ui_om_hud_compass_heading", UIR_Hud_CompassHeadingDeg());
 	UIR_Hud_SetCvarAngleDeg("ui_om_hud_damage_angle", UIR_Hud_HeadingSpinnerAngleTenths(dmgStat) / 10.0f);
 	UIR_Hud_SetCvarFrac("ui_om_hud_damage_alpha", damageAlpha);
@@ -588,7 +608,7 @@ static void UIR_Hud_CopyWeaponName(char *dst, size_t dstSize, const char *src)
 }
 
 /*
- * Added in OPM: retail snapshots only name the *equipped* gun (activeItems[ITEM_WEAPON]).
+ * Added in Omaha: retail snapshots only name the *equipped* gun (activeItems[ITEM_WEAPON]).
  * Unequipped ownership is class bits only. The server already prints the real item name
  * on pickup ("Picked Up <name>") — parse that on the client (no fgame/protocol change).
  */
@@ -675,7 +695,7 @@ static void UIR_Hud_ApplyPendingPickup(qboolean ownPrimary, qboolean ownSidearm)
 	const qboolean gainedPrimary = ownPrimary && g_modernPrevOwnPrimary == 0;
 
 	/*
-	 * Fixed in OPM: classify by weapon identity. Previously any pickup went to
+	 * Fixed in Omaha: classify by weapon identity. Previously any pickup went to
 	 * primary whenever ownPrimary was set, so picking up a Walther after a rifle
 	 * renamed both sticky slots to the pistol.
 	 */
@@ -698,7 +718,7 @@ static void UIR_Hud_ApplyPendingPickup(qboolean ownPrimary, qboolean ownSidearm)
 	g_modernPendingPickup[0] = '\0';
 }
 
-// Added in OPM: sticky primary/sidearm/last-gun names + ammo for modern weapons bar.
+// Added in Omaha: sticky primary/sidearm/last-gun names + ammo for modern weapons bar.
 static void UIR_Hud_SyncModernWeaponsBar(const char *weaponName, int clip, int ammo)
 {
 	const int pmFlags = cl.snap.ps.pm_flags;
@@ -706,7 +726,7 @@ static void UIR_Hud_SyncModernWeaponsBar(const char *weaponName, int clip, int a
 	if (pmFlags & PMF_SPECTATING) {
 		followKey = (pmFlags & PMF_CAMERA_VIEW) ? cl.snap.ps.stats[STAT_INFOCLIENT] : -1;
 	}
-	/* Added in OPM: drop sticky names when entering/leaving follow or swapping targets. */
+	/* Added in Omaha: drop sticky names when entering/leaving follow or swapping targets. */
 	if (followKey != g_modernFollowClient) {
 		UIR_Hud_ClearModernWeaponsSticky();
 		g_modernFollowClient = followKey;
@@ -749,7 +769,7 @@ static void UIR_Hud_SyncModernWeaponsBar(const char *weaponName, int clip, int a
 		g_modernSidearmClip = 0;
 		g_modernSidearmAmmo = 0;
 	} else if (!g_modernSidearmName[0]) {
-		/* Added in OPM: seed loadout pistol name (snap never names unequipped guns). */
+		/* Added in Omaha: seed loadout pistol name (snap never names unequipped guns). */
 		UIR_Hud_SeedDefaultSidearmName();
 	}
 
@@ -795,7 +815,7 @@ static void UIR_Hud_SyncModernWeaponsBar(const char *weaponName, int clip, int a
 
 } // namespace
 
-/* Added in OPM: client-only unequipped-gun naming from the retail pickup print. */
+/* Added in Omaha: client-only unequipped-gun naming from the retail pickup print. */
 void UIR_Hud_NotifyPickedUpWeapon(const char *message)
 {
 	const char *p;
@@ -838,7 +858,7 @@ void UIR_Hud_Sync(void)
 	const char *weaponName = "";
 
 	if (!CL_UIR_UseModernHudPack() || clc.state != CA_ACTIVE || !cl.snap.valid) {
-		/* Added in OPM: clear sniper overlay gate when HUD sync is inactive. */
+		/* Added in Omaha: clear sniper overlay gate when HUD sync is inactive. */
 		UIR_Hud_SetCvarInt("ui_om_hud_sniper_zoom", 0);
 		return;
 	}
@@ -855,7 +875,7 @@ void UIR_Hud_Sync(void)
 	int health = cl.snap.ps.stats[STAT_HEALTH];
 	int maxHealth = std::max(1, cl.snap.ps.stats[STAT_MAXHEALTH]);
 	/*
-	 * Fixed in OPM: chase-spectate health. Prefer followed-player combat stats
+	 * Fixed in Omaha: chase-spectate health. Prefer followed-player combat stats
 	 * (CopyHudCombatStats → STAT_HEALTH). If the server has not copied combat
 	 * yet, fall back to STAT_INFOCLIENT_HEALTH (percent while following).
 	 */
@@ -887,7 +907,7 @@ void UIR_Hud_Sync(void)
 	UIR_Hud_SetCvarInt("ui_om_hud_team", team);
 	UIR_Hud_SetCvarInt("ui_om_hud_in_zoom", cl.snap.ps.stats[STAT_INZOOM]);
 	/*
-	 * Added in OPM: sniper scope overlay (not Spy Camera / Binoculars).
+	 * Added in Omaha: sniper scope overlay (not Spy Camera / Binoculars).
 	 * Same FOV gate as retail CG_DrawZoomOverlay zoom types 0/1.
 	 */
 	{
@@ -913,7 +933,7 @@ void UIR_Hud_Sync(void)
 	UIR_Hud_SetCvarInt("ui_om_hud_objective_right", cl.snap.ps.stats[STAT_OBJECTIVERIGHT]);
 	UIR_Hud_SetCvarInt("ui_om_hud_objective_center", cl.snap.ps.stats[STAT_OBJECTIVECENTER]);
 	UIR_Hud_SetCvarInt("ui_om_hud_boss_health", bossHealth);
-	/* Changed in OPM: fold legacy suppress flags into hud_root visibility. */
+	/* Changed in Omaha: fold legacy suppress flags into hud_root visibility. */
 	{
 		int show = Cvar_VariableIntegerValue("cg_hud");
 		if (!show || (cl.snap.ps.pm_flags & PMF_NO_HUD) || (cl.snap.ps.pm_flags & PMF_INTERMISSION)
@@ -934,7 +954,7 @@ void UIR_Hud_Sync(void)
 	}
 
 	/*
-	 * Added in OPM: grenade inventory count for modern HUD panel (client-only).
+	 * Added in Omaha: grenade inventory count for modern HUD panel (client-only).
 	 * Prefer ammo pool ("grenade" / "agrenade" / name match). When equipped,
 	 * STAT_AMMO is live (maxclip 1 folds clip into ammo). Sticky keeps the last
 	 * good count while owned but unequipped — pool reads can briefly hit 0 on
@@ -984,7 +1004,7 @@ void UIR_Hud_Sync(void)
 			}
 		}
 		/*
-		 * Fixed in OPM: while a grenade is equipped, STAT_AMMO often equals
+		 * Fixed in Omaha: while a grenade is equipped, STAT_AMMO often equals
 		 * pool+clip even when the pool was not decremented for the loaded
 		 * round (shows 6 with max 5). Prefer STAT_AMMO only when it does not
 		 * exceed the ammo-type max.

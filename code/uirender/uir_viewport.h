@@ -62,7 +62,7 @@ void UIR_ViewportSnapQuad(
 );
 
 /*
- * Added in OPM: reference-resolution scale for authored UI px.
+ * Added in Omaha: reference-resolution scale for authored UI px.
  * min(logicalW/1920, logicalH/1080); returns 1.0 if W/H <= 0.
  */
 float UIR_RefPxScale(int logicalW, int logicalH);

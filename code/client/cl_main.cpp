@@ -2710,7 +2710,7 @@ void CL_Frame ( int msec ) {
 
 	if (CL_FinishedIntro()) {
 		if (clc.state == CA_DISCONNECTED) {
-			/* Changed in OPM: SyncAutoMenus opens modern main before UI_MenuActive()
+			/* Changed in Omaha: SyncAutoMenus opens modern main before UI_MenuActive()
 			 * would be checked — sample intro music first, then sync/activate menu. */
 			const qboolean bringingUpMenu =
 				!UI_MenuActive() && !com_sv_running->integer && !server_loading;
@@ -2892,7 +2892,7 @@ static Q_PRINTF_FUNC(2, 3) void QDECL CL_RefPrintf( int print_level, const char 
 
 	if (print_level == PRINT_ALL) {
 		/*
-		 * Fixed in OPM: R_SetupShaders prints during re.BeginRegistration; routing
+		 * Fixed in Omaha: R_SetupShaders prints during re.BeginRegistration; routing
 		 * that through the legacy console reloads fonts mid-call and can crash on
 		 * vid_restart. Scope is only the BeginRegistration call, not until EndRegistration.
 		 */
@@ -3260,7 +3260,7 @@ void CL_InitRef( void ) {
 #define RENDERER_ARCH_DLL_EXT DLL_SUFFIX DLL_EXT
 
 #ifdef USE_RENDERER_DLOPEN
-	/* Added in OPM: lock to opengl1 unless +set cl_renderer on the command line (bake tools). */
+	/* Added in Omaha: lock to opengl1 unless +set cl_renderer on the command line (bake tools). */
 	cl_renderer = Cvar_Get("cl_renderer", "opengl1", CVAR_LATCH);
 
 	if (!Com_CommandLineCvarSpecified("cl_renderer")) {

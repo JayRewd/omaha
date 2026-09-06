@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Added in OPM: FOV calibration for weapon icon bakes.
+Added in Omaha: FOV calibration for weapon icon bakes.
 
 Reads artifacts/bake_mp_weapons.sh (read-only), searches shared FOV for guns
 (mp44 anchor) and misc 100x100 (grenades + binoculars at same FOV).

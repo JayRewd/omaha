@@ -239,7 +239,7 @@ bool BoolLookupPath(const uid_bool_lookup_ctx_t *ctx, const std::string &path, u
 		return true;
 	}
 
-	/* Added in OPM: item.count / item.last work even without a concrete item pointer. */
+	/* Added in Omaha: item.count / item.last work even without a concrete item pointer. */
 	if (path == "item.count") {
 		out->kind = UID_BOOL_VAL_NUMBER;
 		out->n = static_cast<double>(ctx->itemCount);
@@ -290,7 +290,7 @@ bool BoolLookupPath(const uid_bool_lookup_ctx_t *ctx, const std::string &path, u
 
 	if (ctx->doc && ctx->nodeId >= 0 && static_cast<size_t>(ctx->nodeId) < ctx->doc->nodes.size()) {
 		const uid_node_def_t &node = ctx->doc->nodes[static_cast<size_t>(ctx->nodeId)];
-		/* Added in OPM: bind.selected — node's bind cvar matches set-value. */
+		/* Added in Omaha: bind.selected — node's bind cvar matches set-value. */
 		if (path == "bind.selected") {
 			out->kind = UID_BOOL_VAL_BOOL;
 			out->b = false;
@@ -500,7 +500,7 @@ bool BoolParseNot(uid_bool_parser_t *p, const uid_bool_lookup_ctx_t *ctx, bool *
 bool BoolParseAnd(uid_bool_parser_t *p, const uid_bool_lookup_ctx_t *ctx, bool *out);
 bool BoolParseOr(uid_bool_parser_t *p, const uid_bool_lookup_ctx_t *ctx, bool *out);
 
-/* Added in OPM: numeric lookup for arithmetic in bool compares (cvar/item paths only when numeric). */
+/* Added in Omaha: numeric lookup for arithmetic in bool compares (cvar/item paths only when numeric). */
 static bool BoolNumericLookup(void *userdata, const char *path, double *out)
 {
 	if (!userdata || !path || !out) {
@@ -536,7 +536,7 @@ static bool BoolWordAt(const char *src, size_t i, size_t len, const char *word)
 }
 
 /*
- * Fixed in OPM: compare operands may be numeric expressions (+ - * / % and paths),
+ * Fixed in Omaha: compare operands may be numeric expressions (+ - * / % and paths),
  * so visible="{cvar.health > item.index * 10}" works. Non-numeric string compares
  * still use the legacy atomic-token path.
  */
@@ -869,7 +869,7 @@ bool BoolParseAnd(uid_bool_parser_t *p, const uid_bool_lookup_ctx_t *ctx, bool *
 	}
 	for (;;) {
 		BoolSkipWs(p);
-		/* Changed in OPM: word ops replace C-style && / || in UI bool exprs. */
+		/* Changed in Omaha: word ops replace C-style && / || in UI bool exprs. */
 		if (BoolMatch(p, "&&")) {
 			BoolFail(p, "use 'and'/'or' instead of '&&'/'||'");
 			return false;
@@ -1053,7 +1053,7 @@ bool UID_EvalStyleTernary(
 		return false;
 	}
 
-	/* Added in OPM: cache cond/then/else split keyed by expression text. */
+	/* Added in Omaha: cache cond/then/else split keyed by expression text. */
 	struct StyleTernarySplit {
 		std::string cond;
 		std::string thenLit;
@@ -1121,7 +1121,7 @@ bool UID_EvalStyleTernary(
 	auto resolveStyleBranch = [&](const std::string &branch) -> std::string {
 		std::string lit = branch;
 		TrimStyleLiteral(&lit);
-		/* Added in OPM: nested ternaries in then/else (e.g. a ? x : b ? y : z). */
+		/* Added in Omaha: nested ternaries in then/else (e.g. a ? x : b ? y : z). */
 		if (lit.find('?') != std::string::npos) {
 			std::string nested;
 			std::string nestedDiag;
@@ -1185,7 +1185,7 @@ bool UID_EvalBool(
 	}
 
 	/*
-	 * Added in OPM: cache a lightweight "program" for common bool shapes so we
+	 * Added in Omaha: cache a lightweight "program" for common bool shapes so we
 	 * skip recursive-descent reparse. Complex exprs fall back to full parse once
 	 * and store a SLOW sentinel that reuses the text path (still avoids split work
 	 * for style ternaries via the sibling cache).

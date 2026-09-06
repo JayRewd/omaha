@@ -28,7 +28,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 extern "C" {
 #endif
 
-/* Added in OPM: wall-clock phase profiler (XML load → paint). */
+/* Added in Omaha: wall-clock phase profiler (XML load → paint). */
 
 typedef enum uid_prof_phase_e {
 	UID_PROF_LOAD_READ = 0,
@@ -36,24 +36,24 @@ typedef enum uid_prof_phase_e {
 	UID_PROF_LOAD_EXPAND,
 	UID_PROF_LOAD_COMPILE,
 	UID_PROF_LOAD_ADOPT,
-	UID_PROF_LEGACY_LOAD, /* Added in OPM: URC UILayout::Load */
+	UID_PROF_LEGACY_LOAD, /* Added in Omaha: URC UILayout::Load */
 	UID_PROF_FRAME_BIND,
 	UID_PROF_FRAME_LAYOUT,
 	UID_PROF_FRAME_POINTER,
 	UID_PROF_FRAME_PAINT_CHROME,
 	UID_PROF_FRAME_PAINT_OVERLAY,
 	/* Nested under FRAME_BIND (detail only; not summed again into totalUs). */
-	UID_PROF_FRAME_FOREACH_WINDOW,   /* Added in OPM: <foreach mode="window"> expand */
-	UID_PROF_FRAME_COLLECTION_CULL,  /* Added in OPM: visibility prepass + collection cull walk */
+	UID_PROF_FRAME_FOREACH_WINDOW,   /* Added in Omaha: <foreach mode="window"> expand */
+	UID_PROF_FRAME_COLLECTION_CULL,  /* Added in Omaha: visibility prepass + collection cull walk */
 	UID_PROF_HOST_WORLD,
 	UID_PROF_HOST_CHROME,
 	UID_PROF_HOST_PREVIEWS,
 	UID_PROF_HOST_OVERLAY,
 	UID_PROF_HOST_BATCH_FLUSH,
-	UID_PROF_LEGACY_EVENTS,  /* Added in OPM: uWinMan.ServiceEvents */
-	UID_PROF_LEGACY_VIEW3D,  /* Added in OPM: View3D (world + cgame 2D) — not URC */
-	UID_PROF_LEGACY_URC,     /* Added in OPM: URC widget Display only */
-	UID_PROF_LEGACY_MISC,    /* Added in OPM: UI_Update HUD/menu logic between events and draw */
+	UID_PROF_LEGACY_EVENTS,  /* Added in Omaha: uWinMan.ServiceEvents */
+	UID_PROF_LEGACY_VIEW3D,  /* Added in Omaha: View3D (world + cgame 2D) — not URC */
+	UID_PROF_LEGACY_URC,     /* Added in Omaha: URC widget Display only */
+	UID_PROF_LEGACY_MISC,    /* Added in Omaha: UI_Update HUD/menu logic between events and draw */
 	UID_PROF_COUNT
 } uid_prof_phase_t;
 

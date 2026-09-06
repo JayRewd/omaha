@@ -339,8 +339,9 @@
 			</container>
 		</template>
 
+		<!-- Fixed in Omaha: height 60 (20 pad + 40 icons) — old 80 left 20px dead space under icons vs health. -->
 		<template id="classic-weapons-bar">
-			<container type="horizontal" width="480px" height="80px" gap="0" padding="20px 0 0 0" fill="{var.fill-transparent}"
+			<container type="horizontal" width="480px" height="60px" gap="0" padding="20px 0 0 0" fill="{var.fill-transparent}"
 			           visible="{cvar.ui_om_hud_weapons_visible > 0}">
 				<use template="classic-weapon-slot-pistol"/>
 				<use template="classic-weapon-slot-rifle"/>

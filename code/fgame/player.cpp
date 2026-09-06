@@ -7748,7 +7748,7 @@ void Player::UpdateStats(void)
     }
 
     /*
-     * Added in OPM: modern HUD clients opt in via userinfo "om_hud".
+     * Added in Omaha: modern HUD clients opt in via userinfo "om_hud".
      * Copy followed player's combat HUD into this spectator's ps without
      * full first-person CopyStats (camera / visibility unchanged).
      */

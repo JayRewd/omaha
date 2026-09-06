@@ -115,7 +115,7 @@
 			<item value="dot" label="Dot"/>
 		</source>
 
-		<!-- Added in OPM: zoom mouse scale mode (modern UI). -->
+		<!-- Added in Omaha: zoom mouse scale mode (modern UI). -->
 		<source id="zoom-sensitivity-mode" default="screen">
 			<item value="off" label="Off"/>
 			<item value="legacy" label="Legacy"/>
@@ -227,7 +227,7 @@
 			<item value="german_waffen_officer" label="Waffen Officer"/>
 		</source>
 
-		<!-- Added in OPM: classic dm_pause hit catalogs (cmd → cbuf; labels required). -->
+		<!-- Added in Omaha: classic dm_pause hit catalogs (cmd → cbuf; labels required). -->
 		<source id="pause-weapons">
 			<item value="rifle" label="Rifle" cmd="primarydmweapon rifle;ui_close menu dm_pause" sign="rifle_sign"/>
 			<item value="sniper" label="Sniper Rifle" cmd="primarydmweapon sniper;ui_close menu dm_pause" sign="sniperrifle_sign"/>

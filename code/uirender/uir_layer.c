@@ -137,11 +137,11 @@ uir_status_t UIR_BeginImageMask(
 	}
 
 	UIR_BatchFlush();
-	/* Added in OPM: layer RT begin changes GL scissor / target. */
+	/* Added in Omaha: layer RT begin changes GL scissor / target. */
 	UIR_InvalidateAppliedClip();
 
 	if (UIR_GradientIsBrush(maskSpec)) {
-		/* Added in OPM: gradient brush → atlas; coverage is stretch over dest. */
+		/* Added in Omaha: gradient brush → atlas; coverage is stretch over dest. */
 		st = UIR_GradientEnsureShader(maskSpec, w, h, &shader, &imgW, &imgH);
 		if (st != UIR_OK || !shader) {
 			return (st == UIR_OK) ? UIR_ERR_NOT_READY : st;
@@ -231,7 +231,7 @@ void UIR_EndImageMask(void)
 		g_layerBackend.endLayer();
 	}
 
-	/* Added in OPM: leaving layer RT may reset GL scissor. */
+	/* Added in Omaha: leaving layer RT may reset GL scissor. */
 	UIR_InvalidateAppliedClip();
 	g_layerDepth = 0;
 	g_maskShader = 0;

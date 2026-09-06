@@ -24,7 +24,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 
 #include "uid_opt.h"
 
-/* Added in OPM: default all optimizations on. */
+/* Added in Omaha: default all optimizations on. */
 static unsigned g_uidOptFlags = UID_OPT_ALL;
 
 void UID_SetOptFlags(unsigned flags)

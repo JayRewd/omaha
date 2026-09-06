@@ -296,33 +296,75 @@ static int xhair_push_rect_direct(
 	return count + 1;
 }
 
-static int xhair_emit_filled_circle(
+/*
+ * Fixed in Omaha: crisp disc = two concentric Euclidean circles (outer outline
+ * disc, inner fill disc). Emit outline as the ring only; paint order is still
+ * outline pass then fill pass.
+ *
+ * Diameter S = 2*fillR (cg_crosshair_dot_size, FB px after scale):
+ *   fill:    d <= S/2
+ *   outline: S/2 < d <= S/2 + T
+ *
+ * Center parity (same as classic bitmap circles):
+ *   odd  S → snap to a pixel center  (floor(c)+0.5)  e.g. size 5
+ *   even S → snap to a pixel corner  (round c)         e.g. size 4
+ * Always using pixel centers made even diameters into a plus; always using
+ * corners made odd diameters into solid squares.
+ */
+static int xhair_emit_crisp_disc(
 	xhair_rect_t *out,
 	int maxOut,
 	int count,
-	int cx,
-	int cy,
-	int radius,
+	float cx,
+	float cy,
+	float fillR,
 	const xhair_frame_t *frame,
 	xhair_pass_t pass,
 	float alphaScale
 )
 {
-	int y;
 	float r;
 	float g;
 	float b;
 	float a;
+	float outlineW;
+	float outerR;
+	float fillR2;
+	float outerR2;
+	float diam;
+	int   idiam;
+	int   x0;
+	int   x1;
+	int   y0;
+	int   y1;
+	int   py;
 
-	if (radius < 1) {
-		radius = 1;
+	if (fillR < 0.5f) {
+		fillR = 0.5f;
 	}
 
+	diam = fillR * 2.0f;
+	idiam = (int)floorf(diam + 0.5f);
+	if (idiam < 1) {
+		idiam = 1;
+	}
+	if (idiam & 1) {
+		cx = floorf(cx) + 0.5f;
+		cy = floorf(cy) + 0.5f;
+	} else {
+		cx = floorf(cx + 0.5f);
+		cy = floorf(cy + 0.5f);
+	}
+
+	outlineW = 0.0f;
 	if (pass == XHAIR_PASS_OUTLINE) {
 		if (!frame->drawOutline || frame->outline <= 0.0f) {
 			return count;
 		}
-		radius += (int)ceilf(frame->outline * frame->scaleX);
+		outlineW = frame->outline * frame->scaleX;
+		if (outlineW < 1.0f) {
+			outlineW = 1.0f;
+		}
 		r = 0.0f;
 		g = 0.0f;
 		b = 0.0f;
@@ -334,28 +376,71 @@ static int xhair_emit_filled_circle(
 		a = frame->a * alphaScale;
 	}
 
-	for (y = -radius; y <= radius; y++) {
-		const int y2 = y * y;
-		const int r2 = radius * radius;
-		int dx;
+	outerR = fillR + outlineW;
+	fillR2 = fillR * fillR;
+	outerR2 = outerR * outerR;
 
-		if (y2 > r2) {
-			continue;
+	x0 = (int)floorf(cx - outerR);
+	x1 = (int)ceilf(cx + outerR) - 1;
+	y0 = (int)floorf(cy - outerR);
+	y1 = (int)ceilf(cy + outerR) - 1;
+	if (x1 < x0 || y1 < y0) {
+		return count;
+	}
+
+	for (py = y0; py <= y1; py++) {
+		const float dy = ((float)py + 0.5f) - cy;
+		const float dy2 = dy * dy;
+		int         runStart = -1;
+		int         px;
+
+		for (px = x0; px <= x1; px++) {
+			const float dx = ((float)px + 0.5f) - cx;
+			const float d2 = dx * dx + dy2;
+			int         on;
+
+			if (pass == XHAIR_PASS_OUTLINE) {
+				on = (d2 > fillR2 && d2 <= outerR2) ? 1 : 0;
+			} else {
+				on = (d2 <= fillR2) ? 1 : 0;
+			}
+
+			if (on) {
+				if (runStart < 0) {
+					runStart = px;
+				}
+			} else if (runStart >= 0) {
+				count = xhair_push_rect_direct(
+					out,
+					maxOut,
+					count,
+					(float)runStart,
+					(float)py,
+					(float)(px - runStart),
+					1.0f,
+					r,
+					g,
+					b,
+					a
+				);
+				runStart = -1;
+			}
 		}
-		dx = (int)floorf(sqrtf((float)(r2 - y2)));
-		count = xhair_push_rect_direct(
-			out,
-			maxOut,
-			count,
-			(float)(cx - dx),
-			(float)(cy + y),
-			(float)(dx * 2 + 1),
-			1.0f,
-			r,
-			g,
-			b,
-			a
-		);
+		if (runStart >= 0) {
+			count = xhair_push_rect_direct(
+				out,
+				maxOut,
+				count,
+				(float)runStart,
+				(float)py,
+				(float)(x1 - runStart + 1),
+				1.0f,
+				r,
+				g,
+				b,
+				a
+			);
+		}
 	}
 
 	return count;
@@ -405,7 +490,7 @@ static int xhair_emit_open_arms(
 	float alphaScale
 )
 {
-	/* Changed in OPM: float thickness/gap/length (no integer floor) so 1.5px works. */
+	/* Changed in Omaha: float thickness/gap/length (no integer floor) so 1.5px works. */
 	const float cx = frame->cx;
 	const float cy = frame->cy;
 	const float barY = cy - th * 0.5f;
@@ -440,7 +525,7 @@ static int xhair_emit_open(
 		dynamicGap += frame->dynamicSpreadPx;
 	}
 
-	/* Changed in OPM: keep authored thickness as float FB size (no floor/min-1). */
+	/* Changed in Omaha: keep authored thickness as float FB size (no floor/min-1). */
 	th = frame->thickness * frame->scaleX;
 	gap = dynamicGap * frame->scaleX;
 	len = frame->length * frame->scaleX;
@@ -497,11 +582,10 @@ int XHair_EmitRects(const xhair_frame_t *frame, xhair_pass_t pass, xhair_rect_t 
 		count = xhair_emit_open(out, maxOut, count, frame, pass);
 		break;
 	case XHAIR_MODE_DOT: {
-		const int icx = (int)floorf(frame->cx);
-		const int icy = (int)floorf(frame->cy);
-		const int radius = (int)floorf(frame->dotRadius * 0.5f * frame->scaleX);
+		/* dotRadius is authored diameter (cg_crosshair_dot_size); convert to FB radius. */
+		const float fillR = frame->dotRadius * 0.5f * frame->scaleX;
 
-		count = xhair_emit_filled_circle(out, maxOut, count, icx, icy, radius, frame, pass, 1.0f);
+		count = xhair_emit_crisp_disc(out, maxOut, count, frame->cx, frame->cy, fillR, frame, pass, 1.0f);
 		break;
 	}
 	default:
@@ -578,7 +662,7 @@ void XHair_RegisterClientCvars(void)
 	Cvar_Get("cg_crosshair_dynamic_maxdist_splitratio", "0.35", flags);
 	Cvar_Get("cg_crosshair_dynamic_splitalpha_innermod", "1", flags);
 	Cvar_Get("cg_crosshair_friendly_warning", "1", flags);
-	/* Added in OPM: modern sniper zoom open crosshair (UI px). */
+	/* Added in Omaha: modern sniper zoom open crosshair (UI px). */
 	Cvar_Get("cg_crosshair_sniper_thickness", "3", flags);
 	Cvar_Get("cg_crosshair_sniper_gap", "0", flags);
 	Cvar_Get("cg_crosshair_sniper_size", "5", flags);

@@ -43,7 +43,7 @@ void UIR_OnResolutionChanged(int width, int height);
 /* High-level disconnected main entry used by the client bridge. */
 void UIR_RenderDisconnectedMain(int logicalW, int logicalH, int fbW, int fbH, int realtime);
 
-/* Added in OPM: connected gameplay overlay (chrome only, no menu world). */
+/* Added in Omaha: connected gameplay overlay (chrome only, no menu world). */
 void UIR_RenderConnectedOverlay(int logicalW, int logicalH, int fbW, int fbH, int realtime);
 
 uir_status_t UIR_DrawSvgGeometry(
@@ -54,8 +54,8 @@ uir_status_t UIR_DrawSvgGeometry(
 	const uir_color_t *fillRgba,   /* NULL or a<=0 skips fill */
 	const uir_color_t *strokeRgba, /* NULL skips stroke */
 	float strokeWidthPx,           /* draw-space px; ignored without stroke */
-	float rotationDeg,             /* Added in OPM: clockwise degrees around dest center */
-	int crisp                      /* Added in OPM: binary coverage, no soft AA */
+	float rotationDeg,             /* Added in Omaha: clockwise degrees around dest center */
+	int crisp                      /* Added in Omaha: binary coverage, no soft AA */
 );
 
 uir_status_t UIR_DrawText(

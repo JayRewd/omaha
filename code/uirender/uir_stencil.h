@@ -48,7 +48,7 @@ uir_status_t UIR_BeginShapeClipDraw(void);
 void UIR_EndShapeClip(void);
 
 /*
- * Added in OPM: begin clipping subsequent draws to SVG path(s) mapped into dest.
+ * Added in Omaha: begin clipping subsequent draws to SVG path(s) mapped into dest.
  * Uses stencil when available; otherwise axis-aligned scissor of dest (or path AABB).
  * Nested calls fail with UIR_ERR_WRONG_PHASE — caller should skip.
  * Pair with UIR_EndShapeClip.

@@ -199,7 +199,7 @@ uir_status_t UIR_DrawSvgGeometry(
 	}
 
 	/*
-	 * Added in OPM: crisp HUD marks (crosshair) snap to the FB pixel grid and
+	 * Added in Omaha: crisp HUD marks (crosshair) snap to the FB pixel grid and
 	 * quantize stroke width to whole framebuffer pixels so edges stay hard.
 	 */
 	if (crisp && vp) {
@@ -217,7 +217,7 @@ uir_status_t UIR_DrawSvgGeometry(
 		}
 	}
 
-	/* Added in OPM: zero-copy mapped path from shared path cache (do not free). */
+	/* Added in Omaha: zero-copy mapped path from shared path cache (do not free). */
 	st = UIR_GetMappedPathCached(pathD, useDest, viewBox, fit, rotationDeg, crisp, &drawPath);
 	if (st != UIR_OK || !drawPath) {
 		return st != UIR_OK ? st : UIR_ERR_INVALID_ARG;
@@ -225,7 +225,7 @@ uir_status_t UIR_DrawSvgGeometry(
 
 	st = UIR_OK;
 	/*
-	 * Changed in OPM: stroke then fill when both are set. Centerline/outside stroke
+	 * Changed in Omaha: stroke then fill when both are set. Centerline/outside stroke
 	 * otherwise covers thin ring fills and leaves dark gaps at concave star corners;
 	 * redrawing fill on top restores interior while keeping the outer outline.
 	 */

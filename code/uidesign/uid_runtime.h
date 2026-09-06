@@ -46,7 +46,7 @@ uid_result_t UID_LoadMemory(uid_runtime_t *runtime, const char *sourceName, cons
 uid_result_t UID_Reload(uid_runtime_t *runtime);
 
 void UID_SetSurface(uid_runtime_t *runtime, int logicalW, int logicalH, int framebufferW, int framebufferH);
-/* Added in OPM: authored-px multiplier (refScale × ui_scale). */
+/* Added in Omaha: authored-px multiplier (refScale × ui_scale). */
 void  UID_SetUiPxScale(uid_runtime_t *runtime, float uiPxScale);
 float UID_GetUiPxScale(const uid_runtime_t *runtime);
 void UID_Update(uid_runtime_t *runtime, int realtime, const uid_pointer_state_t *pointer);
@@ -63,7 +63,7 @@ bool UID_IsCapturingKeybind(const uid_runtime_t *runtime);
 bool                 UID_HasDocument(const uid_runtime_t *runtime);
 const uid_document_t *UID_GetDocument(const uid_runtime_t *runtime);
 
-/* Added in OPM: evaluate canvas pointer="{bool expr}"; false when unset or eval fails. */
+/* Added in Omaha: evaluate canvas pointer="{bool expr}"; false when unset or eval fails. */
 bool UID_RuntimeWantsPointer(const uid_runtime_t *runtime);
 
 #ifdef __cplusplus

@@ -255,7 +255,7 @@ static void uir_env_add_rain_volume(
 	if (!env || !model || !model[0] || model[0] != '*') {
 		return;
 	}
-	/* Fixed in OPM: menu weather gates on rain volume count only; bounds unused. */
+	/* Fixed in Omaha: menu weather gates on rain volume count only; bounds unused. */
 	uir_env_note_rain_volume(env);
 }
 
@@ -308,7 +308,7 @@ void UIR_MapEnvParseEntities(const char *ents, const uir_map_env_backend_t *back
 			continue;
 		}
 		if (token[0] == '}') {
-			/* Fixed in OPM: MOHAA entities often list model/origin before classname. */
+			/* Fixed in Omaha: MOHAA entities often list model/origin before classname. */
 			if (!Q_stricmp(entityClass, "func_rain") && rainHasModel) {
 				if (!rainHasOrigin) {
 					rainOrigin[0] = rainOrigin[1] = rainOrigin[2] = 0.0f;

@@ -4064,7 +4064,7 @@ void R_ShutdownShaders()
 ====================
 R_RemountLightmapShaderImages
 
-Fixed in OPM: Menu Backdrop cycling frees and recreates *lightmap images. Cached
+Fixed in Omaha: Menu Backdrop cycling frees and recreates *lightmap images. Cached
 world shaders still point at the old image_t slots (often zeroed or reused for a
 different lightmap index), which shows up as wrong lighting or missing brushes.
 ====================

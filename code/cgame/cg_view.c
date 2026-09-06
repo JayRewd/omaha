@@ -527,7 +527,7 @@ static int CG_CalcFov(void)
     cg.fRefFovYSin     = sin(fov_y / 114.0f);
 
     /*
-     * Changed in OPM: cg_zoomSensitivity mode for modern UI (ui_legacy 0):
+     * Changed in Omaha: cg_zoomSensitivity mode for modern UI (ui_legacy 0):
      *   off    -> 1.0 (no FOV scale)
      *   legacy -> fov_y / 75 (retail Quake)
      *   screen -> tan(zoom/2)/tan(hip/2) (screen-distance)
@@ -709,11 +709,11 @@ static int CG_CalcViewValues(void)
     if (ps->pm_flags & PMF_CAMERA_VIEW) {
         vec3_t fpOrigin, fpAngles;
 
-        /* Added in OPM: client-side first-person chase override. */
+        /* Added in Omaha: client-side first-person chase override. */
         if (CG_SpectateFP_CalcEye(fpOrigin, fpAngles)) {
             VectorCopy(fpOrigin, cg.refdef.vieworg);
             VectorCopy(fpAngles, cg.refdefViewAngles);
-            /* Fixed in OPM: keep head/sound anchors in sync with FP eye (was chase height). */
+            /* Fixed in Omaha: keep head/sound anchors in sync with FP eye (was chase height). */
             VectorCopy(cg.refdef.vieworg, cg.playerHeadPos);
         } else {
             // Set the aural position to that of the camera
@@ -924,7 +924,7 @@ void CG_DrawActiveFrame(int serverTime, int frameTime, stereoFrame_t stereoView,
     // Added in Omaha: remote player prediction lead clock (after local pmove).
     CG_RP_BeginFrame();
 
-    /* Added in OPM: rebuild FP spectate synthetic state before view/camera. */
+    /* Added in Omaha: rebuild FP spectate synthetic state before view/camera. */
     CG_SpectateFP_Update();
 
     // build cg.refdef

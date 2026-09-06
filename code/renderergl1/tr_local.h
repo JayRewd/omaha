@@ -1828,7 +1828,7 @@ int		RE_UI2DTargetSamples(void);
 void		RE_UI2DTargetRebind(void);
 void		RE_UI2D_FboShutdown(void);
 
-/* Added in OPM: soft mask-image layer RT (UI FBO only). */
+/* Added in Omaha: soft mask-image layer RT (UI FBO only). */
 qboolean	RE_UiLayerAvailable(void);
 qboolean	RE_UiLayerIsActive(void);
 void		RE_UiLayerRebind(void);
@@ -1837,7 +1837,7 @@ qboolean	RE_BeginUiLayer(int fbX, int fbY, int fbW, int fbH, float uiX, float ui
 void		RE_UiLayerApplyMask(qhandle_t hShader, float x, float y, float w, float h, float s1, float t1, float s2, float t2);
 void		RE_EndUiLayer(void);
 
-/* Added in OPM: retained chrome cache RT (separate from soft-mask layer). */
+/* Added in Omaha: retained chrome cache RT (separate from soft-mask layer). */
 qboolean	RE_UiChromeCacheAvailable(void);
 qboolean	RE_UiChromeCacheIsActive(void);
 void		RE_UiChromeCacheRebind(void);
@@ -1890,7 +1890,7 @@ qhandle_t RE_RegisterShaderFromImage(const char *name, int lightmapIndex, image_
 shader_t* R_FindShader(const char* name, int lightmapIndex, qboolean mipRawImage, qboolean picmip, qboolean wrapx, qboolean wrapy);
 shader_t	*R_GetShaderByHandle( qhandle_t hShader );
 shader_t	*R_GetShaderByState( int index, long *cycleTime );
-/* Fixed in OPM: menu world reload frees/recreates *lightmap images; refresh cached shaders. */
+/* Fixed in Omaha: menu world reload frees/recreates *lightmap images; refresh cached shaders. */
 void		R_RemountLightmapShaderImages( void );
 void R_StartupShaders();
 void R_ShutdownShaders();

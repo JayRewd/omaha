@@ -2488,7 +2488,7 @@ void R_LoadPNG(const char *name, byte **pic, int *width, int *height)
 =================
 RE_SavePNG
 
-Added in OPM: write RGBA8 rows to a PNG file (model bake / UI export).
+Added in Omaha: write RGBA8 rows to a PNG file (model bake / UI export).
 =================
 */
 #define STB_IMAGE_WRITE_STATIC

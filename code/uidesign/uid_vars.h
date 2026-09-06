@@ -27,7 +27,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "uid_diag.h"
 #include "uid_document.h"
 
-/* Added in OPM: static design-token lookup for {var.name} / var.* expressions. */
+/* Added in Omaha: static design-token lookup for {var.name} / var.* expressions. */
 bool UID_LookupVar(const uid_document_t *doc, const char *name, std::string *valueOut);
 bool UID_LookupVarNumber(const uid_document_t *doc, const char *name, double *out);
 

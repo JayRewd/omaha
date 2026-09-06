@@ -79,12 +79,12 @@ typedef struct {
 
 void UIR_MenuWorldSetBackend(const uir_menuworld_backend_t *backend);
 void UIR_MenuWorldShutdown(void);
-/* Fixed in OPM: clearWorld only while menu UI owns the renderer world slot. */
+/* Fixed in Omaha: clearWorld only while menu UI owns the renderer world slot. */
 void UIR_MenuWorldReleaseOwnership(void);
 void UIR_MenuWorldMarkNeedsReload(void);
 uir_menuworld_state_t UIR_MenuWorldState(void);
 
-/* Added in OPM: select active catalog view (from sources.xml via host). */
+/* Added in Omaha: select active catalog view (from sources.xml via host). */
 void UIR_MenuWorldSetDesiredView(const uir_menu_map_view_t *view);
 
 /* Lazy load / advance staged switch; safe to call every frame. */

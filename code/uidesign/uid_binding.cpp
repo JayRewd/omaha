@@ -207,7 +207,7 @@ bool TextIsContentSized(const uid_node_def_t &node)
 	return width.unit == UID_LENGTH_AUTO || height.unit == UID_LENGTH_AUTO;
 }
 
-/* Added in OPM: keep leaf <image> src/fit/scale mirrored onto background-* for paint. */
+/* Added in Omaha: keep leaf <image> src/fit/scale mirrored onto background-* for paint. */
 void MirrorLeafImageProps(uid_node_def_t *node, const std::string &prop, const std::string &value)
 {
 	if (!node || node->kind != UID_NODE_IMAGE) {
@@ -254,13 +254,13 @@ bool StagingBlocksSync(uid_document_t *doc, const uid_node_def_t &node, const ui
 		return true;
 	}
 
-	/* Added in OPM: slider drag stages runtime until pointer release write. */
+	/* Added in Omaha: slider drag stages runtime until pointer release write. */
 	if (node.kind == UID_NODE_SLIDER && st.dragging) {
 		return true;
 	}
 
 	/*
-	 * Added in OPM: companion number inputs mirror staged slider values during
+	 * Added in Omaha: companion number inputs mirror staged slider values during
 	 * drag — do not pull the old cvar over them until release.
 	 */
 	if (doc && node.kind == UID_NODE_INPUT && node.inputType == "number" && !node.bind.empty()) {
@@ -348,7 +348,7 @@ bool ReadCvarString(const uid_backend_t *backend, const char *name, std::string 
 	return true;
 }
 
-/* Added in OPM: invalidate memo when a cvar is written during sync. */
+/* Added in Omaha: invalidate memo when a cvar is written during sync. */
 void InvalidateCvarMemo(const char *name)
 {
 	if (!name || !g_cvarMemoActive) {
@@ -491,7 +491,7 @@ bool UID_ResolveCvarRgba(const uid_backend_t *backend, const char *spec, uid_col
 
 namespace {
 
-/* Added in OPM: cvar → UI runtime transforms. */
+/* Added in Omaha: cvar → UI runtime transforms. */
 std::string TransformCvarToUi(
 	const uid_node_def_t &node,
 	const std::string &cvarValue,
@@ -557,7 +557,7 @@ std::string TransformCvarToUi(
 	return cvarValue;
 }
 
-/* Added in OPM: format slider/number display using authored step precision. */
+/* Added in Omaha: format slider/number display using authored step precision. */
 static std::string FormatControlDisplayValue(const uid_node_def_t &node, const std::string &uiValue)
 {
 	if (node.kind != UID_NODE_SLIDER &&
@@ -589,7 +589,7 @@ static std::string FormatControlDisplayValue(const uid_node_def_t &node, const s
 	return buf;
 }
 
-/* Added in OPM: UI runtime → cvar transforms. */
+/* Added in Omaha: UI runtime → cvar transforms. */
 bool TransformUiToCvar(
 	const uid_node_def_t &node,
 	const std::string &uiValue,
@@ -952,7 +952,7 @@ static bool TryEvalSingleNumericAuthored(
 
 static bool ExprLooksCvarPure(const std::string &expr)
 {
-	/* Added in OPM: cvar/var/literal-only exprs can be memoized on cvar epoch. */
+	/* Added in Omaha: cvar/var/literal-only exprs can be memoized on cvar epoch. */
 	if (expr.find("item.") != std::string::npos) {
 		return false;
 	}
@@ -1085,7 +1085,7 @@ static bool EvalNodeBoolExprCached(
 	return result;
 }
 
-/* Added in OPM: sync style ternaries (any property) into resolved property values. */
+/* Added in Omaha: sync style ternaries (any property) into resolved property values. */
 static void SyncBoundStyleExprs(
 	uid_document_t      *doc,
 	uid_node_id_t        nodeId,
@@ -1117,7 +1117,7 @@ static void SyncBoundStyleExprs(
 
 	static const char *kLayoutProps[] = {
 		"width", "height", "gap", "margin", "padding", "font-size",
-		"src" /* Added in OPM: leaf <image> intrinsic size depends on src */
+		"src" /* Added in Omaha: leaf <image> intrinsic size depends on src */
 	};
 	bool strokeLayout = true;
 	{
@@ -1146,7 +1146,7 @@ static void SyncBoundStyleExprs(
 		if (st) {
 			UID_InvalidateComputedStyle(st);
 		}
-		/* Changed in OPM: hoverfill aliases share one resolved value. */
+		/* Changed in Omaha: hoverfill aliases share one resolved value. */
 		if (kv.first == "hoverfill") {
 			node->properties.Set("hover-fill", resolved.c_str());
 		} else if (kv.first == "hover-fill") {
@@ -1191,7 +1191,7 @@ std::string FormatKeybindKeyName(const char *name)
 }
 
 /*
- * Fixed in OPM: Quake/MOHAA letter binds are lowercase ASCII ('w' == 119).
+ * Fixed in Omaha: Quake/MOHAA letter binds are lowercase ASCII ('w' == 119).
  * Display labels may show "W"; never store uppercase letter keynums.
  */
 int NormalizeBindKey(int key)
@@ -1380,7 +1380,7 @@ void SyncKeybindDisplay(
 	}
 
 	/*
-	 * Fixed in OPM: migrate corrupted uppercase letter binds (from display-label
+	 * Fixed in Omaha: migrate corrupted uppercase letter binds (from display-label
 	 * round-trip) down to lowercase so console bind w matches the settings UI.
 	 */
 	if (backend->setBinding && backend->getBinding) {
@@ -1495,7 +1495,7 @@ uid_result_t WriteCvarBind(
 	if (!backend->cvarWrite(cvarName.c_str(), primary.c_str())) {
 		return UID_ERR_VALIDATE;
 	}
-	/* Added in OPM: display-mode also drives r_noborder. */
+	/* Added in Omaha: display-mode also drives r_noborder. */
 	if (node->valueType == "display-mode" && !noborder.empty()) {
 		backend->cvarWrite("r_noborder", noborder.c_str());
 	}
@@ -1589,7 +1589,7 @@ uid_result_t WriteKeybind(
 	}
 
 	/*
-	 * Fixed in OPM: runtimeValue holds display labels ("W", "NONE"), not capture
+	 * Fixed in Omaha: runtimeValue holds display labels ("W", "NONE"), not capture
 	 * keynums. Capture commits via UID_TryCommitKeybindCapture. Only empty value
 	 * means clear this slot (Backspace / Del).
 	 */
@@ -1797,7 +1797,7 @@ static void SyncExprBoundProps(
 	}
 	static const char *kLayoutProps[] = {
 		"width", "height", "gap", "margin", "padding", "font-size",
-		"src" /* Added in OPM: leaf <image> intrinsic size depends on src */
+		"src" /* Added in Omaha: leaf <image> intrinsic size depends on src */
 	};
 	for (const auto &kv : node->exprBoundProps) {
 		uid_bool_lookup_ctx_t ctx;
@@ -1889,7 +1889,7 @@ static void SyncExprBoundProps(
 	}
 }
 
-static void SyncForeachItemFieldText(
+static void SyncForeachItemText(
 	uid_document_t      *doc,
 	uid_node_id_t        nodeId,
 	uid_node_def_t      *node,
@@ -1900,13 +1900,21 @@ static void SyncForeachItemFieldText(
 	if (!doc || !node || !st || !backend || !node->foreachGenerated) {
 		return;
 	}
-	if (node->text.find("{item.field.") == std::string::npos) {
+	if (node->text.find("{item.") == std::string::npos) {
 		return;
 	}
 	uid_bool_lookup_ctx_t ctx;
 	FillBoolLookupCtx(&ctx, doc, nodeId, backend);
 	if (!ctx.item) {
+		SetRuntimeIfChanged(doc, nodeId, st, node->kind, std::string());
 		return;
+	}
+
+	const char *displayMode = "label";
+	if (node->foreachScopeId >= 0 && static_cast<size_t>(node->foreachScopeId) < doc->nodes.size()) {
+		if (doc->nodes[static_cast<size_t>(node->foreachScopeId)].collectionDisplay == "value") {
+			displayMode = "value";
+		}
 	}
 
 	std::string out;
@@ -1922,7 +1930,21 @@ static void SyncForeachItemFieldText(
 			continue;
 		}
 		const std::string key = node->text.substr(i + 1, end - i - 1);
-		if (key.rfind("item.field.", 0) == 0) {
+		if (key == "item.index") {
+			out += std::to_string(ctx.itemIndex);
+		} else if (key == "item.count") {
+			out += std::to_string(ctx.itemCount);
+		} else if (key == "item.selected") {
+			out += (ctx.itemIndex == ctx.selectedIndex) ? "true" : "false";
+		} else if (ctx.item && key == "item.key") {
+			out += ctx.item->key;
+		} else if (ctx.item && key == "item.value") {
+			out += ctx.item->value;
+		} else if (ctx.item && key == "item.label") {
+			out += ctx.item->label;
+		} else if (ctx.item && key == "item.display") {
+			out += (std::strcmp(displayMode, "value") == 0) ? ctx.item->value : ctx.item->label;
+		} else if (ctx.item && key.rfind("item.field.", 0) == 0) {
 			const std::string fname = key.substr(11);
 			auto it = ctx.item->fields.find(fname);
 			if (it != ctx.item->fields.end()) {
@@ -1990,7 +2012,7 @@ static void SyncCvarBoundProps(
 	}
 	static const char *kLayoutProps[] = {
 		"width", "height", "gap", "margin", "padding", "font-size",
-		"src" /* Added in OPM: leaf <image> intrinsic size depends on src */
+		"src" /* Added in Omaha: leaf <image> intrinsic size depends on src */
 	};
 	for (const auto &kv : node->cvarBoundProps) {
 		std::string cvarName;
@@ -2043,7 +2065,7 @@ static void SyncCvarBoundProps(
 	}
 }
 
-/* Added in OPM: max joined label text so huge servers cannot blow buffers. */
+/* Added in Omaha: max joined label text so huge servers cannot blow buffers. */
 constexpr size_t kJoinMaxChars = 2048;
 
 static bool JoinReadBareId(const char *s, size_t len, size_t *pos, std::string *out)
@@ -2138,7 +2160,7 @@ static std::string JoinFieldValue(const uid_collection_entry_t &item, const std:
 }
 
 /*
- * Added in OPM: join(source, field, "sep"[, boolFilter]) → string for label braces.
+ * Added in Omaha: join(source, field, "sep"[, boolFilter]) → string for label braces.
  * Filter is evaluated per row with item.field.* bound to that row.
  */
 static bool EvalJoinCall(
@@ -2266,7 +2288,7 @@ static bool EvalJoinCall(
 	return true;
 }
 
-/* Added in OPM: label braces may be join(...) strings or numeric embeds. */
+/* Added in Omaha: label braces may be join(...) strings or numeric embeds. */
 static bool ResolveAllRuntimeLabelBraceExprs(
 	uid_document_t *doc,
 	uid_node_id_t nodeId,
@@ -2322,7 +2344,7 @@ static bool ResolveAllRuntimeLabelBraceExprs(
 	return false;
 }
 
-/* Added in OPM: evaluate {expr} embeds in label text (e.g. floor(cvar…/60) for MM:SS). */
+/* Added in Omaha: evaluate {expr} embeds in label text (e.g. floor(cvar…/60) for MM:SS). */
 static void SyncInterpolatedLabelText(
 	uid_document_t *doc,
 	uid_node_id_t id,
@@ -2356,8 +2378,8 @@ static void SyncInterpolatedLabelText(
 		SetRuntimeIfChanged(doc, id, st, node->kind, value);
 		return;
 	}
-	/* Foreach item.field text is handled by SyncForeachItemFieldText. */
-	if (node->foreachGenerated && node->text.find("{item.field.") != std::string::npos &&
+	/* Foreach item.* text is handled by SyncForeachItemText. */
+	if (node->foreachGenerated && node->text.find("{item.") != std::string::npos &&
 	    node->text.find("cvar.") == std::string::npos &&
 	    node->text.find("join(") == std::string::npos) {
 		return;
@@ -2438,7 +2460,7 @@ bool UID_ParseExactCvarBraceBinding(const std::string &value, std::string *cvarN
 		return false;
 	}
 	/*
-	 * Fixed in OPM: only exact {cvar.name} / {cvar:name} — not style ternaries
+	 * Fixed in Omaha: only exact {cvar.name} / {cvar:name} — not style ternaries
 	 * that begin with cvar. (e.g. "{cvar.a != cvar.b ? …}"). Those must stay on
 	 * the styleExprs path; treating them as cvar binds made SyncCvarBoundProps
 	 * restore the unresolved ternary after SyncBoundStyleExprs.
@@ -2466,7 +2488,7 @@ void UID_RegisterCvarBoundProps(uid_node_def_t *node)
 		"translate-x", "translate-y",
 		"opacity", "background-image", "mask-image", "color", "fill", "left", "top", "right", "bottom",
 		"background-scale",
-		/* Added in OPM: leaf <image> */
+		/* Added in Omaha: leaf <image> */
 		"src", "fit", "scale"
 	};
 	node->cvarBoundProps.clear();
@@ -2494,7 +2516,7 @@ void UID_RegisterCvarBoundProps(uid_node_def_t *node)
 		if (UID_ParseExactCvarBraceBinding(value, &cvarName)) {
 			node->cvarBoundProps[prop] = value;
 		} else if (value.find("item.field.") != std::string::npos) {
-			/* Added in OPM: keep authored item.field placeholders (incl. ternaries)
+			/* Added in Omaha: keep authored item.field placeholders (incl. ternaries)
 			 * so SyncExprBoundProps can refresh them after same-key collection updates. */
 			node->exprBoundProps[prop] = value;
 		} else if (value.find("item.lifetime_alpha") != std::string::npos) {
@@ -2670,7 +2692,7 @@ void UID_SyncBindings(uid_document_t *doc, const uid_backend_t *backend)
 	};
 
 	/*
-	 * Added in OPM: apply visibleExpr before SyncCollections so visibility-aware
+	 * Added in Omaha: apply visibleExpr before SyncCollections so visibility-aware
 	 * collection cull sees this frame's panel visibility (not last frame).
 	 * Always recurse so hidden panels update before a same-frame reveal.
 	 */
@@ -2752,16 +2774,20 @@ void UID_SyncBindings(uid_document_t *doc, const uid_backend_t *backend)
 		}
 
 		/*
-		 * Added in Omaha: foreach row nodes rebind item.field* only when the
-		 * enclosing collection revision changes. Cvar/style paths still run
-		 * (they have their own memos). Applies to every foreach source.
+		 * Added in Omaha: foreach row nodes rebind item.* only when the enclosing
+		 * collection revision or this row's foreachItemIndex changes. Cvar/style/expr
+		 * paths still run (they have their own memos). Applies to every foreach source.
+		 * Fixed in Omaha: SyncExprBoundProps must run here — ammo edge-clip
+		 * top/height use cvar math in exprBoundProps, not style/cvar binds.
+		 * Fixed in Omaha: itemBindItemIndex tracks mode=selected in-place rebind.
 		 */
 		if (node->foreachGenerated && node->foreachScopeId >= 0 &&
 			static_cast<size_t>(node->foreachScopeId) < d->states.size() &&
 			!NodeBindInteractionDirty(st)) {
-			const uint64_t scopeRev =
-				d->states[static_cast<size_t>(node->foreachScopeId)].collectionRevision;
-			if (st->itemBindRevision == scopeRev && scopeRev != 0) {
+			const uid_node_state_t &scopeSt = d->states[static_cast<size_t>(node->foreachScopeId)];
+			const uint64_t scopeRev = scopeSt.collectionRevision;
+			if (st->itemBindRevision == scopeRev && scopeRev != 0 &&
+				st->itemBindItemIndex == node->foreachItemIndex) {
 				const unsigned flags = node->bindingFlags;
 				if (flags & UID_BIND_F_ENABLED_EXPR) {
 					const bool on = EvalNodeBoolExprCached(node->enabledExpr, d, id, backend, st, false);
@@ -2776,6 +2802,9 @@ void UID_SyncBindings(uid_document_t *doc, const uid_backend_t *backend)
 				}
 				if (flags & UID_BIND_F_CVAR_PROPS) {
 					SyncCvarBoundProps(d, id, node, backend);
+				}
+				if (flags & UID_BIND_F_EXPR_PROPS) {
+					SyncExprBoundProps(d, id, node, backend);
 				}
 				if (flags & UID_BIND_F_BIND) {
 					std::string cvarName;
@@ -2819,8 +2848,11 @@ void UID_SyncBindings(uid_document_t *doc, const uid_backend_t *backend)
 
 		if (flags & UID_BIND_F_LABEL) {
 			SyncTextCvarLabel(d, id, node, st, backend);
-			SyncForeachItemFieldText(d, id, node, st, backend);
+			SyncForeachItemText(d, id, node, st, backend);
 			SyncInterpolatedLabelText(d, id, node, st, backend);
+		} else if (node->foreachGenerated && node->text.find("{item.") != std::string::npos) {
+			/* Buttons / other text nodes in foreach rows (e.g. modal item lists). */
+			SyncForeachItemText(d, id, node, st, backend);
 		}
 
 		if (flags & UID_BIND_F_KEYBIND) {
@@ -2839,6 +2871,7 @@ void UID_SyncBindings(uid_document_t *doc, const uid_backend_t *backend)
 			static_cast<size_t>(node->foreachScopeId) < d->states.size()) {
 			st->itemBindRevision =
 				d->states[static_cast<size_t>(node->foreachScopeId)].collectionRevision;
+			st->itemBindItemIndex = node->foreachItemIndex;
 		}
 		markBindBodySynced(node, st);
 	};

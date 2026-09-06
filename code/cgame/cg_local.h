@@ -353,7 +353,7 @@ extern "C" {
 		radarClient_t radars[MAX_CLIENTS];
 		qhandle_t radarShaders[2];
 
-		/* Added in OPM: client-side first-person chase spectate state. */
+		/* Added in Omaha: client-side first-person chase spectate state. */
 		struct {
 			qboolean active;
 			int      clientNum;
@@ -529,7 +529,7 @@ extern "C" {
     extern cvar_t *cg_cheats;
     extern cvar_t *cg_spectate_firstperson;
 
-    /* Added in OPM: optional VM anim inputs for FP spectate. */
+    /* Added in Omaha: optional VM anim inputs for FP spectate. */
     typedef struct {
         qboolean valid;
         int      equippedWeaponStat;
@@ -952,7 +952,7 @@ qboolean CG_LightStyleColor(int style, int realtime, vec4_t color, qboolean clam
     void CG_PrepScoreBoardInfo();
     void CG_ParseScores();
     void CG_InitScoresAPI(clientGameExport_t *cge);
-    /* Added in OPM: silent team-score refresh for modern HUD Allied/Axis strip. */
+    /* Added in Omaha: silent team-score refresh for modern HUD Allied/Axis strip. */
     void CG_RequestHudTeamScoresSilent(void);
 
     //

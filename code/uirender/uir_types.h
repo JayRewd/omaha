@@ -139,26 +139,26 @@ typedef struct {
 	int drawBoxes;
 	int fontRebuilds;
 	int previewCount;
-	/* Added in OPM: GPU UI batch stats. */
+	/* Added in Omaha: GPU UI batch stats. */
 	int batches;
 	int batchVerts;
 	int batchTris;
 	int tessFallbacks;
-	/* Added in OPM: last GPU tess failure signature for ui_render_stats. */
+	/* Added in Omaha: last GPU tess failure signature for ui_render_stats. */
 	int tessFallbackStatus;
 	int tessFallbackContours;
-	/* Added in OPM: libtess2 diagnostics. */
+	/* Added in Omaha: libtess2 diagnostics. */
 	int tessSkippedContours;
 	int tessLibFails;
 	int tessContoursIn;
 	int tessContoursOut;
-	/* Added in OPM: clip/scissor apply vs skip counters (Stage 0+). */
+	/* Added in Omaha: clip/scissor apply vs skip counters (Stage 0+). */
 	int clipApplies;
 	int clipSkips;
-	/* Added in OPM: mapped path-cache hit/miss (Stage D). */
+	/* Added in Omaha: mapped path-cache hit/miss (Stage D). */
 	int pathCacheHits;
 	int pathCacheMisses;
-	/* Added in OPM: tessellated mesh-cache hit/miss (Stage D). */
+	/* Added in Omaha: tessellated mesh-cache hit/miss (Stage D). */
 	int meshCacheHits;
 	int meshCacheMisses;
 } uir_stats_t;

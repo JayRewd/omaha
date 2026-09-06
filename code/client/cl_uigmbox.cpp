@@ -138,7 +138,7 @@ void UIGMBox::PostMoveinEvent(void)
 
 void UIGMBox::PostDecayEvent(void)
 {
-    /* Changed in OPM: modern HUD foreach lifetime owns expiry; capacity trim only. */
+    /* Changed in Omaha: modern HUD foreach lifetime owns expiry; capacity trim only. */
     if (CL_UIR_UseModernHudPack()) {
         return;
     }
@@ -168,7 +168,7 @@ void UIGMBox::PostDecayEvent(void)
             fDelayTime = iNumLines * 5.0;
         }
 
-        /* Fixed in OPM: cap decay delay (see UIDMBox::PostDecayEvent). */
+        /* Fixed in Omaha: cap decay delay (see UIDMBox::PostDecayEvent). */
         if (fDelayTime < 1.0f) {
             fDelayTime = 1.0f;
         } else if (fDelayTime > 20.0f) {
@@ -301,7 +301,7 @@ void UIGMBox::Print(const char *text)
 {
     const char *text1 = text;
 
-    /* Changed in OPM: capacity aligned with UIR_HUD_GAME_MESSAGES_MAX_ROWS. */
+    /* Changed in Omaha: capacity aligned with UIR_HUD_GAME_MESSAGES_MAX_ROWS. */
     if (m_numitems >= UIR_HUD_GAME_MESSAGES_MAX_ROWS) {
         RemoveTopItem();
     }
@@ -323,7 +323,7 @@ void UIGMBox::Print(const char *text)
         CalculateBreaks(m_items[m_numitems].font, Sys_LV_CL_ConvertString(text1),
                         s_gmboxWidth < 64.0f ? 64.0f : s_gmboxWidth);
 
-    /* Added in OPM: monotonic id for hud-game-messages foreach lifetime. */
+    /* Added in Omaha: monotonic id for hud-game-messages foreach lifetime. */
     {
         static uint64_t s_nextHudGameMessageId = 1;
         m_items[m_numitems].stableId = s_nextHudGameMessageId++;
@@ -373,12 +373,12 @@ void UIGMBox::DecayEvent(Event *ev)
 /*
 ====================
 UIGMBox::ForceDueDecay
-Fixed in OPM: same modern-HUD decay watchdog as UIDMBox (see cl_uidmbox.cpp).
+Fixed in Omaha: same modern-HUD decay watchdog as UIDMBox (see cl_uidmbox.cpp).
 ====================
 */
 void UIGMBox::ForceDueDecay(void)
 {
-    /* Changed in OPM: modern HUD skips timer decay (foreach lifetime). */
+    /* Changed in Omaha: modern HUD skips timer decay (foreach lifetime). */
     if (CL_UIR_UseModernHudPack()) {
         return;
     }
@@ -410,7 +410,7 @@ void UIGMBox::Draw(void)
 
     if (!m_numitems) {
         if (CL_UIR_UseModernHudPack()) {
-            /* Fixed in OPM: only publish empty when rows were present (avoid per-frame revision thrash). */
+            /* Fixed in Omaha: only publish empty when rows were present (avoid per-frame revision thrash). */
             if (UIR_HudGameMessages_GetRowCount() > 0) {
                 UIR_HudGameMessages_Clear();
                 UIR_HudGameMessages_NotifyChanged();
@@ -419,7 +419,7 @@ void UIGMBox::Draw(void)
         return;
     }
 
-    /* Added in OPM: modern HUD pack paints game messages via hud-game-messages collection. */
+    /* Added in Omaha: modern HUD pack paints game messages via hud-game-messages collection. */
     if (CL_UIR_UseModernHudPack()) {
         uir_hud_message_input_t row;
 

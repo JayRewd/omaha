@@ -135,7 +135,7 @@ static void UpdateInputCatcher(void)
 		Key_SetCatcher(Key_GetCatcher() | KEYCATCH_UI);
 	} else if (!UI_LegacyOverlayOwnsInput() && !UI_ConsoleIsVisible() && !UI_BindActive()) {
 		/*
-		 * Fixed in OPM: use ConsoleIsVisible (not only focused) so opening the
+		 * Fixed in Omaha: use ConsoleIsVisible (not only focused) so opening the
 		 * console during intermission scoreboard does not clear KEYCATCH_UI
 		 * before the first CharEvent.
 		 */
@@ -149,7 +149,7 @@ static qboolean MenuWantsInput(const OpenMenuEntry &entry)
 }
 
 /*
- * Added in OPM: draw-order 4 HUD packs normally do not catch keys; while in-HUD
+ * Added in Omaha: draw-order 4 HUD packs normally do not catch keys; while in-HUD
  * chat compose is open they must receive Key/Char events without being treated
  * as interactive menus for CloseAllInteractive.
  */
@@ -162,7 +162,7 @@ static qboolean MenuAcceptsKeys(const OpenMenuEntry &entry)
 }
 
 /*
- * Added in OPM: mirror match state used by canvas pointer="{...}" exprs.
+ * Added in Omaha: mirror match state used by canvas pointer="{...}" exprs.
  * Hold-TAB scoreboard stays cursorless unless spectator or intermission.
  */
 static void SyncHudPointerStateCvars(void)
@@ -175,7 +175,7 @@ static void SyncHudPointerStateCvars(void)
 	if (!ui_om_intermission) {
 		ui_om_intermission = Cvar_Get("ui_om_intermission", "0", CVAR_TEMP);
 		ui_om_spectator = Cvar_Get("ui_om_spectator", "0", CVAR_TEMP);
-		/* Added in OPM: sticky in-play scoreboard cursor; cleared on scoreboard CloseHold. */
+		/* Added in Omaha: sticky in-play scoreboard cursor; cleared on scoreboard CloseHold. */
 		Cvar_Get("ui_om_scoreboard_cursor", "0", CVAR_TEMP);
 		/* Added in Omaha: archive opt-out; when set, scoreboard never shows a cursor. */
 		Cvar_Get("ui_om_scoreboard_disable_cursor", "0", CVAR_ARCHIVE);
@@ -397,7 +397,7 @@ static qboolean CloseMenuInternal(const char *menuId, qboolean force)
 	g_openMenus.erase(g_openMenus.begin() + idx);
 
 	/*
-	 * Fixed in OPM: ui_close menu dm_pause (and connected main) must leave GUI
+	 * Fixed in Omaha: ui_close menu dm_pause (and connected main) must leave GUI
 	 * mouse mode. Escape uses CL_UIR_CloseDmPause which already does this; XML
 	 * click cbufs only hit this path and previously left in_guimouse stuck until
 	 * View3D ate a click.
@@ -605,7 +605,7 @@ qboolean CL_UIMenu_CloseHold(const char *menuId)
 	OpenMenuEntry &entry = g_openMenus[static_cast<size_t>(idx)];
 	entry.holdRefCount = 0;
 	/*
-	 * Added in OPM: sticky scoreboard cursor is in-play only. Clear on close so
+	 * Added in Omaha: sticky scoreboard cursor is in-play only. Clear on close so
 	 * spectator / intermission pointer (ui_om_spectator / ui_om_intermission) is
 	 * unaffected and the next hold-TAB starts cursorless.
 	 */
@@ -636,7 +636,7 @@ qboolean CL_UIMenu_HasInteractiveOpen(void)
 		}
 	}
 	/*
-	 * Fixed in OPM: in-HUD chat is keyboard-only (draw-order 4). It must not
+	 * Fixed in Omaha: in-HUD chat is keyboard-only (draw-order 4). It must not
 	 * count as an interactive overlay — that gated HUD paint off, forced the
 	 * connected-overlay compositor, and showed an OS cursor via KEYCATCH_UI.
 	 * Key ownership for chat is handled in CL_UIMenu_ShouldOwnInput instead.
@@ -665,7 +665,7 @@ void CL_UIMenu_UpdateAll(unsigned int time)
 		}
 		UID_Update(entry.runtime, time, NULL);
 	}
-	/* Added in OPM: invalidate retained chrome before the compositor chrome phase. */
+	/* Added in Omaha: invalidate retained chrome before the compositor chrome phase. */
 	for (size_t i = 0; i < g_openMenus.size(); ++i) {
 		const uid_document_t *doc =
 			(g_openMenus[i].runtime && UID_HasDocument(g_openMenus[i].runtime))
@@ -727,7 +727,7 @@ void CL_UIMenu_UpdateAllWithPointer(unsigned int time, const void *pointer)
 			UID_Update(entry.runtime, time, NULL);
 		}
 	}
-	/* Added in OPM: invalidate retained chrome before the compositor chrome phase. */
+	/* Added in Omaha: invalidate retained chrome before the compositor chrome phase. */
 	for (size_t i = 0; i < g_openMenus.size(); ++i) {
 		const uid_document_t *doc =
 			(g_openMenus[i].runtime && UID_HasDocument(g_openMenus[i].runtime))
@@ -834,7 +834,7 @@ qboolean CL_UIMenu_KeyEvent(int key, qboolean down, unsigned time)
 	}
 	SortOpenIndicesByDrawOrder(&indices, qfalse);
 
-	/* Added in OPM: keypad Enter commits text inputs like primary Enter. */
+	/* Added in Omaha: keypad Enter commits text inputs like primary Enter. */
 	if (key == K_KP_ENTER) {
 		key = K_ENTER;
 	}
@@ -880,7 +880,7 @@ qboolean CL_UIMenu_ShouldOwnInput(void)
 		return qfalse;
 	}
 	/*
-	 * Added in OPM: in-HUD chat compose owns keys while open without counting
+	 * Added in Omaha: in-HUD chat compose owns keys while open without counting
 	 * as an interactive menu (see HasInteractiveOpen).
 	 */
 	if (!CL_UIMenu_HasInteractiveOpen() && !CL_UIR_HudChatIsOpen()) {
@@ -1011,7 +1011,7 @@ void CL_UIMenu_CloseAllInteractive(void)
 
 void CL_UIMenu_OnSessionDeactivate(void)
 {
-	/* Added in OPM: drop in-HUD chat compose with the rest of session UI. */
+	/* Added in Omaha: drop in-HUD chat compose with the rest of session UI. */
 	CL_UIR_CloseHudChat();
 	for (size_t i = 0; i < g_openMenus.size(); ++i) {
 		if (g_openMenus[i].runtime) {

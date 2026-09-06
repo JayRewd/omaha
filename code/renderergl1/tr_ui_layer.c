@@ -316,7 +316,7 @@ void RE_EndUiLayer(void)
 	);
 
 	/*
-	 * Fixed in OPM: GL_State uses glBlendFunc and would clobber the UI FBO's
+	 * Fixed in Omaha: GL_State uses glBlendFunc and would clobber the UI FBO's
 	 * BlendFuncSeparate(alpha=ONE). Apply GL_State first, then restore separate.
 	 */
 	GL_State(GLS_DEPTHTEST_DISABLE | GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA);
@@ -329,7 +329,7 @@ void RE_EndUiLayer(void)
 }
 
 /* -------------------------------------------------------------------------- */
-/* Added in OPM: retained chrome cache RT (idle-frame blit).                  */
+/* Added in Omaha: retained chrome cache RT (idle-frame blit).                  */
 /* -------------------------------------------------------------------------- */
 
 typedef struct {

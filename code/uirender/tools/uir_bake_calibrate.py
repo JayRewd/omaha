@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Added in OPM: staged world-model weapon bake calibration loop.
+Added in Omaha: staged world-model weapon bake calibration loop.
 
 Runs probe/final bakes via openmohaa, inspects PNGs, updates uir_weapon_bake_list.c.
 """

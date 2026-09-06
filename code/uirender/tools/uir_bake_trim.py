@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Added in OPM: trim transparent margins from baked weapon PNGs.
+Added in Omaha: trim transparent margins from baked weapon PNGs.
 
 Runs after ui_bake_model export (including MSAA resolve). Reads *x2.png MSAA
 bakes from VFS, writes snug trimmed HUD PNGs (x2 suffix stripped) plus an

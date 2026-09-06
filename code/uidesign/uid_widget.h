@@ -33,7 +33,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 /* Resolve fill considering disabled/pressed/hover/focus overrides. */
 bool UID_ResolveFillColor(const uid_document_t *doc, uid_node_id_t id, uid_color_t *out, const uid_backend_t *backend = nullptr);
 /*
- * Added in OPM: resolve fill paint — solid color and/or atlas gradient brush.
+ * Added in Omaha: resolve fill paint — solid color and/or atlas gradient brush.
  * Returns true if something should be painted. Gradient takes precedence when
  * the resolved string is a linear(...)/radial(...) brush.
  */

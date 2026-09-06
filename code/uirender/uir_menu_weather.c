@@ -91,7 +91,7 @@ static int uir_weather_lcg(int seed)
 {
 	uint32_t state = (uint32_t)seed;
 
-	/* Fixed in OPM: preserve the retail 32-bit wrap instead of signed-overflow UB. */
+	/* Fixed in Omaha: preserve the retail 32-bit wrap instead of signed-overflow UB. */
 	state = 214013u * state + 2531011u;
 	return (int)((state >> 16) & 0x7FFFu);
 }
@@ -156,7 +156,7 @@ static void uir_weather_normalize(vec3_t v)
 	}
 }
 
-/* Fixed in OPM: match CG_AddBeams BEAM_INVERTED_FAST — short streak of rain_length, not floor span. */
+/* Fixed in Omaha: match CG_AddBeams BEAM_INVERTED_FAST — short streak of rain_length, not floor span. */
 static int uir_weather_draw_inverted_fast(
 	const uir_menuworld_backend_t *backend,
 	const uir_weather_particle_t *p,
@@ -410,7 +410,7 @@ void UIR_MenuWeatherAddToScene(
 
 	uir_weather_expire_particles(realtime);
 
-	/* Fixed in OPM: menu cameras are fixed viewpoints, often outside func_rain brushes.
+	/* Fixed in Omaha: menu cameras are fixed viewpoints, often outside func_rain brushes.
 	 * Spawn around the catalog camera using script params, then animate like CG_AddBeams. */
 	uir_weather_build_camera_volume(vieworg, &env->weather, &cameraVolume);
 	uir_weather_spawn_new(env, &cameraVolume, vieworg, realtime, backend, shaderHandles, shaderCount);

@@ -20,7 +20,7 @@ along with OpenMoHAA source code; if not, write to the Free Software
 Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 ===========================================================================
 */
-/* Added in OPM: dynamic RGBA atlas materials for modern UI (GL2). */
+/* Added in Omaha: dynamic RGBA atlas materials for modern UI (GL2). */
 #include "tr_local.h"
 
 qhandle_t RE_RegisterShaderFromImage(const char *name, int lightmapIndex, image_t *image, qboolean mipRawImage);

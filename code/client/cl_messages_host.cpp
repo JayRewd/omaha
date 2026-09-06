@@ -45,7 +45,7 @@ static int                    g_hudGameMessageCount = 0;
 static float                  g_hudGameMessageAlphaScale = 1.0f;
 static uint64_t               g_hudGameMessageRevision = 1;
 
-/* Added in OPM: chat-only and structured kill-feed hosts. */
+/* Added in Omaha: chat-only and structured kill-feed hosts. */
 static uir_hud_message_slot_t g_hudChatSlots[UIR_HUD_CHAT_MAX_ROWS];
 static int                    g_hudChatCount = 0;
 static float                  g_hudChatAlphaScale = 1.0f;
@@ -174,7 +174,7 @@ static void UIR_Messages_GetRowFromSlots(
 	out->bold = slot->bold;
 	out->stableId = slot->stableId;
 
-	/* Changed in OPM: foreach lifetime owns fade; host publishes solid alpha. */
+	/* Changed in Omaha: foreach lifetime owns fade; host publishes solid alpha. */
 	out->alpha = 1.0f;
 }
 

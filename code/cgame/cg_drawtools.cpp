@@ -535,7 +535,7 @@ void CG_DrawZoomOverlay()
     }
 
     /*
-     * Added in OPM: modern sniper scope is painted in uirender. When that
+     * Added in Omaha: modern sniper scope is painted in uirender. When that
      * mode is on, skip PK3 sniper overlays (types 0/1) so custom packs stay
      * available when cg_crosshair_sniper_modern is 0. Binoculars / Spy Camera
      * still use retail shaders.
@@ -1068,7 +1068,7 @@ void CG_UpdateCountdown()
             if (iSecondsLeft >= 0) {
                 iMinutesLeft = iSecondsLeft / 60;
                 message      = va("%s %2i:%02i", cgi.LV_ConvertString("Time Left:"), iMinutesLeft, iSecondsLeft % 60);
-                /* Added in OPM: total seconds left for modern HUD binds. */
+                /* Added in Omaha: total seconds left for modern HUD binds. */
                 Com_sprintf(secondsBuf, sizeof(secondsBuf), "%d", iSecondsLeft);
             } else if (!cgs.matchEndTime) {
                 message = "";
@@ -1085,7 +1085,7 @@ void CG_UpdateCountdown()
     if (strcmp(ui_timemessage->string, message)) {
         cgi.Cvar_Set("ui_timemessage", message);
     }
-    /* Added in OPM: scalar seconds provider (empty when no active countdown). */
+    /* Added in Omaha: scalar seconds provider (empty when no active countdown). */
     cgi.Cvar_Set("ui_om_hud_time_seconds", secondsBuf);
 }
 
@@ -1409,7 +1409,7 @@ void CG_DrawCrosshair()
     }
 
     {
-        /* Added in OPM: always show crosshair while spectating (chase + free + FP). */
+        /* Added in Omaha: always show crosshair while spectating (chase + free + FP). */
         const qboolean isSpectating =
             ((cg.snap->ps.pm_flags & PMF_SPECTATING) != 0
              || cg.snap->ps.stats[STAT_TEAM] == TEAM_SPECTATOR)
@@ -1426,12 +1426,12 @@ void CG_DrawCrosshair()
         }
     }
 
-    /* Added in OPM: procedural crosshair for modern HUD packs. */
+    /* Added in Omaha: procedural crosshair for modern HUD packs. */
     if (CG_UseModernHudPack()) {
         qboolean friendTarget = qfalse;
         cvar_t  *sniperZoom;
 
-        /* Added in OPM: sniper zoom uses scope reticle (modern or PK3); skip short crosshair. */
+        /* Added in Omaha: sniper zoom uses scope reticle (modern or PK3); skip short crosshair. */
         sniperZoom = cgi.Cvar_Find("ui_om_hud_sniper_zoom");
         if (sniperZoom && sniperZoom->integer) {
             return;
@@ -1474,7 +1474,7 @@ void CG_DrawCrosshair()
     //  Use R_RegisterShaderNoMip, as it's UI stuff
 
     {
-        /* Added in OPM: spectate snaps lack STAT_CROSSHAIR; still draw (chase + free + FP). */
+        /* Added in Omaha: spectate snaps lack STAT_CROSSHAIR; still draw (chase + free + FP). */
         const qboolean isSpectating =
             ((cg.snap->ps.pm_flags & PMF_SPECTATING) != 0
              || cg.snap->ps.stats[STAT_TEAM] == TEAM_SPECTATOR)
@@ -1800,7 +1800,7 @@ void CG_SyncModernHudCvars(void)
         int  iKey1, iKey2;
         const char *pszString;
 
-        /* Added in OPM: "Following name" above spectator prompts while chase-cam. */
+        /* Added in Omaha: "Following name" above spectator prompts while chase-cam. */
         if ((cg.predicted_player_state.pm_flags & PMF_CAMERA_VIEW)
             && cg.snap->ps.stats[STAT_INFOCLIENT] >= 0) {
             const int   iClientNum = cg.snap->ps.stats[STAT_INFOCLIENT];
@@ -1808,7 +1808,7 @@ void CG_SyncModernHudCvars(void)
 
             Com_sprintf(buf, sizeof(buf), "%s %s", cgi.LV_ConvertString("Following"), pszName ? pszName : "");
             cgi.Cvar_Set("ui_om_hud_following_text", buf);
-            /* Added in OPM: bare name + team token for modern HUD (health cluster). */
+            /* Added in Omaha: bare name + team token for modern HUD (health cluster). */
             cgi.Cvar_Set("ui_om_hud_following_name", pszName ? pszName : "");
             if (cg.clientinfo[iClientNum].team == TEAM_AXIS) {
                 cgi.Cvar_Set("ui_om_hud_following_team", "axis");
@@ -1900,7 +1900,7 @@ void CG_SyncModernHudCvars(void)
     }
     Com_sprintf(buf, sizeof(buf), "%d", iFraction);
     cgi.Cvar_Set("ui_om_hud_stopwatch_ms", buf);
-    /* Changed in OPM: clear type when inactive so idle dial cannot linger. */
+    /* Changed in Omaha: clear type when inactive so idle dial cannot linger. */
     if (iFraction > 0) {
         Com_sprintf(buf, sizeof(buf), "%d", cgi.stopWatch->eType);
         cgi.Cvar_Set("ui_om_hud_stopwatch_type", buf);
@@ -1934,7 +1934,7 @@ void CG_SyncModernHudCvars(void)
         cgi.Cvar_Set("ui_om_hud_stopwatch_frac", "0");
     }
 
-    /* Changed in OPM: match retail MP score/fraglimit mutual exclusion (any MP gametype). */
+    /* Changed in Omaha: match retail MP score/fraglimit mutual exclusion (any MP gametype). */
     if (cgs.gametype && cgs.fraglimit) {
         Com_sprintf(buf, sizeof(buf), "%s %d", cgi.LV_ConvertString("Frag Limit:"), cgs.fraglimit);
         cgi.Cvar_Set("ui_om_hud_frag_limit_text", buf);
@@ -1956,7 +1956,7 @@ void CG_SyncModernHudCvars(void)
     }
 
     /*
-     * Added in OPM: modern HUD Allied|timer|Axis / self|timer|leader strip.
+     * Added in Omaha: modern HUD Allied|timer|Axis / self|timer|leader strip.
      * FFA uses STAT_KILLS / STAT_HIGHEST_SCORE. Team modes cache both teams from
      * scoreboard headers (silent score refresh) and keep own team live from STAT_KILLS.
      */

@@ -79,7 +79,7 @@ void UIR_Draw2D_Begin(const uir_viewport_t *vp)
 		return;
 	}
 	UIR_BatchFlush();
-	/* Added in OPM: Begin sets full-viewport scissor; drop applied-clip cache. */
+	/* Added in Omaha: Begin sets full-viewport scissor; drop applied-clip cache. */
 	UIR_InvalidateAppliedClip();
 	/* Top-left draw space: orthoT=0 at top, orthoB=height at bottom. */
 	g_d2d.set2DWindow(
@@ -168,7 +168,7 @@ static uir_status_t uir_draw2d_path_gpu(
 	(void)crisp;
 	(void)noFringe;
 
-	/* Added in OPM: Stage D mesh cache for GPU fills. */
+	/* Added in Omaha: Stage D mesh cache for GPU fills. */
 	meshKey = UIR_MeshCacheKeyFill(path, rgba, crisp, fringeFbPx);
 	if (UIR_MeshCacheLookup(meshKey, &cachedVerts, &cachedNv, &cachedIdx, &cachedNi)) {
 		if (stats) {
@@ -301,7 +301,7 @@ uir_status_t UIR_Draw2D_PathStroke(
 	}
 
 	if (UIR_BatchEnabled()) {
-		/* Added in OPM: Stage D mesh cache for GPU strokes. */
+		/* Added in Omaha: Stage D mesh cache for GPU strokes. */
 		meshKey = UIR_MeshCacheKeyStroke(path, rgba, widthPx, drawCrisp);
 		if (UIR_MeshCacheLookup(meshKey, &cachedVerts, &cachedNv, &cachedIdx, &cachedNi)) {
 			if (stats) {

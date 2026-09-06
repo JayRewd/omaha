@@ -290,7 +290,7 @@ See [LIFECYCLE.md](../../code/uirender/LIFECYCLE.md) for client integration chec
 | Normal play (menu, HUD, in-game) | **OpenGL1** | Default; forced on every `vid_restart` unless overridden at launch |
 | Weapon PNG bake (`ui_bake_*`) | OpenGL2 (when export is built) | Must pass `+set cl_renderer opengl2` on the **command line** |
 
-Rules (added in OPM):
+Rules (added in Omaha):
 
 - `cl_renderer` is **not** `CVAR_ARCHIVE` — saved configs cannot switch the play renderer.
 - In-console `cl_renderer opengl2` is ignored on the next renderer init; only `+set cl_renderer …` at process startup counts.

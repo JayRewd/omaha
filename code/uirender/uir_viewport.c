@@ -127,7 +127,7 @@ void UIR_ViewportSnapQuad(const uir_viewport_t *vp, float *x, float *y, float *w
 ===============
 UIR_RefPxScale
 
-Added in OPM: uniform contain scale vs 1920x1080 design reference.
+Added in Omaha: uniform contain scale vs 1920x1080 design reference.
 ===============
 */
 float UIR_RefPxScale(int logicalW, int logicalH)

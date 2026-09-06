@@ -27,7 +27,7 @@ extern "C" {
 #endif
 
 void UIR_Hud_Sync(void);
-/* Added in OPM: yellow "Picked Up <name>" print carries unequipped gun identity. */
+/* Added in Omaha: yellow "Picked Up <name>" print carries unequipped gun identity. */
 void UIR_Hud_NotifyPickedUpWeapon(const char *message);
 
 #ifdef __cplusplus

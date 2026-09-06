@@ -317,7 +317,7 @@ void ActivateButton(uid_document_t *doc, uid_node_id_t id, const uid_backend_t *
 	/* Snapshot set-value before any SyncCollections (foreach rebuild moves nodes). */
 	const bool wantSetValue = node && !node->setValue.empty() && !node->bind.empty();
 	const std::string setValueCopy = wantSetValue ? node->setValue : std::string();
-	/* Fixed in OPM: SyncCollections may rebuild foreach nodes and move vectors —
+	/* Fixed in Omaha: SyncCollections may rebuild foreach nodes and move vectors —
 	 * copy fields / re-fetch node+state after every sync (no dangling pointers). */
 	if (node && node->hasStepIndex) {
 		const int step = node->stepIndex;
@@ -343,7 +343,7 @@ void ActivateButton(uid_document_t *doc, uid_node_id_t id, const uid_backend_t *
 		}
 	}
 	uid_node_state_t *st = State(doc, id);
-	/* Added in OPM: set-value buttons write the shared bind (Off/On groups). */
+	/* Added in Omaha: set-value buttons write the shared bind (Off/On groups). */
 	if (wantSetValue && st) {
 		const std::string bindCopy = node ? node->bind : std::string();
 		SetRuntimeString(st, setValueCopy);
@@ -428,7 +428,7 @@ void SetSliderValue(uid_document_t *doc, uid_node_id_t id, double val, const uid
 		sizeof(buf));
 	SetRuntimeString(st, buf);
 	/*
-	 * Added in OPM: composed thumb/range need layout; companion number inputs
+	 * Added in Omaha: composed thumb/range need layout; companion number inputs
 	 * share the bind and must track the staged value while dragging.
 	 */
 	if (!node->bind.empty()) {
@@ -452,14 +452,14 @@ void SetSliderValue(uid_document_t *doc, uid_node_id_t id, double val, const uid
 	if (emit) {
 		UID_DispatchEvent(doc, id, UID_EVENT_CHANGE, backend);
 		/*
-		 * Changed in OPM: commit=change writes live during drag; commit=submit
+		 * Changed in Omaha: commit=change writes live during drag; commit=submit
 		 * stages until pointer release (CommitSliderBinding) — used by ui_scale.
 		 */
 		MaybeWriteBinding(doc, id, backend, UID_COMMIT_CHANGE);
 	}
 }
 
-/* Added in OPM: flush slider bind on pointer release / key step (not during drag). */
+/* Added in Omaha: flush slider bind on pointer release / key step (not during drag). */
 void CommitSliderBinding(uid_document_t *doc, uid_node_id_t id, const uid_backend_t *backend)
 {
 	MaybeWriteBinding(doc, id, backend, UID_COMMIT_CHANGE);
@@ -474,11 +474,11 @@ void OpenSelect(uid_document_t *doc, uid_node_id_t id, const uid_backend_t *back
 	if (!node || !st) {
 		return;
 	}
-	/* Added in OPM: cyclic selects never open a modal/overlay. */
+	/* Added in Omaha: cyclic selects never open a modal/overlay. */
 	if (node->appearance == "cyclic") {
 		return;
 	}
-	/* Added in OPM: dropdown opens via modal= (relative or fullscreen). */
+	/* Added in Omaha: dropdown opens via modal= (relative or fullscreen). */
 	if (node->openModal.empty()) {
 		return;
 	}
@@ -519,7 +519,7 @@ void ChooseSelect(uid_document_t *doc, uid_node_id_t id, int index, const uid_ba
 	MaybeWriteBinding(doc, id, backend, UID_COMMIT_CHANGE);
 }
 
-/* Added in OPM: wrap selectedIndex for appearance=cyclic. */
+/* Added in Omaha: wrap selectedIndex for appearance=cyclic. */
 int CyclicSelectIndex(const uid_node_def_t &node, const uid_node_state_t &st)
 {
 	if (node.options.empty()) {
@@ -755,7 +755,7 @@ bool UID_IsInteractiveKind(uid_node_kind_t kind)
 	case UID_NODE_SLIDER:
 	case UID_NODE_SELECT:
 	case UID_NODE_KEYBIND:
-	case UID_NODE_SERVER_LIST: /* Added in OPM */
+	case UID_NODE_SERVER_LIST: /* Added in Omaha */
 		return true;
 	default:
 		return false;
@@ -905,7 +905,7 @@ void UID_HandlePointer(
 	const uid_node_id_t hit = UID_HitTest(doc, pointer->x, pointer->y, true);
 
 	/*
-	 * Added in OPM: host regions (server-list) receive pointer before normal
+	 * Added in Omaha: host regions (server-list) receive pointer before normal
 	 * control handling so row select / header sort / wheel stay host-owned.
 	 */
 	if (hit != UID_INVALID_NODE_ID && backend && backend->hostRegionPointer) {
@@ -974,7 +974,7 @@ void UID_HandlePointer(
 			if (leftDown) {
 				ApplySliderAtPointer(doc, static_cast<uid_node_id_t>(i), pointer->x, backend);
 			} else {
-				/* Changed in OPM: flush commit=submit (and change) on release. */
+				/* Changed in Omaha: flush commit=submit (and change) on release. */
 				doc->states[i].dragging = false;
 				CommitSliderBinding(doc, static_cast<uid_node_id_t>(i), backend);
 			}
@@ -996,7 +996,7 @@ void UID_HandlePointer(
 				}
 				if (node->kind == UID_NODE_SELECT) {
 					if (node->appearance == "cyclic") {
-						/* Added in OPM: left/right 32px chevron columns step and wrap. */
+						/* Added in Omaha: left/right 32px chevron columns step and wrap. */
 						const float chevronW = UID_ScaleAuthoredPx(doc, 32.0f);
 						const uid_rect_t &box = st->borderBox;
 						if (pointer->x < box.x + chevronW) {
@@ -1005,7 +1005,7 @@ void UID_HandlePointer(
 							StepCyclicSelect(doc, hit, 1, backend);
 						}
 					}
-					/* Added in OPM: dropdown modal opens on release (not press) so the
+					/* Added in Omaha: dropdown modal opens on release (not press) so the
 					 * fullscreen dismiss scrim cannot eat the same click. */
 				}
 			} else {
@@ -1041,7 +1041,7 @@ void UID_HandlePointer(
 			uid_node_def_t *node = UID_GetNode(doc, actionId);
 			uid_node_state_t *st = State(doc, actionId);
 			if (node && st && st->effectivelyEnabled) {
-				/* Fixed in OPM: ActivateButton/SyncCollections may rebuild nodes —
+				/* Fixed in Omaha: ActivateButton/SyncCollections may rebuild nodes —
 				 * snapshot kind/flags before activate; never touch stale node*. */
 				const bool isStepOrSet = node->hasSetIndex || node->hasStepIndex;
 				const int nodeKind = static_cast<int>(node->kind);
@@ -1053,7 +1053,7 @@ void UID_HandlePointer(
 						ActivateButton(doc, actionId, backend);
 						break;
 					case UID_NODE_SELECT:
-						/* Added in OPM: open relative/fullscreen modal on click release. */
+						/* Added in Omaha: open relative/fullscreen modal on click release. */
 						if (node->appearance != "cyclic") {
 							OpenSelect(doc, actionId, backend);
 						}
@@ -1257,7 +1257,7 @@ bool UID_HandleKey(uid_document_t *doc, int key, bool down, unsigned time, const
 
 	if (node->kind == UID_NODE_SELECT) {
 		if (node->appearance == "cyclic") {
-			/* Added in OPM: arrows step; Enter/Space do not open overlay. */
+			/* Added in Omaha: arrows step; Enter/Space do not open overlay. */
 			if (key == UID_KEY_LEFTARROW || key == UID_KEY_DOWNARROW) {
 				StepCyclicSelect(doc, focus, -1, backend);
 				return true;

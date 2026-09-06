@@ -51,7 +51,7 @@ void UIR_PathInit(uir_path_t *path)
 		return;
 	}
 	memset(path, 0, sizeof(*path));
-	/* Fixed in OPM: SVG default fill-rule is nonzero. */
+	/* Fixed in Omaha: SVG default fill-rule is nonzero. */
 	path->fillRule = UIR_FILL_NON_ZERO;
 }
 
@@ -236,7 +236,7 @@ static int uir_point_in_poly_evenodd(const uir_point_t *pts, int count, float px
 	return inside;
 }
 
-/* Fixed in OPM: nonzero (winding) fill rule for multi-contour SVG coverage. */
+/* Fixed in Omaha: nonzero (winding) fill rule for multi-contour SVG coverage. */
 static int uir_poly_winding(const uir_point_t *pts, int count, float px, float py)
 {
 	int wn = 0;
@@ -484,7 +484,7 @@ uir_status_t UIR_PathFill(
 					sink->stats->sampledPixels++;
 				}
 
-				/* Added in OPM: crisp = binary pixel coverage (no soft edge AA). */
+				/* Added in Omaha: crisp = binary pixel coverage (no soft edge AA). */
 				if (crisp) {
 					cover = uir_point_in_path(work, drawX, drawYC) ? 1.0f : 0.0f;
 				} else if (useConvex) {
@@ -566,7 +566,7 @@ uir_status_t UIR_FillPolygon(
 	return st;
 }
 
-/* Added in OPM: polyline stroke expansion (round caps, round joins; closed = annulus). */
+/* Added in Omaha: polyline stroke expansion (round caps, round joins; closed = annulus). */
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -1130,7 +1130,7 @@ uir_status_t UIR_BuildStrokePath(const uir_path_t *src, float widthPx, uir_path_
 }
 
 /*
- * Added in OPM: outside-only stroke outline (single contour) for GPU tessellation.
+ * Added in Omaha: outside-only stroke outline (single contour) for GPU tessellation.
  * Matches even-odd alignOutside CPU strokes without a fill/stroke seam.
  */
 uir_status_t UIR_BuildOutsideStrokePath(const uir_path_t *src, float widthPx, uir_path_t *out)

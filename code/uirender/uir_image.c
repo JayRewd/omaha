@@ -61,7 +61,7 @@ void UIR_ImageSetBackend(const uir_image_backend_t *backend)
 	} else {
 		memset(&g_imageBackend, 0, sizeof(g_imageBackend));
 	}
-	/* Added in OPM: gradients stretch-draw through the same image backend. */
+	/* Added in Omaha: gradients stretch-draw through the same image backend. */
 	UIR_GradientSyncImageBackend(backend);
 }
 
@@ -271,7 +271,7 @@ static uir_status_t uir_image_build_clip_path(
 	dest.w = w;
 	dest.h = h;
 
-	/* Added in OPM: shared path cache — *outPath is cache-owned, do not free. */
+	/* Added in Omaha: shared path cache — *outPath is cache-owned, do not free. */
 	return UIR_GetMappedPathCached(pathD, &dest, &view, UIR_FIT_STRETCH, rotationDeg, 0, outPath);
 }
 
@@ -591,7 +591,7 @@ static uir_status_t uir_image_draw_resolved(
 		}
 	} else {
 		UIR_ComputeImageRect(imgW, imgH, x, y, w, h, fit, &drawX, &drawY, &drawW, &drawH, &s1, &t1, &s2, &t2);
-		/* Added in OPM: background-scale shrinks/grows contain/cover/stretch about the fitted center. */
+		/* Added in Omaha: background-scale shrinks/grows contain/cover/stretch about the fitted center. */
 		if (backgroundScale > 0.0f && backgroundScale != 1.0f) {
 			const float cx = drawX + drawW * 0.5f;
 			const float cy = drawY + drawH * 0.5f;

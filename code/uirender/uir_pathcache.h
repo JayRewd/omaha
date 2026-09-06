@@ -30,11 +30,11 @@ source tree, or write to the Free Software Foundation, Inc.,
 extern "C" {
 #endif
 
-/* Added in OPM: drop all cached mapped paths (resolution / renderer / shutdown). */
+/* Added in Omaha: drop all cached mapped paths (resolution / renderer / shutdown). */
 void UIR_PathCacheClear(void);
 
 /*
- * Added in OPM: shared mapped-path lookup for draw + clip paths.
+ * Added in Omaha: shared mapped-path lookup for draw + clip paths.
  * On success *out points at a cache-owned path — caller must NOT free it.
  * Clips should only read; if a mutable copy is required, deep-copy first.
  */

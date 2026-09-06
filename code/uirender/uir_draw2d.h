@@ -58,7 +58,7 @@ uir_status_t UIR_Draw2D_Path(
 	int noFringe
 );
 
-/* Added in OPM */
+/* Added in Omaha */
 uir_status_t UIR_Draw2D_PathStroke(
 	const uir_viewport_t *vp,
 	const uir_path_t *path,

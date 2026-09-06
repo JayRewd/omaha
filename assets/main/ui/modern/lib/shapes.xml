@@ -7,7 +7,7 @@
 				L {parent.width * 0.65} {parent.height * 0.78}
 				Z"/>
 		</shape>
-		<!-- Added in OPM: upward triangle for modern compass objective markers. -->
+		<!-- Added in Omaha: upward triangle for modern compass objective markers. -->
 		<shape id="triangle-up">
 			<path fill="{parent.fill}"
 				d="M {parent.width * 0.5} {parent.height * 0.15}
@@ -94,7 +94,7 @@
 				d="M 1.27658 11.9844 C 1.27658 15.2947 2.76875 18.2548 5.11423 20.223 L 4.40278 21.2872 C 1.71518 19.0848 0 15.7384 0 11.991 C 0 10.9261 0.138494 9.89363 0.398469 8.91047 L 1.60943 9.31641 C 1.39214 10.1693 1.2766 11.0633 1.2766 11.9844 Z M 11.957 22.7139 C 14.0322 22.7139 15.9693 22.1193 17.6085 21.0904 L 18.4339 22.1299 C 16.5745 23.3141 14.3674 24 12 24 C 9.62834 24 7.41733 23.3115 5.55576 22.1232 L 6.26374 21.0641 C 7.91173 22.1092 9.86412 22.7139 11.957 22.7139 Z M 22.6374 11.9844 C 22.6374 11.0891 22.5284 10.2194 22.3226 9.38813 L 23.6166 8.96843 C 23.8669 9.9341 24 10.947 24 11.991 C 24 15.7428 22.2809 19.0927 19.5881 21.2948 L 18.762 20.2544 C 21.1291 18.2864 22.6374 15.3123 22.6374 11.9844 Z M 21.8893 8.03171 C 20.4051 4.27119 16.8659 1.5539 12.6637 1.2781 L 12.6637 0 C 17.4599 0.26164 21.5063 3.34173 23.178 7.61382 Z M 11.2412 1.27871 C 7.06854 1.55608 3.55095 4.24081 2.05206 7.963 L 0.844001 7.5581 C 2.51775 3.34317 6.50757 0.301182 11.2412 0.00559011 Z"/>
 		</shape>
 
-		<!-- Added in OPM: log-out / exit game icon (viewBox 0 0 16 16). -->
+		<!-- Added in Omaha: log-out / exit game icon (viewBox 0 0 16 16). -->
 		<shape id="exit-icon" width="16px" height="16px">
 			<path fill="{parent.fill}"
 			      d="M 1 8
@@ -118,7 +118,7 @@
 			         a 1 1 0 0 0 -1 0"/>
 		</shape>
 
-		<!-- Added in OPM: normalized edge clip rect for background-image masking (0..1 per edge). -->
+		<!-- Added in Omaha: normalized edge clip rect for background-image masking (0..1 per edge). -->
 		<shape id="edge-clip">
 			<props>
 				<prop name="left" type="number" default="0"/>

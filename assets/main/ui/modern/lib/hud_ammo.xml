@@ -53,12 +53,19 @@
 		</source>
 	</sources>
 
+	<!--
+	  Classic chrome is authored at 125% of retail 640 coords (tile 40×20 etc.).
+	  Retail clip TGAs stay 32×16 / 64×16 / … — repeat UVs use native texels, so
+	  background-scale 1.25 locks tile period to the enlarged cells / edge-clip.
+	  Fixed in Omaha.
+	-->
 	<templates>
 		<template id="classic-ammo-clip-single-clip">
 			<container width="{item.field.tile-width}px"
 			           height="{cvar.ui_om_hud_max_clip * item.field.row-height}px"
 			           padding="0" fill="{var.fill-transparent}"
 			           background-image="{item.field.texture}" background-fit="repeat"
+			           background-scale="1.25"
 			           shape="edge-clip" left="0"
 			           top="{(cvar.ui_om_hud_max_clip - cvar.ui_om_hud_clip) / cvar.ui_om_hud_max_clip}"
 			           right="1" bottom="1"
@@ -70,28 +77,32 @@
 			           height="{cvar.ui_om_hud_max_ammo * item.field.row-height}px"
 			           padding="0" fill="{var.fill-transparent}"
 			           background-image="{item.field.texture}" background-fit="repeat"
+			           background-scale="1.25"
 			           shape="edge-clip" left="0"
 			           top="{(cvar.ui_om_hud_max_ammo - cvar.ui_om_hud_ammo) / cvar.ui_om_hud_max_ammo}"
 			           right="1" bottom="1"
 			           visible="{item.field.lanes == 1 and item.field.use-ammo == 1}"/>
 		</template>
 
+		<!-- Fixed in Omaha: overlap height includes stagger-y so layout bottom = lowest lane (matches health/text). -->
 		<template id="classic-ammo-clip-stagger">
 			<container type="overlap"
 			           width="{item.field.tile-width}px"
-			           height="{((cvar.ui_om_hud_max_clip + (cvar.ui_om_hud_max_clip % 2)) / 2) * item.field.row-height}px"
+			           height="{((cvar.ui_om_hud_max_clip + (cvar.ui_om_hud_max_clip % 2)) / 2) * item.field.row-height + item.field.stagger-y}px"
 			           padding="0" fill="{var.fill-transparent}"
 			           visible="{item.field.lanes == 2}">
 				<container width="{item.field.tile-width}px"
 				           height="{((cvar.ui_om_hud_max_clip + (cvar.ui_om_hud_max_clip % 2)) / 2) * item.field.row-height}px"
 				           margin="{item.field.stagger-y}px 0 0 {item.field.stagger-x}px"
 				           background-image="{item.field.texture}" background-fit="repeat"
+				           background-scale="1.25"
 				           shape="edge-clip" left="0"
 				           top="{((cvar.ui_om_hud_max_clip - cvar.ui_om_hud_clip) - ((cvar.ui_om_hud_max_clip - cvar.ui_om_hud_clip) % 2)) / cvar.ui_om_hud_max_clip}"
 				           right="1" bottom="1"/>
 				<container width="{item.field.tile-width}px"
 				           height="{((cvar.ui_om_hud_max_clip + (cvar.ui_om_hud_max_clip % 2)) / 2) * item.field.row-height}px"
 				           background-image="{item.field.texture}" background-fit="repeat"
+				           background-scale="1.25"
 				           shape="edge-clip" left="0"
 				           top="{((cvar.ui_om_hud_max_clip - cvar.ui_om_hud_clip) + ((cvar.ui_om_hud_max_clip - cvar.ui_om_hud_clip) % 2)) / cvar.ui_om_hud_max_clip}"
 				           right="1" bottom="1"/>
@@ -113,7 +124,7 @@
 					<label font="body" font-size="{var.text-body}" color="{var.color-health-label}" halign="end" width="auto"
 					       bind="cvar:ui_om_hud_active_weapon"
 					       visible="{cvar.ui_om_hud_active_weapon != &quot;&quot;}"/>
-					<container type="horizontal" width="auto" height="auto" gap="10px" halign="end">
+					<container type="horizontal" width="auto" height="auto" gap="10px" halign="end" valign="center">
 						<label font="body" font-size="{var.text-heading}" color="{var.color-health-label}" halign="end" width="auto"
 						       bind="cvar:ui_om_hud_clip">{cvar.ui_om_hud_clip}</label>
 						<label font="body" font-size="{var.text-body}" color="{var.color-health-label}" halign="end" width="auto">|</label>

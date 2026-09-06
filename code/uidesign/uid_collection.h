@@ -27,7 +27,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "uid_backend.h"
 #include "uid_document.h"
 
-/* Added in OPM: composable foreach / collection scopes. */
+/* Added in Omaha: composable foreach / collection scopes. */
 void UID_SyncCollections(uid_document_t *doc, const uid_backend_t *backend);
 
 uid_node_id_t UID_FindCollectionScope(const uid_document_t *doc, uid_node_id_t from);
@@ -36,15 +36,15 @@ bool UID_StepCollectionIndex(uid_document_t *doc, uid_node_id_t scopeId, int del
 
 bool UID_SetCollectionIndex(uid_document_t *doc, uid_node_id_t scopeId, int index, const uid_backend_t *backend);
 
-/* Added in OPM: foreach lifetime fade alpha for {item.lifetime_alpha} / wrap opacity. */
+/* Added in Omaha: foreach lifetime fade alpha for {item.lifetime_alpha} / wrap opacity. */
 float UID_EvalItemLifetimeAlpha(const uid_document_t *doc, uid_node_id_t nodeId);
 
-/* Added in OPM: windowed foreach scroll helpers for layout (synthetic extent). */
+/* Added in Omaha: windowed foreach scroll helpers for layout (synthetic extent). */
 bool  UID_ScrollParentHasWindowedForeach(const uid_document_t *doc, uid_node_id_t parentId);
 float UID_WindowedForeachSyntheticExtentH(const uid_document_t *doc, uid_node_id_t parentId);
 
 /*
- * Added in OPM: snapshot collection rows for string aggregates (join) without a
+ * Added in Omaha: snapshot collection rows for string aggregates (join) without a
  * nearby source= / foreach scope. Prefers document XML <sources>, else host query.
  */
 bool UID_FetchCollectionEntries(

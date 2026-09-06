@@ -641,7 +641,7 @@ uir_status_t UIR_BatchQuadRotated(
 void UIR_BatchTargetBegin(void)
 {
 	UIR_BatchFlush();
-	/* Added in OPM: FBO switch may reset GL scissor. */
+	/* Added in Omaha: FBO switch may reset GL scissor. */
 	UIR_InvalidateAppliedClip();
 	if (g_targetActive || g_targetPending) {
 		return;
@@ -682,7 +682,7 @@ void UIR_BatchTargetEnd(void)
 		UID_ProfileEnd(UID_PROF_HOST_BATCH_FLUSH);
 		g_targetActive = 0;
 		UIR_BatchSetFringe(1);
-	/* Added in OPM: leaving FBO may reset GL scissor. */
+	/* Added in Omaha: leaving FBO may reset GL scissor. */
 		UIR_InvalidateAppliedClip();
 	}
 	g_targetPending = 0;

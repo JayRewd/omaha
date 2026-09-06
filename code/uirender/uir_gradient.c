@@ -21,7 +21,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 ===========================================================================
 */
-/* Added in OPM: design-format gradient fills baked into UI atlas textures. */
+/* Added in Omaha: design-format gradient fills baked into UI atlas textures. */
 
 #include "uir_gradient.h"
 #include "uir_batch.h"
@@ -739,7 +739,7 @@ static uir_status_t uir_grad_ensure(
 		return UIR_ERR_UNSUPPORTED;
 	}
 
-	/* Added in OPM: stable synthetic atlas id under MAX_QPATH. */
+	/* Added in Omaha: stable synthetic atlas id under MAX_QPATH. */
 	snprintf(name, sizeof(name), "*uir_grad/%08x_%dx%d", fp, bakeW, bakeH);
 	shader = g_gradBackend.createAtlas(name, rgba, bakeW, bakeH);
 	free(rgba);

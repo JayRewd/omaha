@@ -210,7 +210,7 @@ bool ValidateColorAttr(
 	if (value.compare(0, 10, "cvar-rgba:") == 0) {
 		return true;
 	}
-	/* Added in OPM: fill* attrs may be atlas gradient brushes. */
+	/* Added in Omaha: fill* attrs may be atlas gradient brushes. */
 	const bool fillLike = attr && (std::strcmp(attr, "fill") == 0 || std::strcmp(attr, "hoverfill") == 0 ||
 		std::strcmp(attr, "hover-fill") == 0 || std::strcmp(attr, "pressed-fill") == 0 ||
 		std::strcmp(attr, "focus-fill") == 0 || std::strcmp(attr, "disabled-fill") == 0 ||
@@ -460,7 +460,7 @@ bool ValidateKnownAttrs(uid_diag_list_t *diags, const uid_node_def_t &node)
 		ok = false;
 	}
 
-	/* Added in OPM: stroke-width requires stroke on the using element. */
+	/* Added in Omaha: stroke-width requires stroke on the using element. */
 	{
 		std::string stroke;
 		std::string strokeWidth;
@@ -644,7 +644,7 @@ bool ValidateImageRef(uid_document_t *doc, uid_diag_list_t *diags, const uid_nod
 	return true;
 }
 
-/* Added in OPM: mask-image registry id, VFS path, or linear/radial gradient brush. */
+/* Added in Omaha: mask-image registry id, VFS path, or linear/radial gradient brush. */
 bool ValidateMaskImageRef(uid_document_t *doc, uid_diag_list_t *diags, const uid_node_def_t &node)
 {
 	std::string imageId;
@@ -672,7 +672,7 @@ bool ValidateMaskImageRef(uid_document_t *doc, uid_diag_list_t *diags, const uid
 	return true;
 }
 
-/* Added in OPM */
+/* Added in Omaha */
 bool ValidateSliderParts(
 	uid_document_t *doc,
 	uid_diag_list_t *diags,
@@ -745,7 +745,7 @@ bool ValidateSliderParts(
 	return ok;
 }
 
-/* Added in OPM */
+/* Added in Omaha */
 bool ValidateScrollbarParts(
 	uid_document_t *doc,
 	uid_diag_list_t *diags,
@@ -803,7 +803,7 @@ bool ValidateScrollbarParts(
 	return ok;
 }
 
-/* Added in OPM */
+/* Added in Omaha */
 bool ValidateModelNode(uid_diag_list_t *diags, const uid_node_def_t &node)
 {
 	if (node.kind != UID_NODE_MODEL) {
@@ -861,7 +861,7 @@ bool ValidateModelNode(uid_diag_list_t *diags, const uid_node_def_t &node)
 	return true;
 }
 
-/* Added in OPM: border* attrs removed; use stroke or compositional dividers. */
+/* Added in Omaha: border* attrs removed; use stroke or compositional dividers. */
 bool ValidateBorderAttrsRemoved(uid_diag_list_t *diags, const uid_node_def_t &node)
 {
 	static const char *const kBorderAttrs[] = {
@@ -884,7 +884,7 @@ bool ValidateBorderAttrsRemoved(uid_diag_list_t *diags, const uid_node_def_t &no
 	return ok;
 }
 
-/* Added in OPM: implicit rectangle shape when definitions omit it. */
+/* Added in Omaha: implicit rectangle shape when definitions omit it. */
 void InjectBuiltinRectangleShape(uid_document_t *doc)
 {
 	if (!doc || doc->definitions.shapes.count("rectangle")) {
@@ -921,7 +921,7 @@ void InjectBuiltinRectangleShape(uid_document_t *doc)
 	doc->definitions.shapes.emplace("rectangle", std::move(shape));
 }
 
-/* Added in OPM: collection source ids must resolve via XML definitions or host providers. */
+/* Added in Omaha: collection source ids must resolve via XML definitions or host providers. */
 bool IsHostCollectionSource(const char *sourceId)
 {
 	if (!sourceId || !sourceId[0]) {
@@ -934,7 +934,7 @@ bool IsHostCollectionSource(const char *sourceId)
 		std::strcmp(sourceId, "hud-objectives") == 0 || std::strcmp(sourceId, "hud-messages") == 0 ||
 		std::strcmp(sourceId, "hud-game-messages") == 0 ||
 		std::strcmp(sourceId, "hud-chat") == 0 || std::strcmp(sourceId, "hud-kill-feed") == 0 ||
-		std::strcmp(sourceId, "vote-options") == 0; /* Added in OPM: dm_pause vote list. */
+		std::strcmp(sourceId, "vote-options") == 0; /* Added in Omaha: dm_pause vote list. */
 }
 
 bool ValidateCollectionSources(uid_document_t *doc, uid_diag_list_t *diags)

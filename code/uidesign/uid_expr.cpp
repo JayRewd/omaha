@@ -46,7 +46,7 @@ enum uid_expr_op_t {
 	UID_EXPR_MUL,
 	UID_EXPR_DIV,
 	UID_EXPR_MOD,
-	UID_EXPR_CALL /* Added in OPM: abs / min / max / clamp */
+	UID_EXPR_CALL /* Added in Omaha: abs / min / max / clamp */
 };
 
 struct uid_expr_node_t {
@@ -58,7 +58,7 @@ struct uid_expr_node_t {
 	std::vector<int>  args; /* CALL argument node indices */
 };
 
-/* Added in OPM: whitelist arity for numeric helper calls. */
+/* Added in Omaha: whitelist arity for numeric helper calls. */
 int UID_ExprCallArity(const char *name)
 {
 	if (!name) {
@@ -193,7 +193,7 @@ int UID_ExprParsePrimary(uid_expr_parser_t *p)
 		std::string identName(p->src + start, identEnd - start);
 		UID_ExprSkipWs(p);
 		if (p->pos < p->len && p->src[p->pos] == '(') {
-			/* Added in OPM: whitelisted abs/min/max/clamp calls. */
+			/* Added in Omaha: whitelisted abs/min/max/clamp calls. */
 			const int arity = UID_ExprCallArity(identName.c_str());
 			if (arity < 0) {
 				UID_ExprFail(p, "unknown function in expression");
@@ -382,7 +382,7 @@ bool UID_ExprEvalNode(
 		return UID_ExprEvalNode(nodes, node.left, lookup, userdata, out, diagMessage);
 	}
 	case UID_EXPR_CALL: {
-		/* Added in OPM: evaluate whitelisted numeric helpers. */
+		/* Added in Omaha: evaluate whitelisted numeric helpers. */
 		std::vector<double> vals;
 		vals.reserve(node.args.size());
 		for (int argIdx : node.args) {
@@ -402,7 +402,7 @@ bool UID_ExprEvalNode(
 			}
 			result = std::fabs(vals[0]);
 		} else if (node.ident == "floor") {
-			/* Added in OPM: truncate toward -inf for MM:SS and similar HUD math. */
+			/* Added in Omaha: truncate toward -inf for MM:SS and similar HUD math. */
 			if (vals.size() != 1) {
 				if (diagMessage) {
 					*diagMessage = "floor expects 1 argument";
@@ -598,7 +598,7 @@ bool UID_EvalNumber(
 		return false;
 	}
 
-	/* Added in OPM: cache parsed AST keyed by expression text. */
+	/* Added in Omaha: cache parsed AST keyed by expression text. */
 	struct AstCacheEntry {
 		std::vector<uid_expr_node_t> nodes;
 		int                         root;
@@ -617,7 +617,7 @@ bool UID_EvalNumber(
 	if (useCache) {
 		const auto it = s_astCache.find(expr);
 		if (it != s_astCache.end()) {
-			/* Added in OPM: evaluate cached AST by const ref (no vector copy). */
+			/* Added in Omaha: evaluate cached AST by const ref (no vector copy). */
 			return UID_ExprEvalNode(it->second.nodes, it->second.root, lookup, userdata, out, diagMessage);
 		}
 	}

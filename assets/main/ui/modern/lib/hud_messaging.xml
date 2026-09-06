@@ -6,7 +6,7 @@
 	<import src="ui/modern/lib/hud_modern_images.xml"/>
 
 	<sources>
-		<!-- Added in OPM: kill-feed weapon_class stem → team-specific kf silhouettes. -->
+		<!-- Added in Omaha: kill-feed weapon_class stem → team-specific kf silhouettes. -->
 		<source id="killfeed-weapon-icons-allies">
 			<item value="pistol" label="Pistol" image="modernhud-colt45-kf"/>
 			<item value="rifle" label="Rifle" image="modernhud-m1-garand-kf"/>

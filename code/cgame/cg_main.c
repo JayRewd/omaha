@@ -121,7 +121,7 @@ cvar_t *ui_timemessage;
 // Added in OPM
 //
 cvar_t *cg_fov;
-cvar_t *cg_zoomSensitivity; /* Added in OPM: off | legacy | screen */
+cvar_t *cg_zoomSensitivity; /* Added in Omaha: off | legacy | screen */
 cvar_t *cg_cheats;
 
 /*
@@ -227,7 +227,7 @@ void CG_RegisterCvars(void)
     //
 
     cg_fov = cgi.Cvar_Get("cg_fov", "80", CVAR_ARCHIVE);
-    /* Added in OPM: off | legacy | screen (default screen-distance zoom sens). */
+    /* Added in Omaha: off | legacy | screen (default screen-distance zoom sens). */
     cg_zoomSensitivity = cgi.Cvar_Get("cg_zoomSensitivity", "screen", CVAR_ARCHIVE);
     cg_cheats = cgi.Cvar_Get("cheats", "0", CVAR_USERINFO | CVAR_SERVERINFO | CVAR_LATCH);
 }
@@ -837,7 +837,7 @@ clientGameExport_t *GetCGameAPI(void)
     cge.CG_ConsoleCommand           = CG_ConsoleCommand;
     cge.CG_GetRendererConfig        = CG_GetRendererConfig;
     cge.CG_Draw2D                   = CG_Draw2D;
-    cge.CG_DrawZoomOverlay          = CG_DrawZoomOverlay; /* Added in OPM */
+    cge.CG_DrawZoomOverlay          = CG_DrawZoomOverlay; /* Added in Omaha */
     cge.CG_SyncModernHudCvars       = CG_SyncModernHudCvars;
     cge.CG_EyePosition              = CG_EyePosition;
     cge.CG_EyeOffset                = CG_EyeOffset;

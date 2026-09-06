@@ -23,7 +23,7 @@ This tree is a **GPL-2+** derivative. See [`COPYING.txt`](COPYING.txt).
 | --- | --- |
 | Notices | Keep copyright and license notices intact on inherited files (Id, OpenMoHAA, ioquake3, third-party). |
 | Same license | New and modified Omaha code stays GPL-2+ (or later, matching in-tree wording). No proprietary relicensing. |
-| Change notice | On inherited files you edit, prefer `// Added\|Changed\|Fixed\|Removed in OPM` (or equivalent). Do not replace upstream copyright lines with Omaha-only credit. |
+| Change notice | On inherited files you edit, prefer `// Added\|Changed\|Fixed\|Removed in Omaha` (or equivalent). Leave existing OpenMoHAA `in OPM` markers untouched. Do not replace upstream copyright lines with Omaha-only credit. |
 | License text | Keep `COPYING.txt` and third-party licenses with redistributed binaries. |
 | Source | Binary recipients must get corresponding source (this tree) or a written offer. |
 | No false endorsement | Do not claim to be official OpenMoHAA or endorsed by the OpenMoHAA team / EA. |
@@ -35,7 +35,8 @@ New fork-owned files use the Project: Omaha header template: [`docs/markdown/05-
 
 Match the file you edit. Prefer existing patterns over new abstractions.
 
-- Annotate meaningful Omaha changes: `// Added|Changed|Fixed|Removed in OPM`.
+- Annotate meaningful Omaha changes: `// Added|Changed|Fixed|Removed in Omaha`.
+- Do not rewrite inherited `in OPM` markers on older OpenMoHAA-era lines.
 - Format touched modern C++ with clang-format; do not mass-reformat tabbed legacy files.
 - English comments only; no `// @Author` tags.
 - See `.cursor/skills/openmohaa/SKILL.md` for architecture and module boundaries.

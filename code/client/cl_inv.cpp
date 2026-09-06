@@ -1128,7 +1128,7 @@ inventory_item_t *CL_GetInvItemByName(inventory_t *inv, const char *name)
         const inventory_type_t *type = inv->types.ObjectAt(i);
 
         for (int ii = 1; ii <= type->items.NumObjects(); ii++) {
-            // Fixed in OPM: iterate items with ii (was wrongly using outer type index i).
+            // Fixed in Omaha: iterate items with ii (was wrongly using outer type index i).
             inventory_item_t *item = type->items.ObjectAt(ii);
 
             if (!item) {
@@ -1170,7 +1170,7 @@ void CL_AmmoCount(const char *name, int *ammo_count, int *max_ammo_count)
 
     for (i = 0; i < ARRAY_LEN(cl.snap.ps.ammo_name_index); i++) {
         int index = cl.snap.ps.ammo_name_index[i];
-        /* Fixed in OPM: ammo_name_index is absolute CS index (not offset from CS_WEAPONS). */
+        /* Fixed in Omaha: ammo_name_index is absolute CS index (not offset from CS_WEAPONS). */
         if (index > 0 && index < MAX_CONFIGSTRINGS) {
             if (!str::icmp(name, CL_ConfigString(index))) {
                 *ammo_count     = cl.snap.ps.ammo_amount[i];

@@ -28,7 +28,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 extern "C" {
 #endif
 
-/* Added in OPM: runtime toggles for UI CPU optimizations (A/B + rollback). */
+/* Added in Omaha: runtime toggles for UI CPU optimizations (A/B + rollback). */
 enum {
 	UID_OPT_PARSE_CACHE = 1u << 0,
 	UID_OPT_PAINT_CULL = 1u << 1,

@@ -93,7 +93,7 @@ static void uir_mp_set_idle_pose(void *tiki, refEntity_t *ent)
 	ent->actionWeight = 1.0f;
 }
 
-/* Added in OPM: mirror fgame Entity::SurfaceCommand for refEntity_t surface flags. */
+/* Added in Omaha: mirror fgame Entity::SurfaceCommand for refEntity_t surface flags. */
 static void uir_mp_surface_command(dtiki_t *tiki, refEntity_t *ent, const char *surf_name, const char *token)
 {
 	const char *current_surface_name;
@@ -197,7 +197,7 @@ static void uir_mp_apply_surface_cmds(dtiki_t *tiki, refEntity_t *ent, dtikicmd_
 }
 
 /*
- * Added in OPM: dropped world weapons hide clip/extra surfaces via server init
+ * Added in Omaha: dropped world weapons hide clip/extra surfaces via server init
  * and idle entry commands (+nodraw). Bake previews must apply the same state.
  */
 static void uir_mp_apply_weapon_surface_state(dtiki_t *tiki, refEntity_t *ent)
@@ -452,7 +452,7 @@ uir_status_t UIR_ModelPreviewDraw(const uir_rect_t *destPx, const uir_model_prev
 				} else if (params->realtime >= slot->lastRealtime) {
 					slot->animTime += (float)(params->realtime - slot->lastRealtime) * 0.001f;
 					slot->lastRealtime = params->realtime;
-					/* Fixed in OPM: dontrepeat (e.g. salute.skc) must not wrap —
+					/* Fixed in Omaha: dontrepeat (e.g. salute.skc) must not wrap —
 					 * fall back to looping variant 0 of the same alias group. */
 					if (animLength > 0.0f && slot->animTime >= animLength) {
 						dtiki_t *ptiki = (dtiki_t *)tiki;
@@ -557,7 +557,7 @@ uir_status_t UIR_ModelBakeBuildScene(
 
 	{
 		/*
-		 * Changed in OPM: sharedExtent fixes camera distance across a bake group.
+		 * Changed in Omaha: sharedExtent fixes camera distance across a bake group.
 		 * Bounds include TIKI load_origin (tr_model.cpp). Use unrotated bounds center
 		 * for origin Y/Z; entity axis handles rotation (oriented center drifted off-screen).
 		 */

@@ -196,12 +196,12 @@ void CG_Crosshair_RegisterCvars(void)
 	cg_crosshair_dynamic_splitalpha_innermod =
 		cgi.Cvar_Get("cg_crosshair_dynamic_splitalpha_innermod", "1", flags);
 	cg_crosshair_friendly_warning = cgi.Cvar_Get("cg_crosshair_friendly_warning", "1", flags);
-	/* Added in OPM: modern sniper zoom open crosshair (UI px). */
+	/* Added in Omaha: modern sniper zoom open crosshair (UI px). */
 	cg_crosshair_sniper_thickness = cgi.Cvar_Get("cg_crosshair_sniper_thickness", "3", flags);
 	cg_crosshair_sniper_gap = cgi.Cvar_Get("cg_crosshair_sniper_gap", "0", flags);
 	cg_crosshair_sniper_size = cgi.Cvar_Get("cg_crosshair_sniper_size", "5", flags);
 	cg_crosshair_sniper_t = cgi.Cvar_Get("cg_crosshair_sniper_t", "0", flags);
-	/* Added in OPM: 1 = modern uirender sniper scope; 0 = retail PK3 zoom overlays. */
+	/* Added in Omaha: 1 = modern uirender sniper scope; 0 = retail PK3 zoom overlays. */
 	cg_crosshair_sniper_modern = cgi.Cvar_Get("cg_crosshair_sniper_modern", "1", flags);
 	cg_crosshair_sniper_show_normal_inaccuracy =
 		cgi.Cvar_Get("cg_crosshair_sniper_show_normal_inaccuracy", "0", flags);
@@ -289,7 +289,7 @@ static void CG_Crosshair_DrawRects(const xhair_rect_t *rects, int count)
 		color[1] = rects[i].g;
 		color[2] = rects[i].b;
 		color[3] = rects[i].a;
-		/* Changed in OPM: no floor snap — preserves fractional thickness (e.g. 1.5px). */
+		/* Changed in Omaha: no floor snap — preserves fractional thickness (e.g. 1.5px). */
 		x = rects[i].x;
 		y = rects[i].y;
 		w = rects[i].w;

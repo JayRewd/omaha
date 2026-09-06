@@ -41,7 +41,7 @@ static float s_fpLeanSmoothed = 0.0f;
 
 void CG_SpectateFP_RegisterCvars(void)
 {
-	/* Added in OPM: toggle with `toggle cg_spectate_firstperson`. */
+	/* Added in Omaha: toggle with `toggle cg_spectate_firstperson`. */
 	cg_spectate_firstperson = cgi.Cvar_Get("cg_spectate_firstperson", "0", CVAR_ARCHIVE);
 }
 
@@ -97,7 +97,7 @@ static float CG_SpectateFP_LeanFromBones(const entityState_t *es)
 ===============
 CG_SpectateFP_LeanTarget
 
-Fixed in OPM: interpolate lean between current/next entity states (same idea as
+Fixed in Omaha: interpolate lean between current/next entity states (same idea as
 ps.fLeanAngle lerp), then the caller eases toward this target for display.
 ===============
 */
@@ -208,7 +208,7 @@ qboolean CG_SpectateFP_CalcEye(vec3_t outOrigin, vec3_t outAngles)
 	VectorCopy(cg.camera_angles, outAngles);
 
 	/*
-	 * Fixed in OPM: stock chase pads pitch with g_spectatefollow_pitch * trace
+	 * Fixed in Omaha: stock chase pads pitch with g_spectatefollow_pitch * trace
 	 * fraction (default +2). Undo the full bias — best we can do client-side
 	 * without the server fraction — so FP looks with the followed view, not
 	 * the over-the-shoulder chase tilt.
@@ -219,7 +219,7 @@ qboolean CG_SpectateFP_CalcEye(vec3_t outOrigin, vec3_t outAngles)
 	}
 
 	/*
-	 * Fixed in OPM: use origin + stand/crouch viewheight instead of eyes bone.
+	 * Fixed in Omaha: use origin + stand/crouch viewheight instead of eyes bone.
 	 * A bare ForceUpdatePose on the followed world model often left the bone at
 	 * feet (camera in the floor). Match retail chase: origin + viewheight.
 	 */

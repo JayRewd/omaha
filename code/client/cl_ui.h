@@ -87,7 +87,7 @@ void     UI_MenuEscape(const char *name);
 void     UI_CreateScoreboard(void);
 qboolean UI_MenuActive(void);
 qboolean UI_MenuUp(void);
-/* Added in OPM: letterbox state for modern HUD suppress. */
+/* Added in Omaha: letterbox state for modern HUD suppress. */
 qboolean UI_LetterboxActive(void);
 void     UI_FocusMenuIfExists(void);
 void     UI_DrawConnect(void);
@@ -158,8 +158,10 @@ void     UI_OpenDeveloperConsole(void);
 void     UI_CloseDeveloperConsole(void);
 void     UI_PrintConsole(const char *msg);
 
-/* Added in OPM: legacy surfaces that should suspend modern design input. */
+/* Added in Omaha: legacy surfaces that should suspend modern design input. */
 qboolean UI_LegacyOverlayOwnsInput(void);
+/* Added in Omaha: Continue / loading wait before finishloadingscreen. */
+qboolean UI_IsLoadingContinueVisible(void);
 
 //
 // callbacks
