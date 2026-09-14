@@ -25,6 +25,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "../qcommon/localization.h"
 #include "../uidesign/uid_profile.h"
 #include "cl_messages_host.h"
+#include "cl_uiperf.h"
 
 #include "../server/server.h"
 
@@ -290,7 +291,127 @@ void ProfPrint(UIFont* m_font, float minY, int line, char* label, prof_var_t* va
 
 void View3D::DrawProf(void)
 {
-    // FIXME: unimplemented
+	const UiPerfWindow *w;
+	char                buf[512];
+	float               y;
+	float               lineH;
+	const float        *scale;
+	int                 hud;
+	const char         *hudLabel;
+
+	hud = CL_UIPerf_HudInteger();
+	if (!hud) {
+		return;
+	}
+	w = CL_UIPerf_Window();
+	if (!w) {
+		return;
+	}
+
+	setFont("verdana-14");
+	m_font->setColor(UWhite);
+	scale = getHighResScale();
+	lineH = m_font->getHeight(scale);
+	y = (m_frame.pos.y + 40.0f) / scale[1];
+
+	hudLabel = CL_UIR_UseLegacyHud() ? "legacy" : "modern";
+
+	if (CL_UIR_UseLegacyHud()) {
+		Com_sprintf(
+			buf,
+			sizeof(buf),
+			"UIPERF hud=%s  frame %6.0fus  render %6.0fus  ui      -  cg2d %6.0fus",
+			hudLabel,
+			w->frameUs,
+			w->renderUs,
+			w->cg2dUs
+		);
+	} else {
+		Com_sprintf(
+			buf,
+			sizeof(buf),
+			"UIPERF hud=%s  frame %6.0fus  render %6.0fus  ui %6.0fus  cg2d %6.0fus",
+			hudLabel,
+			w->frameUs,
+			w->renderUs,
+			w->uiTotalUs,
+			w->cg2dUs
+		);
+	}
+	m_font->Print(m_frame.pos.x / scale[0], y, buf, -1, scale);
+	y += lineH / scale[1];
+
+	if (CL_UIR_UseLegacyHud()) {
+		Com_sprintf(buf, sizeof(buf), "sync      -   paint      -  overlay      -  replay   -");
+	} else {
+		Com_sprintf(
+			buf,
+			sizeof(buf),
+			"sync %6.0fus (hudcvar %6.0f  bind %6.0f  layout %6.0f  layouts/s %d)   paint %6.0fus  overlay %6.0fus  replay %5.0f%%  reg %d/%d",
+			w->syncUs,
+			w->hudCvarUs,
+			w->bindUs,
+			w->layoutUs,
+			w->layoutRunsPerSec,
+			w->paintUs,
+			w->overlayUs,
+			w->replayHitPct,
+			w->regionDirty,
+			w->regionTotal
+		);
+	}
+	m_font->Print(m_frame.pos.x / scale[0], y, buf, -1, scale);
+	y += lineH / scale[1];
+
+	Com_sprintf(
+		buf,
+		sizeof(buf),
+		"gl/frame: draws %d  verts %d  scissor %d  fbo %d  set2d %d  issue %d  gets %d  imm %d  tgt %d/%d  layers %d  stencil %d",
+		w->gl.drawElements,
+		w->gl.drawVerts,
+		w->gl.scissorCalls,
+		w->gl.fboBinds,
+		w->gl.set2DWindow,
+		w->gl.issuePending,
+		w->gl.glQueries,
+		w->gl.immediateQuads,
+		w->gl.targetBegins,
+		w->gl.targetEnds,
+		w->gl.layerBegins,
+		w->gl.stencilBegins
+	);
+	m_font->Print(m_frame.pos.x / scale[0], y, buf, -1, scale);
+	y += lineH / scale[1];
+
+	if (ui_perf_gpu && ui_perf_gpu->integer && w->gl.gpuSamplesValid) {
+		Com_sprintf(
+			buf,
+			sizeof(buf),
+			"gpu: ui %6.0fus  resolve %6.0fus  layers %6.0fus",
+			(double)w->gl.gpuUiNs / 1000.0,
+			(double)w->gl.gpuResolveNs / 1000.0,
+			(double)w->gl.gpuLayerNs / 1000.0
+		);
+	} else {
+		Com_sprintf(buf, sizeof(buf), "gpu: off");
+	}
+	m_font->Print(m_frame.pos.x / scale[0], y, buf, -1, scale);
+	y += lineH / scale[1];
+
+	if (hud >= 2) {
+		Com_sprintf(
+			buf,
+			sizeof(buf),
+			"[verbose] resolvePx %d  hitRatioFrames %d/%d  maxFrame %6.0fus",
+			w->gl.resolvePixels,
+			w->replayHits,
+			w->replayTotal,
+			w->maxFrameUs
+		);
+		m_font->Print(m_frame.pos.x / scale[0], y, buf, -1, scale);
+	}
+
+	m_font->setColor(UBlack);
 }
 
 void View3D::PrintSound(int channel, const char *name, float vol, int rvol, float pitch, float base, int& line)
@@ -582,53 +703,90 @@ void View3D::DrawNetProfile(void)
 
 void View3D::Draw2D(void)
 {
-    if (!cls.no_menus) {
-        DrawFades();
-    }
 
-    DrawLetterbox();
+	if (!cls.no_menus) {
+		DrawFades();
+	}
 
-    /*
-     * Fixed in Omaha: modern HUD + scoreboard must paint above ps.blend fades.
-     * Previously CL_UIR_DrawCrosshair ran before DrawFades, so end-of-match
-     * scoreboard (and in-game HUD) sat under the intermission/damage fade.
-     */
-    if (clc.state != CA_DISCONNECTED) {
-        /*
-         * Added in Omaha: draw retail/PK3 zoom overlays under the modern HUD
-         * layer (same order as legacy CG_Draw2D). When modern sniper is on,
-         * CG_DrawZoomOverlay skips sniper types and uirender paints instead.
-         */
-        if (cge && cge->CG_DrawZoomOverlay && !CL_UIR_UseLegacyHud()) {
-            cge->CG_DrawZoomOverlay();
-        }
-        CL_UIR_DrawCrosshair();
-    }
+	DrawLetterbox();
 
-    if ((cl_debuggraph->integer || cl_timegraph->integer) && !cls.no_menus) {
-        SCR_DrawDebugGraph();
-    } else if (!cls.no_menus) {
-        if (cge) {
-            cge->CG_Draw2D();
-        }
+	/*
+	 * Fixed in Omaha: modern HUD + scoreboard must paint above ps.blend fades.
+	 * Previously CL_UIR_DrawCrosshair ran before DrawFades, so end-of-match
+	 * scoreboard (and in-game HUD) sat under the intermission/damage fade.
+	 */
+	if (clc.state != CA_DISCONNECTED) {
+		/*
+		 * Added in Omaha: draw retail/PK3 zoom overlays under the modern HUD
+		 * layer (same order as legacy CG_Draw2D). When modern sniper is on,
+		 * CG_DrawZoomOverlay skips sniper types and uirender paints instead.
+		 */
+		if (cge && cge->CG_DrawZoomOverlay && !CL_UIR_UseLegacyHud()) {
+			cge->CG_DrawZoomOverlay();
+		}
+		CL_UIR_DrawCrosshair();
 
-        if (m_locationprint) {
-            LocationPrint();
-        } else {
-            CenterPrint();
-        }
+		if ((cl_debuggraph->integer || cl_timegraph->integer) && !cls.no_menus) {
+			SCR_DrawDebugGraph();
+		} else if (!cls.no_menus) {
+			if (cge) {
+				UiPerfScope cg2dScope(UIPERF_CG2D);
+				cge->CG_Draw2D();
+			}
 
-        if (!cls.no_menus) {
-            DrawSoundOverlay();
-            DrawNetProfile();
-            DrawSubtitleOverlay();
-        }
-    }
+			if (m_locationprint) {
+				LocationPrint();
+			} else {
+				CenterPrint();
+			}
 
-    if (fps->integer && !cls.no_menus) {
-        DrawFPS();
-        DrawProf();
-    }
+			if (!cls.no_menus) {
+				DrawSoundOverlay();
+				DrawNetProfile();
+				DrawSubtitleOverlay();
+			}
+		}
+
+		if ((fps->integer || CL_UIPerf_HudInteger()) && !cls.no_menus) {
+			if (fps->integer) {
+				DrawFPS();
+			}
+			if (CL_UIPerf_HudInteger()) {
+				DrawProf();
+			}
+		}
+		return;
+	}
+
+	if ((cl_debuggraph->integer || cl_timegraph->integer) && !cls.no_menus) {
+		SCR_DrawDebugGraph();
+	} else if (!cls.no_menus) {
+		if (cge) {
+			UiPerfScope cg2dScope(UIPERF_CG2D);
+			cge->CG_Draw2D();
+		}
+
+		if (m_locationprint) {
+			LocationPrint();
+		} else {
+			CenterPrint();
+		}
+
+		if (!cls.no_menus) {
+			DrawSoundOverlay();
+			DrawNetProfile();
+			DrawSubtitleOverlay();
+		}
+	}
+
+	if ((fps->integer || CL_UIPerf_HudInteger()) && !cls.no_menus) {
+		if (fps->integer) {
+			DrawFPS();
+		}
+		if (CL_UIPerf_HudInteger()) {
+			DrawProf();
+		}
+	}
 }
 
 void View3D::CenterPrint(void)
@@ -832,6 +990,27 @@ void View3D::Draw(void)
 		Draw2D();
 	}
 	UID_ProfileEnd(UID_PROF_LEGACY_VIEW3D);
+}
+
+/*
+====================
+View3D::Display
+Added in Omaha: Phase 1 gate — UIWidget::Display calls set2D before Draw, but View3D
+starts with a 3D pass that clobbers that state. Skip the pre-Draw Set2DWindow.
+====================
+*/
+void View3D::Display(const UIRect2D& drawframe, float parent_alpha)
+{
+	(void)drawframe;
+	if (!isEnabled()) {
+		lastShowTime = -1;
+		return;
+	}
+	if (!m_enabledCvar.length() && !IsVisible()) {
+		return;
+	}
+	m_local_alpha = m_alpha * parent_alpha;
+	Draw();
 }
 
 float avWidth = 0.0;

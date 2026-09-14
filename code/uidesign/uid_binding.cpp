@@ -28,6 +28,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "uid_expr_bool.h"
 #include "uid_layout.h"
 #include "uid_modal.h"
+#include "uid_paint.h"
 #include "uid_style.h"
 #include "uid_opt.h"
 #include "uid_profile.h"
@@ -37,6 +38,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 
 #include <cctype>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -47,13 +49,6 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include <string_view>
 #include <unordered_map>
 #include <vector>
-
-#if defined(_WIN32)
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <windows.h>
-#endif
 
 namespace {
 
@@ -154,7 +149,11 @@ static void MarkDirtyAfterPropChange(
 	const char *reason = (!propName.empty()) ? propName.c_str() : "prop_empty";
 	if (IsTranslateProp(propName)) {
 		QueueTranslatePropChange(doc, nodeId, propName, oldValue, newValue);
-		UID_MarkDirty(doc, dirty, nodeId, reason);
+		/*
+		 * Fixed in Omaha: translate-only motion must not UID_MarkDirty(PAINT) —
+		 * that invalidates the retained chrome list. Box shifts + LIVE_SUBTREE
+		 * paint-list cmds update any bound translate-x/y HUD element.
+		 */
 		return;
 	}
 	for (size_t i = 0; i < layoutPropCount; ++i) {
@@ -2609,6 +2608,367 @@ bool UID_ParseItemFieldBind(const char *bind, std::string *fieldNameOut)
 	return false;
 }
 
+/* Added in Omaha: Phase 4.4 — cvar dependency index (skip unchanged subtrees). */
+static int g_bindDeps = 1;
+static int g_bindDepsVerify = 0;
+/* Added in Omaha: Phase 4.4 — heading/tape cvars that only drive translate-x/y. */
+static int s_bindTxChanged = 0;
+static int s_bindTxOnly = 0;
+
+void UID_SetBindDeps(int enabled)
+{
+	g_bindDeps = enabled ? 1 : 0;
+}
+
+int UID_BindDepsEnabled(void)
+{
+	return g_bindDeps;
+}
+
+void UID_SetBindDepsVerify(int enabled)
+{
+	g_bindDepsVerify = enabled ? 1 : 0;
+}
+
+static void BindDepsProbeExprs(uid_node_def_t *node)
+{
+	if (!node) {
+		return;
+	}
+	if (!node->visibleExprProbed) {
+		node->visibleExprProbed = true;
+		if (node->visibleExpr.empty()) {
+			std::string vis;
+			if (node->properties.Get("visible", &vis)) {
+				std::string inner;
+				if (UID_ParseBraceBoolExpr(vis.c_str(), &inner)) {
+					node->visibleExpr = inner;
+					node->bindingFlagsValid = false;
+				}
+			}
+		}
+	}
+	if (!node->enabledExprProbed) {
+		node->enabledExprProbed = true;
+		if (node->enabledExpr.empty()) {
+			std::string en;
+			if (node->properties.Get("enabled", &en)) {
+				std::string inner;
+				if (UID_ParseBraceBoolExpr(en.c_str(), &inner)) {
+					node->enabledExpr = inner;
+					node->bindingFlagsValid = false;
+				}
+			}
+		}
+	}
+}
+
+static void BindDepsCollectNodeCvars(const uid_node_def_t *node, std::vector<std::string> *names)
+{
+	if (!node || !names) {
+		return;
+	}
+	UID_ExprCollectCvarNames(node->visibleExpr, names);
+	UID_ExprCollectCvarNames(node->enabledExpr, names);
+	UID_ExprCollectCvarNames(node->visibleIf, names);
+	UID_ExprCollectCvarNames(node->enabledIf, names);
+	for (const auto &kv : node->styleExprs) {
+		UID_ExprCollectCvarNames(kv.second, names);
+	}
+	for (const auto &kv : node->cvarBoundProps) {
+		if (IsTranslateProp(kv.first)) {
+			continue;
+		}
+		std::string cn;
+		if (UID_ParseExactCvarBraceBinding(kv.second, &cn)) {
+			names->push_back(cn);
+		} else {
+			UID_ExprCollectCvarNames(kv.second, names);
+		}
+	}
+	for (const auto &kv : node->exprBoundProps) {
+		if (IsTranslateProp(kv.first)) {
+			continue;
+		}
+		UID_ExprCollectCvarNames(kv.second, names);
+	}
+	{
+		std::string cn;
+		if (UID_ParseCvarBind(node->bind.c_str(), &cn)) {
+			names->push_back(cn);
+		}
+	}
+	UID_ExprCollectCvarNames(node->text, names);
+	const char *tc = node->properties.GetCStr("text-cvar", nullptr);
+	if (tc && tc[0]) {
+		names->emplace_back(tc);
+	}
+}
+
+static void BindDepsCollectTranslateCvars(const uid_node_def_t *node, std::vector<std::string> *names)
+{
+	if (!node || !names) {
+		return;
+	}
+	for (const auto &kv : node->cvarBoundProps) {
+		if (!IsTranslateProp(kv.first)) {
+			continue;
+		}
+		std::string cn;
+		if (UID_ParseExactCvarBraceBinding(kv.second, &cn)) {
+			names->push_back(cn);
+		} else {
+			UID_ExprCollectCvarNames(kv.second, names);
+		}
+	}
+	for (const auto &kv : node->exprBoundProps) {
+		if (!IsTranslateProp(kv.first)) {
+			continue;
+		}
+		UID_ExprCollectCvarNames(kv.second, names);
+	}
+}
+
+static void BindDepsMarkAncestors(
+	uid_document_t *doc,
+	std::vector<unsigned char> *touched,
+	uid_node_id_t id
+)
+{
+	if (!doc || !touched) {
+		return;
+	}
+	while (id >= 0 && static_cast<size_t>(id) < touched->size()) {
+		unsigned char &flag = (*touched)[static_cast<size_t>(id)];
+		if (flag) {
+			break;
+		}
+		flag = 1;
+		if (static_cast<size_t>(id) >= doc->parentOf.size()) {
+			break;
+		}
+		id = doc->parentOf[static_cast<size_t>(id)];
+	}
+}
+
+static void BindDepsMarkDescendants(
+	uid_document_t *doc,
+	std::vector<unsigned char> *touched,
+	uid_node_id_t id
+)
+{
+	if (!doc || !touched || id < 0 || static_cast<size_t>(id) >= doc->nodes.size()) {
+		return;
+	}
+	std::vector<uid_node_id_t> stack;
+	stack.push_back(id);
+	while (!stack.empty()) {
+		const uid_node_id_t cur = stack.back();
+		stack.pop_back();
+		if (cur < 0 || static_cast<size_t>(cur) >= touched->size()) {
+			continue;
+		}
+		(*touched)[static_cast<size_t>(cur)] = 1;
+		if (static_cast<size_t>(cur) >= doc->nodes.size()) {
+			continue;
+		}
+		for (uid_node_id_t c : doc->nodes[static_cast<size_t>(cur)].children) {
+			stack.push_back(c);
+		}
+	}
+}
+
+static void UID_RebuildBindDeps(uid_document_t *doc, const uid_backend_t *backend)
+{
+	if (!doc) {
+		return;
+	}
+	std::unordered_map<std::string, unsigned> prevMod;
+	prevMod.reserve(doc->depCvars.size() * 2 + 1);
+	for (size_t i = 0; i < doc->depCvars.size() && i < doc->depLastMod.size(); ++i) {
+		prevMod.emplace(doc->depCvars[i], doc->depLastMod[i]);
+	}
+	doc->depCvars.clear();
+	doc->depNodes.clear();
+	doc->depLastMod.clear();
+	doc->depCvarPtrs.clear();
+	doc->depAffectsVisible.clear();
+	doc->depTranslateOnly.clear();
+	doc->impureNodes.clear();
+	if (doc->parentOf.size() != doc->nodes.size()) {
+		UID_RebuildParentMap(doc);
+	}
+
+	std::unordered_map<std::string, size_t> index;
+	std::vector<std::string> names;
+	names.reserve(8);
+	for (size_t i = 0; i < doc->nodes.size(); ++i) {
+		uid_node_def_t *node = &doc->nodes[i];
+		BindDepsProbeExprs(node);
+		const uid_node_id_t id = static_cast<uid_node_id_t>(i);
+		if (node->foreachGenerated || !NodeBindBodyIsCvarPure(node)) {
+			doc->impureNodes.push_back(id);
+		}
+		names.clear();
+		BindDepsCollectNodeCvars(node, &names);
+		auto addDep = [&](const std::string &name, int translateOnly) {
+			if (name.empty()) {
+				return;
+			}
+			auto it = index.find(name);
+			if (it == index.end()) {
+				const size_t slot = doc->depCvars.size();
+				index.emplace(name, slot);
+				doc->depCvars.push_back(name);
+				doc->depNodes.emplace_back();
+				doc->depCvarPtrs.push_back(
+					(backend && backend->cvarFind) ? backend->cvarFind(name.c_str()) : nullptr
+				);
+				doc->depAffectsVisible.push_back(0);
+				doc->depTranslateOnly.push_back(translateOnly ? 1 : 0);
+				doc->depNodes.back().push_back(id);
+			} else {
+				if (!translateOnly && it->second < doc->depTranslateOnly.size()) {
+					doc->depTranslateOnly[it->second] = 0;
+				}
+				std::vector<uid_node_id_t> &list = doc->depNodes[it->second];
+				if (list.empty() || list.back() != id) {
+					list.push_back(id);
+				}
+			}
+		};
+		for (const std::string &name : names) {
+			addDep(name, 0);
+		}
+		{
+			std::vector<std::string> txNames;
+			BindDepsCollectTranslateCvars(node, &txNames);
+			for (const std::string &name : txNames) {
+				addDep(name, 1);
+			}
+		}
+		std::vector<std::string> visNames;
+		UID_ExprCollectCvarNames(node->visibleExpr, &visNames);
+		UID_ExprCollectCvarNames(node->visibleIf, &visNames);
+		{
+			const char *visProp = node->properties.GetCStr("visible", nullptr);
+			if (visProp && visProp[0] == '{') {
+				UID_ExprCollectCvarNames(visProp, &visNames);
+			}
+		}
+		for (const std::string &name : visNames) {
+			const auto it = index.find(name);
+			if (it != index.end() && it->second < doc->depAffectsVisible.size()) {
+				doc->depAffectsVisible[it->second] = 1;
+			}
+		}
+	}
+	doc->depLastMod.resize(doc->depCvars.size(), 0u);
+	for (size_t i = 0; i < doc->depCvars.size(); ++i) {
+		const auto it = prevMod.find(doc->depCvars[i]);
+		if (it != prevMod.end()) {
+			doc->depLastMod[i] = it->second;
+		} else if (backend && backend->cvarModCount) {
+			doc->depLastMod[i] = backend->cvarModCount(doc->depCvars[i].c_str());
+		}
+	}
+	if (doc->depAffectsVisible.size() != doc->depCvars.size()) {
+		doc->depAffectsVisible.resize(doc->depCvars.size(), 0);
+	}
+	if (doc->depTranslateOnly.size() != doc->depCvars.size()) {
+		doc->depTranslateOnly.resize(doc->depCvars.size(), 0);
+	}
+	if (doc->depCvarPtrs.size() != doc->depCvars.size()) {
+		doc->depCvarPtrs.resize(doc->depCvars.size(), nullptr);
+	}
+	doc->bindDepsStale = false;
+	doc->bindDepsWarm = false;
+	doc->bindDepsNodeCount = doc->nodes.size();
+}
+
+static int BindDepsMarkTouched(
+	uid_document_t *doc,
+	const uid_backend_t *backend,
+	std::vector<unsigned char> *touched,
+	int commitMods
+)
+{
+	if (!doc || !touched) {
+		return 0;
+	}
+	touched->assign(doc->nodes.size(), 0);
+	if (doc->parentOf.size() != doc->nodes.size()) {
+		UID_RebuildParentMap(doc);
+	}
+	int nChanged = 0;
+	s_bindTxChanged = 0;
+	s_bindTxOnly = 0;
+	if (!doc->bindDepsWarm) {
+		touched->assign(doc->nodes.size(), 1);
+	}
+	if (backend && (backend->cvarModCountHandle || backend->cvarModCount)) {
+		const size_t n = doc->depCvars.size() < doc->depNodes.size() ? doc->depCvars.size() : doc->depNodes.size();
+		const size_t nMod = n < doc->depLastMod.size() ? n : doc->depLastMod.size();
+		if (doc->depCvarPtrs.size() != doc->depCvars.size()) {
+			doc->depCvarPtrs.resize(doc->depCvars.size(), nullptr);
+		}
+		for (size_t i = 0; i < nMod; ++i) {
+			unsigned now = 0;
+			if (backend->cvarModCountHandle) {
+				if (!doc->depCvarPtrs[i] && backend->cvarFind) {
+					doc->depCvarPtrs[i] = backend->cvarFind(doc->depCvars[i].c_str());
+				}
+				now = backend->cvarModCountHandle(doc->depCvarPtrs[i]);
+			} else {
+				now = backend->cvarModCount(doc->depCvars[i].c_str());
+			}
+			if (now == doc->depLastMod[i]) {
+				continue;
+			}
+			if (commitMods) {
+				doc->depLastMod[i] = now;
+			}
+			++nChanged;
+			if (doc->bindDepsWarm) {
+				const int vis = (i < doc->depAffectsVisible.size() && doc->depAffectsVisible[i]);
+				for (uid_node_id_t id : doc->depNodes[i]) {
+					BindDepsMarkAncestors(doc, touched, id);
+					if (vis) {
+						BindDepsMarkDescendants(doc, touched, id);
+					}
+				}
+			}
+		}
+	}
+	const size_t nState = doc->states.size() < touched->size() ? doc->states.size() : touched->size();
+	for (size_t i = 0; i < nState; ++i) {
+		uid_node_state_t *st = &doc->states[i];
+		if (doc->bindDepsWarm && NodeBindInteractionDirty(st)) {
+			BindDepsMarkAncestors(doc, touched, static_cast<uid_node_id_t>(i));
+		}
+		if (doc->nodes[i].collectionSource.empty()) {
+			continue;
+		}
+		if (st->collectionRevision == st->bindDepsSeenCollectionRev) {
+			continue;
+		}
+		if (commitMods) {
+			st->bindDepsSeenCollectionRev = st->collectionRevision;
+		}
+		++nChanged;
+		if (!doc->bindDepsWarm) {
+			continue;
+		}
+		for (size_t j = 0; j < doc->nodes.size(); ++j) {
+			if (doc->nodes[j].foreachGenerated && doc->nodes[j].foreachScopeId == static_cast<uid_node_id_t>(i)) {
+				BindDepsMarkAncestors(doc, touched, static_cast<uid_node_id_t>(j));
+			}
+		}
+	}
+	s_bindTxOnly = (s_bindTxChanged > 0 && nChanged == 0) ? 1 : 0;
+	return nChanged;
+}
+
 void UID_SyncBindings(uid_document_t *doc, const uid_backend_t *backend)
 {
 	if (!doc || !backend) {
@@ -2694,10 +3054,38 @@ void UID_SyncBindings(uid_document_t *doc, const uid_backend_t *backend)
 	 * Added in Omaha: apply visibleExpr before SyncCollections so visibility-aware
 	 * collection cull sees this frame's panel visibility (not last frame).
 	 * Always recurse so hidden panels update before a same-frame reveal.
+	 * Phase 4.4: skip untouched subtrees when the cvar index says nothing changed.
 	 */
+	std::vector<unsigned char> &subtreeTouched = doc->bindTouchedScratch;
+	int bindDepsForceFull = 0;
+	int nChangedCvars = 0;
+	const int useBindDeps = (g_bindDeps && backend->cvarModCount) ? 1 : 0;
+
+	auto bindDepsSkip = [&](uid_node_id_t id) -> bool {
+		if (bindDepsForceFull || !useBindDeps || subtreeTouched.empty()) {
+			return false;
+		}
+		if (id < 0 || static_cast<size_t>(id) >= subtreeTouched.size()) {
+			return false;
+		}
+		return subtreeTouched[static_cast<size_t>(id)] == 0;
+	};
+	auto refreshBindDeps = [&](int commitMods) {
+		if (!useBindDeps) {
+			return;
+		}
+		if (doc->bindDepsStale || doc->bindDepsNodeCount != doc->nodes.size()) {
+			UID_RebuildBindDeps(doc, backend);
+		}
+		nChangedCvars += BindDepsMarkTouched(doc, backend, &subtreeTouched, commitMods);
+	};
+
 	UID_ProfileBegin(UID_PROF_FRAME_COLLECTION_CULL);
 	auto applyVisibility = [&](auto &self, uid_node_id_t id) -> void {
 		if (id < 0 || static_cast<size_t>(id) >= doc->nodes.size() || static_cast<size_t>(id) >= doc->states.size()) {
+			return;
+		}
+		if (bindDepsSkip(id)) {
 			return;
 		}
 		uid_node_def_t *node = &doc->nodes[static_cast<size_t>(id)];
@@ -2727,10 +3115,18 @@ void UID_SyncBindings(uid_document_t *doc, const uid_backend_t *backend)
 			}
 		}
 	};
-	applyVisibilityTree();
+	refreshBindDeps(0);
+	if (!(s_bindTxOnly && nChangedCvars == 0 && doc->bindDepsWarm)) {
+		applyVisibilityTree();
+	}
 	UID_ProfileEnd(UID_PROF_FRAME_COLLECTION_CULL);
+	const int firstChanged = nChangedCvars;
 
 	UID_SyncCollections(doc, backend);
+	if (!(doc->bindDepsWarm && firstChanged == 0 && !(doc->dirty & UID_DIRTY_BINDING))) {
+		nChangedCvars = 0;
+		refreshBindDeps(1);
+	}
 
 	/*
 	 * Fixed in Omaha: foreach expand clones nodes with visible="{expr}" still in the
@@ -2740,7 +3136,10 @@ void UID_SyncBindings(uid_document_t *doc, const uid_backend_t *backend)
 	 * skips visibleExpr. Re-apply after expand so layout in this frame sees true/false.
 	 */
 	UID_ProfileBegin(UID_PROF_FRAME_COLLECTION_CULL);
-	applyVisibilityTree();
+	/* vis2 exists for foreach clones born this sync. No STRUCTURE → no new nodes. */
+	if (doc->dirty & UID_DIRTY_STRUCTURE) {
+		applyVisibilityTree();
+	}
 	UID_ProfileEnd(UID_PROF_FRAME_COLLECTION_CULL);
 
 	/*
@@ -2756,7 +3155,8 @@ void UID_SyncBindings(uid_document_t *doc, const uid_backend_t *backend)
 		if (!st) {
 			return;
 		}
-		if (NodeBindBodyIsCvarPure(node) && !NodeBindInteractionDirty(st) && backend->cvarEpoch) {
+		(void)node;
+		if (!NodeBindInteractionDirty(st) && backend->cvarEpoch) {
 			st->bindSyncEpoch = bindEpoch;
 			st->bindSyncCached = true;
 		} else {
@@ -2893,6 +3293,9 @@ void UID_SyncBindings(uid_document_t *doc, const uid_backend_t *backend)
 		if (id < 0 || static_cast<size_t>(id) >= doc->nodes.size() || static_cast<size_t>(id) >= doc->states.size()) {
 			return;
 		}
+		if (bindDepsSkip(id)) {
+			return;
+		}
 		uid_node_def_t *node = &doc->nodes[static_cast<size_t>(id)];
 		uid_node_state_t *st = &doc->states[static_cast<size_t>(id)];
 
@@ -2929,6 +3332,9 @@ void UID_SyncBindings(uid_document_t *doc, const uid_backend_t *backend)
 	auto syncAllNodesFlat = [&]() {
 		const size_t n = doc->nodes.size() < doc->states.size() ? doc->nodes.size() : doc->states.size();
 		for (size_t i = 0; i < n; ++i) {
+			if (bindDepsSkip(static_cast<uid_node_id_t>(i))) {
+				continue;
+			}
 			uid_node_def_t *node = &doc->nodes[i];
 			uid_node_state_t *st = &doc->states[i];
 			probeVisibleEnabled(node);
@@ -2936,18 +3342,83 @@ void UID_SyncBindings(uid_document_t *doc, const uid_backend_t *backend)
 		}
 	};
 
-	if (UID_OptEnabled(UID_OPT_BIND_CULL)) {
-		if (doc->rootNode != UID_INVALID_NODE_ID) {
-			syncRecursive(syncRecursive, doc->rootNode, true);
-		}
-		if (UID_IsModalActive(doc)) {
-			const uid_node_id_t modalRoot = UID_GetModalRoot(doc);
-			if (modalRoot != UID_INVALID_NODE_ID) {
-				syncRecursive(syncRecursive, modalRoot, true);
+	{
+		auto nodeHasTranslateBind = [](const uid_node_def_t *node) -> bool {
+			if (!node) {
+				return false;
 			}
+			for (const auto &kv : node->cvarBoundProps) {
+				if (IsTranslateProp(kv.first)) {
+					return true;
+				}
+			}
+			for (const auto &kv : node->exprBoundProps) {
+				if (IsTranslateProp(kv.first)) {
+					return true;
+				}
+			}
+			return false;
+		};
+		auto syncTranslateLeaves = [&]() {
+			const size_t nT = subtreeTouched.size() < doc->nodes.size()
+				? subtreeTouched.size()
+				: doc->nodes.size();
+			for (size_t i = 0; i < nT && i < doc->states.size(); ++i) {
+				if (!subtreeTouched[i] || !nodeHasTranslateBind(&doc->nodes[i])) {
+					continue;
+				}
+				uid_node_def_t *node = &doc->nodes[i];
+				ensureBindingFlags(node);
+				if (node->bindingFlags & UID_BIND_F_CVAR_PROPS) {
+					SyncCvarBoundProps(doc, static_cast<uid_node_id_t>(i), node, backend);
+				}
+				if (node->bindingFlags & UID_BIND_F_EXPR_PROPS) {
+					SyncExprBoundProps(doc, static_cast<uid_node_id_t>(i), node, backend);
+				}
+			}
+		};
+		if (s_bindTxOnly && firstChanged == 0 && useBindDeps && doc->bindDepsWarm) {
+			syncTranslateLeaves();
+		} else if (UID_OptEnabled(UID_OPT_BIND_CULL)) {
+			if (doc->rootNode != UID_INVALID_NODE_ID) {
+				syncRecursive(syncRecursive, doc->rootNode, true);
+			}
+			if (UID_IsModalActive(doc)) {
+				const uid_node_id_t modalRoot = UID_GetModalRoot(doc);
+				if (modalRoot != UID_INVALID_NODE_ID) {
+					syncRecursive(syncRecursive, modalRoot, true);
+				}
+			}
+		} else {
+			syncAllNodesFlat();
 		}
-	} else {
-		syncAllNodesFlat();
+		if (s_bindTxChanged > 0 && !(s_bindTxOnly && firstChanged == 0) && doc->bindDepsWarm) {
+			syncTranslateLeaves();
+		}
+	}
+
+	/* Added in Omaha: Phase 4.4 verify — full walk after targeted sync; must stay silent. */
+	if (useBindDeps && (g_bindDepsVerify || ((doc->syncFrameCounter % 2000) == 1))) {
+		bindDepsForceFull = 1;
+		applyVisibilityTree();
+		if (UID_OptEnabled(UID_OPT_BIND_CULL)) {
+			if (doc->rootNode != UID_INVALID_NODE_ID) {
+				syncRecursive(syncRecursive, doc->rootNode, true);
+			}
+			if (UID_IsModalActive(doc)) {
+				const uid_node_id_t modalRoot = UID_GetModalRoot(doc);
+				if (modalRoot != UID_INVALID_NODE_ID) {
+					syncRecursive(syncRecursive, modalRoot, true);
+				}
+			}
+		} else {
+			syncAllNodesFlat();
+		}
+		bindDepsForceFull = 0;
+	}
+
+	if (useBindDeps) {
+		doc->bindDepsWarm = true;
 	}
 
 	g_cvarMemoActive = false;

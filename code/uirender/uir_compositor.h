@@ -73,6 +73,8 @@ void         UIR_SetClipDedup(int enable);
 void         UIR_InvalidateAppliedClip(void);
 /* Added in Omaha Stage 4: apply absolute logical clip (paint-list replay). */
 void         UIR_ForceClipRect(float x, float y, float w, float h);
+/* Added in Omaha: Phase 3 — same as Force but preserves applied-clip dedup. */
+void         UIR_ApplyClipRect(float x, float y, float w, float h);
 
 /* Added in Omaha: optional retained chrome RT (gl1); default off via ui_chrome_cache. */
 typedef struct {
@@ -87,6 +89,8 @@ void UIR_ChromeCacheSetBackend(const uir_chrome_cache_backend_t *backend);
 void UIR_SetChromeCache(int enable);
 void UIR_InvalidateChromeCache(void);
 void UIR_ChromeCacheRequestRebuild(void);
+/* Added in Omaha: Phase 4.6 — next overlay frame must start from a cleared UI target. */
+void UIR_CompositorRetainSuppress(void);
 
 #ifdef __cplusplus
 }

@@ -710,3 +710,46 @@ bool UID_InterpolateString(
 
 	return true;
 }
+
+void UID_ExprCollectCvarNames(const std::string &expr, std::vector<std::string> *out)
+{
+	if (!out || expr.empty()) {
+		return;
+	}
+	const char *s = expr.c_str();
+	const size_t n = expr.size();
+	for (size_t i = 0; i + 5 <= n; ++i) {
+		if ((s[i] != 'c' && s[i] != 'C') || (s[i + 1] != 'v' && s[i + 1] != 'V')
+			|| (s[i + 2] != 'a' && s[i + 2] != 'A') || (s[i + 3] != 'r' && s[i + 3] != 'R')
+			|| (s[i + 4] != '.' && s[i + 4] != ':')) {
+			continue;
+		}
+		if (i > 0) {
+			const unsigned char prev = static_cast<unsigned char>(s[i - 1]);
+			if (std::isalnum(prev) || prev == '_') {
+				continue;
+			}
+		}
+		size_t j = i + 5;
+		if (j >= n) {
+			break;
+		}
+		const unsigned char first = static_cast<unsigned char>(s[j]);
+		if (!(std::isalnum(first) || first == '_')) {
+			continue;
+		}
+		size_t k = j + 1;
+		while (k < n) {
+			const unsigned char c = static_cast<unsigned char>(s[k]);
+			if (!(std::isalnum(c) || s[k] == '_' || s[k] == '-' || s[k] == '.')) {
+				break;
+			}
+			++k;
+		}
+		while (k > j && s[k - 1] == '.') {
+			--k;
+		}
+		out->emplace_back(s + j, k - j);
+		i = k - 1;
+	}
+}

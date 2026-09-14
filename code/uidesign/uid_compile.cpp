@@ -25,6 +25,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "uid_compile.h"
 
 #include "uid_binding.h"
+#include "uid_collection.h"
 #include "uid_document.h"
 #include "uid_scrollbar.h"
 #include "uid_shape.h"
@@ -1005,6 +1006,7 @@ uid_result_t UID_CompileDocument(uid_document_t *doc, uid_diag_list_t *diags)
 		ok = ValidateScrollbarParts(doc, diags, doc->rootNode, UID_NODE_CANVAS) && ok;
 	}
 	ok = ValidateCollectionSources(doc, diags) && ok;
+	UID_StampCollectionSourceKinds(doc);
 
 	/* Shape definition paths must parse as bounded expressions later; ensure props are sane. */
 	for (const auto &kv : doc->definitions.shapes) {
@@ -1039,5 +1041,7 @@ uid_result_t UID_CompileDocument(uid_document_t *doc, uid_diag_list_t *diags)
 	if (!ok || (diags && diags->HasErrors())) {
 		return UID_ERR_VALIDATE;
 	}
+	/* Added in Omaha: Phase 4.4 — rebuild bind deps on first UID_SyncBindings. */
+	doc->bindDepsStale = true;
 	return UID_OK;
 }

@@ -31,10 +31,14 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "uid_layout.h"
 #include "uid_opt.h"
 #include "uid_paint.h"
+#include "uid_profile.h"
 #include "uid_scrollbar.h"
 #include "uid_shape.h"
 #include "uid_style.h"
 #include "uid_value.h"
+
+#include "../uirender/uir_batch.h"
+#include "../uirender/uir_compositor.h"
 
 #include <algorithm>
 #include <cmath>
@@ -77,6 +81,50 @@ bool IsPaintKind(uid_node_kind_t kind)
 	default:
 		return false;
 	}
+}
+
+/* Bound translate-x/y that can change after load — any HUD XML element, not element-specific. */
+bool TranslateExprIsRuntime(const std::string &expr)
+{
+	return expr.find("cvar.") != std::string::npos || expr.find("item.") != std::string::npos ||
+	       expr.find("collection.") != std::string::npos || expr.find("foreach.") != std::string::npos;
+}
+
+bool NodeHasLiveTranslateBinding(const uid_node_def_t &node)
+{
+	if (node.cvarBoundProps.find("translate-x") != node.cvarBoundProps.end() ||
+	    node.cvarBoundProps.find("translate-y") != node.cvarBoundProps.end() ||
+	    node.exprBoundProps.find("translate-x") != node.exprBoundProps.end() ||
+	    node.exprBoundProps.find("translate-y") != node.exprBoundProps.end()) {
+		return true;
+	}
+	for (const char *prop : {"translate-x", "translate-y"}) {
+		auto it = node.styleExprs.find(prop);
+		if (it != node.styleExprs.end() && TranslateExprIsRuntime(it->second)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+bool NodeIsLiveOpacityRow(const uid_document_t *doc, uid_node_id_t id)
+{
+	if (!doc || id < 0 || static_cast<size_t>(id) >= doc->nodes.size()) {
+		return false;
+	}
+	const uid_node_def_t &node = doc->nodes[static_cast<size_t>(id)];
+	if (!node.foreachGenerated) {
+		return false;
+	}
+	if (static_cast<size_t>(id) >= doc->parentOf.size()) {
+		return false;
+	}
+	const uid_node_id_t parent = doc->parentOf[static_cast<size_t>(id)];
+	if (parent < 0 || static_cast<size_t>(parent) >= doc->nodes.size()) {
+		return false;
+	}
+	const uid_node_def_t &pn = doc->nodes[static_cast<size_t>(parent)];
+	return pn.kind == UID_NODE_FOREACH && pn.hasForeachLifetime;
 }
 
 const char *PropCStr(const uid_node_def_t &node, const char *name, const char *fallback)
@@ -1756,7 +1804,8 @@ void PaintChromeNode(
 	uid_node_id_t         id,
 	const uid_backend_t *backend,
 	bool                  ancestorVisible,
-	float                 parentOpacity = 1.0f
+	float                 parentOpacity = 1.0f,
+	bool                  paintChildren = true
 )
 {
 	uid_node_def_t *node = UID_GetNode(doc, id);
@@ -1770,14 +1819,37 @@ void PaintChromeNode(
 		return;
 	}
 
+	const bool liveTranslate =
+		UID_PaintListIsActivelyRecording() != 0 && NodeHasLiveTranslateBinding(*node);
+	const bool liveOpacityRow = !liveTranslate && UID_PaintListIsActivelyRecording() != 0 &&
+		UID_LiveOpacityCacheEnabled() != 0 && NodeIsLiveOpacityRow(doc, id);
+
+	const float savedLifetimeMul = st->lifetimeOpacityMul;
+	if (liveOpacityRow) {
+		st->lifetimeOpacityMul = 1.0f;
+	}
+	struct RestoreLifetimeMul {
+		uid_node_state_t *st;
+		float             saved;
+		bool              active;
+		~RestoreLifetimeMul()
+		{
+			if (active && st) {
+				st->lifetimeOpacityMul = saved;
+			}
+		}
+	} mulGuard{st, savedLifetimeMul, liveOpacityRow};
+
 	const float effectiveOpacity = parentOpacity * NodeOpacity(*node) * st->lifetimeOpacityMul;
 	if (effectiveOpacity <= 0.001f) {
 		return;
 	}
 
 	/* Added in Omaha: descendant clips are intersections of this clip, so an empty
-	   clip means the whole subtree is invisible. */
-	if (UID_OptEnabled(UID_OPT_PAINT_CULL)) {
+	   clip means the whole subtree is invisible. Phase 4.2 live-translate capture
+	   disables cull so off-window compass ticks are recorded. */
+	const bool paintCull = UID_OptEnabled(UID_OPT_PAINT_CULL) && UID_PaintLiveCaptureNoCull() == 0;
+	if (paintCull) {
 		if (st->effectiveClip.w <= 0.0f || st->effectiveClip.h <= 0.0f) {
 			return;
 		}
@@ -1791,7 +1863,7 @@ void PaintChromeNode(
 	 * border box misses the clip; in-flow children cannot be visible then.
 	 */
 	bool skipSelfDraw = false;
-	if (UID_OptEnabled(UID_OPT_PAINT_CULL)) {
+	if (paintCull) {
 		const float pad = 4.0f;
 		const float bx0 = st->borderBox.x - pad;
 		const float by0 = st->borderBox.y - pad;
@@ -1811,31 +1883,91 @@ void PaintChromeNode(
 		}
 	}
 
+	/*
+	 * Bound translate-x/y nodes are retained as LIVE_SUBTREE: pause recording so
+	 * verts aren't baked, then on replay re-paint with current boxes. Applies to
+	 * any XML element with style/cvar/expr translate bindings — not element-specific.
+	 */
+	bool liveCapturing = false;
+	if (liveTranslate) {
+		UID_PaintListRecordLiveSubtree(id);
+		UID_PaintListPauseRecord();
+		if (UID_LiveTranslateCacheEnabled()) {
+			liveCapturing = UID_PaintListBeginLiveCapture(
+								id,
+								st->borderBox.x,
+								st->borderBox.y,
+								st->effectiveClip.x,
+								st->effectiveClip.y,
+								st->effectiveClip.w,
+								st->effectiveClip.h
+							) != 0;
+		}
+	} else if (liveOpacityRow) {
+		UID_PaintListRecordLiveOpacity(id);
+		UID_PaintListPauseRecord();
+		liveCapturing = UID_PaintListBeginLiveOpacityCapture(
+							doc,
+							id,
+							st->borderBox.x,
+							st->borderBox.y,
+							st->effectiveClip.x,
+							st->effectiveClip.y,
+							st->effectiveClip.w,
+							st->effectiveClip.h
+						) != 0;
+	}
+	struct LiveTranslateRecordGuard {
+		uid_node_state_t *st;
+		float             savedMul;
+		bool              opacity;
+		bool              active;
+		bool              capturing;
+		~LiveTranslateRecordGuard()
+		{
+			/* Restore fade mul before EndLiveCapture so the skip-submit recapture
+			 * replays at the current alpha instead of flashing 1.0. */
+			if (opacity && st) {
+				st->lifetimeOpacityMul = savedMul;
+			}
+			if (capturing) {
+				UID_PaintListEndLiveCapture();
+			}
+			if (active) {
+				UID_PaintListResumeRecord();
+			}
+		}
+	} liveGuard{st, savedLifetimeMul, liveOpacityRow, liveTranslate || liveOpacityRow, liveCapturing};
+
 	PushClip(backend, st->effectiveClip);
+
 
 	bool imageMaskActive = false;
 	if (!skipSelfDraw && backend->beginImageMask && backend->endImageMask &&
 	    (node->kind == UID_NODE_CONTAINER || node->kind == UID_NODE_BUTTON || node->kind == UID_NODE_FOREACH)) {
 		std::string maskSpec;
 		if (ResolveMaskImageSpec(doc, *node, backend, &maskSpec)) {
-			uid_image_fit_t maskFit = UID_IMAGE_FIT_STRETCH;
-			std::string fitStr;
-			if (node->properties.Get("mask-fit", &fitStr) && !fitStr.empty()) {
-				(void)UID_ParseImageFit(fitStr.c_str(), &maskFit, nullptr);
-				if (maskFit == UID_IMAGE_FIT_REPEAT) {
-					maskFit = UID_IMAGE_FIT_STRETCH;
+			/* Skip soft-mask FBO when the brush is fully opaque white (no fade). */
+			if (!UID_MaskBrushIsOpaqueWhite(maskSpec.c_str())) {
+				uid_image_fit_t maskFit = UID_IMAGE_FIT_STRETCH;
+				std::string fitStr;
+				if (node->properties.Get("mask-fit", &fitStr) && !fitStr.empty()) {
+					(void)UID_ParseImageFit(fitStr.c_str(), &maskFit, nullptr);
+					if (maskFit == UID_IMAGE_FIT_REPEAT) {
+						maskFit = UID_IMAGE_FIT_STRETCH;
+					}
 				}
-			}
-			const uid_rect_t &box = st->borderBox;
-			if (box.w > 0.0f && box.h > 0.0f) {
-				imageMaskActive = backend->beginImageMask(
-					box.x,
-					box.y,
-					box.w,
-					box.h,
-					maskSpec.c_str(),
-					static_cast<int>(maskFit)
-				);
+				const uid_rect_t &box = st->borderBox;
+				if (box.w > 0.0f && box.h > 0.0f) {
+					imageMaskActive = backend->beginImageMask(
+						box.x,
+						box.y,
+						box.w,
+						box.h,
+						maskSpec.c_str(),
+						static_cast<int>(maskFit)
+					);
+				}
 			}
 		}
 	}
@@ -1846,8 +1978,9 @@ void PaintChromeNode(
 	}
 
 	bool shapeChildClip = false;
-	if (backend->beginShapeClip && backend->endShapeClip &&
-	    (node->kind == UID_NODE_CONTAINER || node->kind == UID_NODE_BUTTON || node->kind == UID_NODE_FOREACH)) {
+	if (paintChildren && backend->beginShapeClip && backend->endShapeClip &&
+	    (node->kind == UID_NODE_CONTAINER || node->kind == UID_NODE_BUTTON || node->kind == UID_NODE_FOREACH) &&
+	    !node->children.empty()) {
 		/* Changed in Omaha: allocate clip path vectors only when shape-clip is attempted. */
 		uid_rect_t clipGeom{};
 		float clipViewW = 0.0f;
@@ -1875,9 +2008,17 @@ void PaintChromeNode(
 		}
 	}
 
+
 	/* Changed in Omaha: allocate scrollbar child list only when a scrollbar is present. */
 	std::vector<uid_node_id_t> scrollbarStorage;
 	std::vector<uid_node_id_t> *scrollbarChildren = nullptr;
+	if (!paintChildren) {
+		if (imageMaskActive && backend->endImageMask) {
+			backend->endImageMask();
+		}
+		PopClip(backend);
+		return;
+	}
 	for (uid_node_id_t c : node->children) {
 		const uid_node_def_t *child = UID_GetNode(doc, c);
 		if (child && child->kind == UID_NODE_SCROLLBAR) {
@@ -3022,11 +3163,6 @@ void UID_PaintChrome(uid_document_t *doc, const uid_backend_t *backend)
 		return;
 	}
 
-	/* Stage 4: replay retained batch list when chrome is clean. */
-	if (UID_PaintListEnabled() && UID_PaintListTryReplay(doc)) {
-		return;
-	}
-
 	if (doc->states.size() != doc->nodes.size()) {
 		const size_t n = doc->nodes.size();
 		const size_t old = doc->states.size();
@@ -3038,6 +3174,98 @@ void UID_PaintChrome(uid_document_t *doc, const uid_backend_t *backend)
 				UID_InitNodeState(&doc->states[i]);
 			}
 		}
+	}
+
+	/* Added in Omaha: Phase 4.1 — record/replay per chrome child region. */
+	if (UID_PaintRegionsPrepare(doc)) {
+		const uid_node_id_t chromeRoot = UID_PaintChromeRootId(doc);
+		const uid_node_def_t *rootNode = UID_GetNode(doc, chromeRoot);
+		const uid_node_state_t *rootSt = StateC(doc, chromeRoot);
+		const int nreg = UID_PaintRegionsCount(doc);
+		int dirtyN = 0;
+		bool painted = false;
+		if (rootNode && rootSt && PropBool(*rootNode, "visible", true)) {
+			const float rootOpacity = NodeOpacity(*rootNode) * rootSt->lifetimeOpacityMul;
+			if (rootOpacity > 0.001f) {
+				painted = true;
+				UIR_BatchFlush();
+				PushClip(backend, rootSt->effectiveClip);
+				/* Added in Omaha: Phase 4.6 — keep last frame's target; repaint only dirty regions. */
+				const int partial = UID_PaintRegionsRetainPlan(
+					doc,
+					backend,
+					rootSt->effectiveClip.x,
+					rootSt->effectiveClip.y,
+					rootSt->effectiveClip.w,
+					rootSt->effectiveClip.h
+				);
+				for (int i = 0; i < nreg; ++i) {
+					if (partial && UID_PaintRegionRetainSkip(doc, i)) {
+						continue;
+					}
+					if (i > 0) {
+						UIR_ApplyClipRect(
+							rootSt->effectiveClip.x,
+							rootSt->effectiveClip.y,
+							rootSt->effectiveClip.w,
+							rootSt->effectiveClip.h
+						);
+					}
+					int hit = 0;
+					UIR_BatchRegionScopeBegin();
+					if (UID_PaintRegionCanReplay(doc, i)) {
+						if (partial && UID_PaintRegionRetainLiveOnly(doc, i)) {
+							if (UID_PaintRegionReplayLives(doc, i, backend)) {
+								hit = 1;
+							}
+						} else if (UID_PaintRegionReplay(doc, i, backend)) {
+							hit = 1;
+						}
+					}
+					if (!hit) {
+						dirtyN++;
+						UID_PaintRegionBeginRecord(doc, i);
+						if (i == 0) {
+							PaintChromeNode(doc, chromeRoot, backend, true, 1.0f, false);
+						} else {
+							const uid_node_id_t rid = UID_PaintRegionRootId(doc, i);
+							PaintChromeNode(doc, rid, backend, true, rootOpacity);
+						}
+						UID_PaintRegionEndRecord(doc, i);
+					}
+					UIR_BatchRegionScopeEnd();
+					UID_PaintRegionNoteDrawn(doc, i);
+					if (backend->perfNoteReplay) {
+						backend->perfNoteReplay(hit);
+					}
+				}
+				PopClip(backend);
+				UID_PaintRegionsRetainEnd(doc);
+			}
+		}
+		if (!painted) {
+			/* Root hidden/transparent: nothing owns the kept pixels — clear next frame. */
+			UID_PaintRegionsRetainDrop(doc);
+		}
+		if (backend->perfNoteRegions) {
+			backend->perfNoteRegions(dirtyN, nreg);
+		}
+		doc->dirty = static_cast<uid_dirty_flags_t>(doc->dirty & ~UID_DIRTY_PAINT);
+		return;
+	}
+
+	/* Added in Omaha: Phase 4.6 — non-region paths cannot keep the previous target. */
+	UID_PaintRegionsRetainDrop(doc);
+
+	/* Stage 4: replay retained batch list when chrome is clean. */
+	if (UID_PaintListEnabled() && UID_PaintListTryReplay(doc, backend)) {
+		if (backend->perfNoteReplay) {
+			backend->perfNoteReplay(1);
+		}
+		return;
+	}
+	if (backend->perfNoteReplay) {
+		backend->perfNoteReplay(0);
 	}
 
 	/*
@@ -3053,18 +3281,9 @@ void UID_PaintChrome(uid_document_t *doc, const uid_backend_t *backend)
 	}
 
 	if (doc->rootNode != UID_INVALID_NODE_ID) {
-		uid_node_id_t chromeRoot = doc->rootNode;
-		auto mit = doc->idIndex.find("menu_root");
-		if (mit != doc->idIndex.end()) {
-			chromeRoot = mit->second;
-		}
+		const uid_node_id_t chromeRoot = UID_PaintChromeRootId(doc);
 		PaintChromeNode(doc, chromeRoot, backend, true);
 	}
-	/*
-	 * Fixed in Omaha: modals paint in UID_PaintOverlay (after 3D model previews).
-	 * Chrome still queues <model> previews; drawing the modal here put dropdowns
-	 * under the player previews on the Profile panel.
-	 */
 
 	if (recording) {
 		UID_PaintListEndRecord(doc);

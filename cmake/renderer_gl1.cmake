@@ -39,6 +39,7 @@ set(RENDERER_GL1_SOURCES
     ${SOURCE_DIR}/renderergl1/tr_ui_batch.c
     ${SOURCE_DIR}/renderergl1/tr_ui_fbo.c
     ${SOURCE_DIR}/renderergl1/tr_ui_layer.c
+    ${SOURCE_DIR}/renderergl1/tr_ui_stats.c
     ${SOURCE_DIR}/renderergl1/tr_ui_stencil.c
     ${SOURCE_DIR}/renderergl1/tr_util.cpp
     ${SOURCE_DIR}/renderergl1/tr_vis.cpp

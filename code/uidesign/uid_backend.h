@@ -47,8 +47,25 @@ typedef struct uid_collection_item_s {
 	uint32_t    flags;
 } uid_collection_item_t;
 
+/* Added in Omaha: Phase 4.4 — interned host source ids (peek skips Q_stricmp). */
+enum {
+	UID_COLHOST_NONE = 0,
+	UID_COLHOST_SCOREBOARD = 1,
+	UID_COLHOST_HUD_GAME_MESSAGES = 2,
+	UID_COLHOST_HUD_CHAT = 3,
+	UID_COLHOST_HUD_KILL_FEED = 4,
+	UID_COLHOST_HUD_MESSAGES = 5,
+	UID_COLHOST_HUD_OBJECTIVES = 6,
+	UID_COLHOST_VOTE_OPTIONS = 7,
+	UID_COLHOST_SERVERS = 8,
+	UID_COLHOST_HUD_PACKS = 9,
+	UID_COLHOST_HITMARKER_SOUNDS = 10,
+	UID_COLHOST_OTHER = 11
+};
+
 typedef struct uid_collection_query_s {
 	const char *source;
+	int         hostId;
 	int         offset;
 	int         limit;
 	int        *outTotal;
@@ -104,6 +121,11 @@ typedef struct uid_backend_s {
 	bool (*cvarReset)(const char *name);
 	/* Added in Omaha: monotonic epoch bumped when any cvar value changes. */
 	unsigned (*cvarEpoch)(void);
+	/* Added in Omaha: Phase 4.4 — per-cvar modificationCount without formatting. */
+	unsigned (*cvarModCount)(const char *name);
+	/* Added in Omaha: Phase 4.4 — cached cvar handle so mark skips Cvar_FindVar. */
+	void *(*cvarFind)(const char *name);
+	unsigned (*cvarModCountHandle)(void *handle);
 
 	/* keybind */
 	bool (*keyNameToNum)(const char *name, int *key);
@@ -293,6 +315,12 @@ typedef struct uid_backend_s {
 
 	/* diagnostics */
 	void (*diag)(int severity, const char *path, int line, const char *msg, void *userdata);
+
+	/* Added in Omaha: optional ui_perf_hud hooks (NULL-checked). */
+	void (*perfNoteReplay)(int hit);
+	void (*perfNoteLayout)(int mode);
+	/* Added in Omaha: Phase 4.1 — last chrome paint region dirty/total. */
+	void (*perfNoteRegions)(int dirty, int total);
 
 	void *userdata;
 } uid_backend_t;

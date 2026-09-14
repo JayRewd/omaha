@@ -34,6 +34,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include <algorithm>
 #include <cmath>
 #include <cctype>
+#include <cstdio>
 
 extern clientGameExport_t *cge;
 
@@ -285,6 +286,29 @@ static void UIR_Hud_SetCvarAngleDeg(const char *name, float deg)
 	UIR_Hud_SetCvar(name, buf);
 }
 
+/*
+ * Compass tape motion is positional, not a low-frequency indicator animation.
+ * Publish enough precision for layout to remain the single source of truth;
+ * quantizing this value forced paint replay to invent a second heading path.
+ */
+static void UIR_Hud_SetCompassHeadingDeg(float deg)
+{
+	char buf[32];
+	if (UIR_Hud_PushCacheEnabled()) {
+		UirHudPushFloatSlot *slot = UIR_Hud_FindFloatSlot("ui_om_hud_compass_heading", qtrue);
+		if (slot && slot->valid && slot->value == deg) {
+			return;
+		}
+		if (slot) {
+			slot->value = deg;
+			slot->valid = qtrue;
+		}
+	}
+	UID_ProfileCountInc(UID_PROF_CNT_SNPRINTF);
+	Com_sprintf(buf, sizeof(buf), "%.3f", deg);
+	UIR_Hud_SetCvar("ui_om_hud_compass_heading", buf);
+}
+
 static int UIR_Hud_HeadingSpinnerAngleTenths(int statValue)
 {
 	float frac = (float)statValue / 3600.0f;
@@ -451,7 +475,7 @@ static float UIR_Hud_CompassSpringAngleDeg(void)
 }
 
 /* Added in Omaha: raw heading for modern tape compass (no classic needle spring bounce). */
-static float UIR_Hud_CompassHeadingDeg(void)
+extern "C" float UIR_Hud_CompassHeadingDeg(void)
 {
 	if (!cge || !cge->CG_EyeAngles) {
 		return 0.0f;
@@ -673,8 +697,8 @@ static void UIR_Hud_SyncCompassCvars(void)
 
 	const float compassAngle = UIR_Hud_CompassSpringAngleDeg();
 	UIR_Hud_SetCvarAngleDeg("ui_om_hud_compass_angle", compassAngle);
-	/* Added in Omaha: stable heading for modern scrolling compass. */
-	UIR_Hud_SetCvarAngleDeg("ui_om_hud_compass_heading", UIR_Hud_CompassHeadingDeg());
+	/* Exact positional source; XML owns modulo/period behavior. */
+	UIR_Hud_SetCompassHeadingDeg(UIR_Hud_CompassHeadingDeg());
 	UIR_Hud_SetCvarAngleDeg("ui_om_hud_damage_angle", UIR_Hud_HeadingSpinnerAngleTenths(dmgStat) / 10.0f);
 	UIR_Hud_SetCvarFrac("ui_om_hud_damage_alpha", damageAlpha);
 	UIR_Hud_SetCvarAngleDeg("ui_om_hud_obj_arrow_angle", UIR_Hud_SpinnerAngleTenths(objCenter) / 10.0f);

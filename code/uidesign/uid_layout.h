@@ -76,6 +76,8 @@ float UID_ScaleAuthoredPx(const uid_document_t *doc, float px);
  */
 void UID_ShiftSubtreeBoxes(uid_document_t *doc, uid_node_id_t id, float dx, float dy, const uid_rect_t &parentClip);
 void UID_ApplyPendingTranslateDeltas(uid_document_t *doc);
+/* Added in Omaha: Phase 4.1 — node → parent; rebuilt on STRUCTURE. */
+void UID_RebuildParentMap(uid_document_t *doc);
 
 /*
  * Topmost interactive node under (x,y) in logical space.

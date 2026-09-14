@@ -38,11 +38,81 @@ extern "C" {
  */
 void UID_SetPaintList(int enabled);
 int  UID_PaintListEnabled(void);
+/* Added in Omaha: Phase 3 — replay clip dedup / EndRecord CLIP collapse. */
+void UID_SetReplayClipDedup(int enabled);
+/* Added in Omaha: Phase 4.1 — per-region retained paint chunks. */
+void UID_SetPaintRegions(int enabled);
+int  UID_PaintRegionsEnabled(void);
+/* Added in Omaha: Phase 4.2 — cached geometry for bound translate subtrees. */
+void UID_SetLiveTranslateCache(int enabled);
+int  UID_LiveTranslateCacheEnabled(void);
+int  UID_PaintLiveCaptureNoCull(void);
+int  UID_PaintListBeginLiveCapture(
+	uid_node_id_t nodeId,
+	float originX,
+	float originY,
+	float clipX,
+	float clipY,
+	float clipW,
+	float clipH
+);
+/* Added in Omaha: Phase 4.3 — foreach lifetime fade cache. */
+void UID_SetLiveOpacityCache(int enabled);
+int  UID_LiveOpacityCacheEnabled(void);
+int  UID_PaintLiveOpacityRowsCached(const uid_document_t *doc, uid_node_id_t foreachId);
+int  UID_PaintListBeginLiveOpacityCapture(
+	uid_document_t *doc,
+	uid_node_id_t nodeId,
+	float originX,
+	float originY,
+	float clipX,
+	float clipY,
+	float clipW,
+	float clipH
+);
+void UID_PaintListEndLiveCapture(void);
+void UID_PaintListRecordLiveOpacity(uid_node_id_t nodeId);
+void UID_RebuildPaintRegions(uid_document_t *doc);
+void UID_PaintRegionsInvalidateAll(uid_document_t *doc);
+void UID_PaintRegionsInvalidateNode(uid_document_t *doc, uid_node_id_t nodeId);
+int  UID_PaintRegionsPrepare(uid_document_t *doc);
+int  UID_PaintListFlag(void);
+int  UID_PaintRegionsFlag(void);
+int  UID_PaintRegionsRawUsable(const uid_document_t *doc);
+int  UID_PaintRegionsUsable(const uid_document_t *doc);
+int  UID_PaintRegionsCount(const uid_document_t *doc);
+uid_node_id_t UID_PaintChromeRootId(const uid_document_t *doc);
+uid_node_id_t UID_PaintRegionRootId(const uid_document_t *doc, int region);
+int  UID_PaintRegionCanReplay(const uid_document_t *doc, int region);
+int  UID_PaintRegionReplay(uid_document_t *doc, int region, const uid_backend_t *backend);
+void UID_PaintRegionBeginRecord(uid_document_t *doc, int region);
+void UID_PaintRegionEndRecord(uid_document_t *doc, int region);
+void UID_PaintRegionMarkInvalid(uid_document_t *doc, int region);
+
+/*
+ * Added in Omaha: Phase 4.6 — retained UI target / partial redraw.
+ * RetainPlan (root clip in draw space) returns 1 when only dirty regions need
+ * painting; RetainSkip says whether a region is clean this frame; NoteDrawn
+ * records the box a painted region now owns; RetainEnd finishes the frame.
+ * RetainDrop forces a cleared target (root hidden / non-region paint path).
+ */
+int  UID_PaintRegionsRetainPlan(
+	uid_document_t *doc,
+	const uid_backend_t *backend,
+	float clipX,
+	float clipY,
+	float clipW,
+	float clipH
+);
+int  UID_PaintRegionRetainSkip(const uid_document_t *doc, int region);
+int  UID_PaintRegionRetainLiveOnly(const uid_document_t *doc, int region);
+int  UID_PaintRegionReplayLives(uid_document_t *doc, int region, const uid_backend_t *backend);
+void UID_PaintRegionNoteDrawn(uid_document_t *doc, int region);
+void UID_PaintRegionsRetainEnd(uid_document_t *doc);
+void UID_PaintRegionsRetainDrop(uid_document_t *doc);
 
 void UID_PaintListInvalidate(uid_document_t *doc);
 void UID_PaintListMarkHostDraw(void); /* model/host — list cannot replay */
-/* Added in Omaha: soft mask-image uses a layer RT; retained list cannot replay it. */
-void UID_PaintListMarkImageMask(void);
 void UID_PaintListFree(uid_document_t *doc);
 
 /* Added in Omaha: record SVG shape child-clips so shaped HUD/scoreboard can replay. */
@@ -59,12 +129,31 @@ void UID_PaintListRecordShapeClipBegin(
 );
 void UID_PaintListRecordShapeClipEnd(void);
 
+/* Added in Omaha: record soft mask-image layer begin/end so retained list can replay. */
+void UID_PaintListRecordImageMaskBegin(
+	float x,
+	float y,
+	float w,
+	float h,
+	const char *maskSpec,
+	int fit
+);
+void UID_PaintListRecordImageMaskEnd(void);
+
 /* Returns 1 if chrome was fully handled by replay (caller should skip tree paint). */
-int UID_PaintListTryReplay(uid_document_t *doc);
+int UID_PaintListTryReplay(uid_document_t *doc, const uid_backend_t *backend);
 
 void UID_PaintListBeginRecord(uid_document_t *doc);
 void UID_PaintListEndRecord(uid_document_t *doc);
 
+/*
+ * Added in Omaha: bound translate-x/y nodes are recorded as live subtrees so the
+ * retained list stays valid while any HUD element scrolls/offsets via translate.
+ */
+int  UID_PaintListIsActivelyRecording(void);
+void UID_PaintListRecordLiveSubtree(uid_node_id_t nodeId);
+void UID_PaintListPauseRecord(void);
+void UID_PaintListResumeRecord(void);
 
 #ifdef __cplusplus
 }

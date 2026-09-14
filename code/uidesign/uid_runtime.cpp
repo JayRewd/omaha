@@ -30,6 +30,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "uid_expr_bool.h"
 #include "uid_input.h"
 #include "uid_layout.h"
+#include "uid_paint.h"
 #include "uid_profile.h"
 #include "uid_template.h"
 #include "uid_widget.h"
@@ -528,6 +529,13 @@ void UID_Update(uid_runtime_t *runtime, int realtime, const uid_pointer_state_t 
 		UID_ProfileEnd(UID_PROF_FRAME_LAYOUT);
 		layoutRan = layoutMode;
 		doc->dirty = static_cast<uid_dirty_flags_t>(doc->dirty & ~UID_DIRTY_STRUCTURE);
+		if (doc->regionsStale) {
+			UID_RebuildParentMap(doc);
+			UID_RebuildPaintRegions(doc);
+		}
+		if (layoutMode == 1) {
+			UID_PaintRegionsInvalidateAll(doc);
+		}
 		ReportDiags(&runtime->backend, diags, doc->sourceName.c_str());
 	} else if (!doc->pendingTranslateDeltas.empty()) {
 		/* Added in Omaha: translate-only shifts — not a full layout (layoutRan stays 0). */
@@ -545,6 +553,9 @@ void UID_Update(uid_runtime_t *runtime, int realtime, const uid_pointer_state_t 
 		if (!doc->sourceName.empty()) {
 			UID_ProfileSetFrameLabel(doc->sourceName.c_str());
 		}
+	}
+	if (runtime->backend.perfNoteLayout) {
+		runtime->backend.perfNoteLayout(layoutRan);
 	}
 }
 

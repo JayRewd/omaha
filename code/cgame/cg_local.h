@@ -486,6 +486,7 @@ extern "C" {
     extern cvar_t *cg_hitmessages;
     extern cvar_t *cg_acidtrip;
     extern cvar_t *cg_hud;
+    extern cvar_t *cg_hud_push_cache; /* Added in Omaha: Phase 4.5 */
     extern cvar_t *cg_huddraw_force;
     extern cvar_t *cg_drawsvlag;
     extern cvar_t *cg_crosshair;
@@ -675,6 +676,8 @@ extern "C" {
     void CG_DrawObjectives();
     void CG_Draw2D(void);
     void CG_SyncModernHudCvars(void);
+    void CG_HudSetCached(const char *name, const char *value);
+    void CG_HudPushCacheReset(void);
     qboolean CG_UseModernHudPack(void);
 
     //

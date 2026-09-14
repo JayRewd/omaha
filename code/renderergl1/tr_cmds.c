@@ -130,6 +130,8 @@ void R_IssuePendingRenderCommands( void ) {
 	if ( !tr.registered ) {
 		return;
 	}
+	/* Added in Omaha: ui_perf_hud counter. */
+	tr_uiStats.issuePending++;
 	R_IssueRenderCommands( qfalse );
 }
 
@@ -338,6 +340,9 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 		return;
 	}
 	glState.finishCalled = qfalse;
+
+	/* Added in Omaha: roll UI GL event counters for ui_perf_hud. */
+	RE_UiStatsFrameBegin();
 
 	tr.frameCount++;
 	tr.frameSceneNum = 0;

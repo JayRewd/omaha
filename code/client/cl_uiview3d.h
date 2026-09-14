@@ -36,6 +36,9 @@ class View3D : public UIWidget
 public:
     CLASS_PROTOTYPE(View3D);
 
+    /* Added in Omaha: Phase 1 — skip UIWidget::Display set2D before 3D (Draw sets 2D after). */
+    void Display(const UIRect2D& drawframe, float parent_alpha) override;
+
 protected:
     void Draw(void) override;
     void DrawLetterbox(void);

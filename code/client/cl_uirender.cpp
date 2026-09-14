@@ -90,6 +90,7 @@ static int CL_UIR_ApplyDmPauseClickGate(int buttons)
 #include "cl_messages_host.h"
 #include "cl_hud_registry.h"
 #include "cl_hud_host.h"
+#include "cl_uiperf.h"
 
 #include "../uirender/uir_backend.h"
 #include "../uirender/uir_batch.h"
@@ -121,7 +122,6 @@ static int CL_UIR_ApplyDmPauseClickGate(int buttons)
 #include "../uidesign/uid_menu_map_view.h"
 #include "../uidesign/uid_profile.h"
 
-#include <cstdio>
 #include <ctime>
 #include "../uidesign/uid_opt.h"
 #include "../uidesign/uid_layout.h"
@@ -131,7 +131,6 @@ static int CL_UIR_ApplyDmPauseClickGate(int buttons)
 #include "../uilib/ui_public.h"
 
 #include <cmath>
-#include <cstdio>
 #include <cstring>
 #include <string>
 #include <unordered_map>
@@ -151,11 +150,21 @@ static cvar_t *ui_opt; /* Added in Omaha: bitmask of UID_OPT_* (-1 = all on) */
 static cvar_t *ui_layout_scoped; /* Added in Omaha: Stage 2 scoped subtree layout */
 static cvar_t *ui_style_cache;   /* Added in Omaha: Stage 3 computed style cache */
 static cvar_t *ui_paint_list;    /* Added in Omaha: Stage 4 retained paint command list */
+
+static cvar_t *ui_shape_clip;    /* Added in Omaha: real stencil shape clips (default AABB) */
 static cvar_t *ui_batch_tile;    /* Added in Omaha: Stage 5 64px translucent quad tiling */
 static cvar_t *ui_bind_cache;    /* Added in Omaha: Stage 6 cvar_t*+modCount describe cache */
 static cvar_t *ui_clip_dedup; /* Added in Omaha: skip unchanged clip/scissor applies */
 static cvar_t *ui_mesh_cache; /* Added in Omaha: tessellated mesh cache for GPU fills/strokes */
 static cvar_t *ui_chrome_cache; /* Added in Omaha: retained chrome RT (gl1; default off) */
+static cvar_t *ui_d2d_dedup; /* Added in Omaha: Phase 1 — skip redundant Set2DWindow/scissor */
+static cvar_t *ui_replay_clip_dedup; /* Added in Omaha: Phase 3 — replay CLIP dedup */
+static cvar_t *ui_paint_regions; /* Added in Omaha: Phase 4.1 — per-region paint list */
+static cvar_t *ui_live_translate_cache; /* Added in Omaha: Phase 4.2 — live translate cache */
+static cvar_t *ui_live_opacity_cache; /* Added in Omaha: Phase 4.3 — foreach fade cache */
+static cvar_t *ui_paint_retain;       /* Added in Omaha: Phase 4.6 — retained UI target */
+static cvar_t *ui_bind_deps; /* Added in Omaha: Phase 4.4 — cvar bind dependency index */
+static cvar_t *ui_bind_deps_verify; /* Added in Omaha: Phase 4.4 — full-walk compare */
 static int     g_uiProfileFrameCounter;
 static int     g_uiProfileSampleDepth;
 static qboolean g_useLegacyMain = qfalse;
@@ -241,6 +250,10 @@ void CL_UIR_ProfileSyncFromCvar(void)
 	if (ui_paint_list) {
 		UID_SetPaintList(ui_paint_list->integer != 0);
 	}
+	/* Added in Omaha: real stencil shape-child clips (default off = AABB). */
+	if (ui_shape_clip) {
+		UIR_SetShapeClipStencil(ui_shape_clip->integer != 0);
+	}
 	/* Added in Omaha: Stage 5 translucent quad tiling (default off). */
 	if (ui_batch_tile) {
 		UIR_BatchSetTile(ui_batch_tile->integer != 0);
@@ -256,6 +269,37 @@ void CL_UIR_ProfileSyncFromCvar(void)
 	/* Added in Omaha: retained chrome RT (idle blit); default off — enable only when idle. */
 	if (ui_chrome_cache) {
 		UIR_SetChromeCache(ui_chrome_cache->integer != 0);
+	}
+	/* Added in Omaha: Phase 1 — skip redundant Set2DWindow/scissor. */
+	if (ui_d2d_dedup) {
+		UIR_Draw2DSetDedup(ui_d2d_dedup->integer != 0);
+	}
+	/* Added in Omaha: Phase 3 — paint-list replay clip dedup. */
+	if (ui_replay_clip_dedup) {
+		UID_SetReplayClipDedup(ui_replay_clip_dedup->integer != 0);
+	}
+	/* Added in Omaha: Phase 4.1 — per-region retained paint. */
+	if (ui_paint_regions) {
+		UID_SetPaintRegions(ui_paint_regions->integer != 0);
+	}
+	/* Added in Omaha: Phase 4.2 — cached bound-translate subtrees. */
+	if (ui_live_translate_cache) {
+		UID_SetLiveTranslateCache(ui_live_translate_cache->integer != 0);
+	}
+	/* Added in Omaha: Phase 4.3 — foreach lifetime fade cache. */
+	if (ui_live_opacity_cache) {
+		UID_SetLiveOpacityCache(ui_live_opacity_cache->integer != 0);
+	}
+	/* Added in Omaha: Phase 4.6 — retained UI target (partial redraw). */
+	if (ui_paint_retain) {
+		UIR_BatchSetRetain(ui_paint_retain->integer != 0);
+	}
+	/* Added in Omaha: Phase 4.4 — targeted bind sync. */
+	if (ui_bind_deps) {
+		UID_SetBindDeps(ui_bind_deps->integer != 0);
+	}
+	if (ui_bind_deps_verify) {
+		UID_SetBindDepsVerify(ui_bind_deps_verify->integer != 0);
 	}
 }
 
@@ -315,8 +359,9 @@ void CL_UIR_ProfileEndSample(const char *kind)
 
 	interval = (ui_profile_interval && ui_profile_interval->integer > 0) ? ui_profile_interval->integer : 60;
 	g_uiProfileFrameCounter++;
-	shouldPrint = (ui_profile && ui_profile->integer >= 2)
-		|| (g_uiProfileFrameCounter % interval) == 0;
+	/* ui_profile controls console printing; ui_perf_hud may keep timers without prints. */
+	shouldPrint = (ui_profile && ui_profile->integer)
+		&& ((ui_profile->integer >= 2) || (g_uiProfileFrameCounter % interval) == 0);
 
 	if (shouldPrint) {
 		CL_UIR_ProfilePrint(kind ? kind : "frame", &t);
@@ -405,6 +450,8 @@ static void uir_set_color(const float *rgba)
 
 static void uir_draw_box(float x, float y, float w, float h)
 {
+	/* Phase 4.6: immediate draws bypass region tracking — retained target must reset. */
+	UIR_BatchNoteExternalDraw();
 	re.DrawBox(x, y, w, h);
 }
 
@@ -488,6 +535,22 @@ static void uir_end_target(void)
 	}
 }
 
+/* Added in Omaha: Phase 4.6 — retained UI target. */
+static int uir_begin_target_keep(int keep)
+{
+	if (!CL_UIR_GpuDrawEnabled() || !re.BeginUI2DTargetKeep) {
+		return 0;
+	}
+	return re.BeginUI2DTargetKeep(keep);
+}
+
+static void uir_clear_rect_fb(int x, int y, int w, int h)
+{
+	if (re.UI2DClearRectFb) {
+		re.UI2DClearRectFb(x, y, w, h);
+	}
+}
+
 static int uir_create_atlas(const char *name, const unsigned char *rgba, int width, int height)
 {
 	if (!re.CreateUIAtlas) {
@@ -506,11 +569,13 @@ static int uir_update_atlas(int h, const unsigned char *rgba, int width, int hei
 
 static void uir_draw_pic(float x, float y, float w, float h, float s1, float t1, float s2, float t2, int shader)
 {
+	UIR_BatchNoteExternalDraw();
 	re.DrawStretchPic(x, y, w, h, s1, t1, s2, t2, (qhandle_t)shader);
 }
 
 static void uir_draw_tile_pic(float x, float y, float w, float h, int shader)
 {
+	UIR_BatchNoteExternalDraw();
 	re.DrawTilePic(x, y, w, h, (qhandle_t)shader);
 }
 
@@ -526,6 +591,7 @@ static void uir_draw_triangle_pic(const float points[3][2], const float texCoord
 		t[i][0] = texCoords[i][0];
 		t[i][1] = texCoords[i][1];
 	}
+	UIR_BatchNoteExternalDraw();
 	re.DrawTrianglePic(p, t, (qhandle_t)shader);
 }
 
@@ -565,6 +631,14 @@ static void uir_begin_stencil_mask(int x, int y, int w, int h)
 static void uir_stencil_mask_box(float x, float y, float w, float h)
 {
 	re.DrawBox(x, y, w, h);
+}
+
+static void uir_stencil_mask_tris(const uir_vert_t *v, int nv, const unsigned short *idx, int ni)
+{
+	if (!re.DrawUiStencilMaskTris || !v || nv < 3 || !idx || ni < 3) {
+		return;
+	}
+	re.DrawUiStencilMaskTris(&v[0].x, (int)sizeof(*v), nv, idx, ni);
 }
 
 static void uir_begin_stencil_draw(void)
@@ -906,6 +980,10 @@ static void CL_UIR_WireBackends(void)
 	batch.targetSamples = uir_target_samples;
 	batch.beginTarget = uir_begin_target;
 	batch.endTarget = uir_end_target;
+	if (re.BeginUI2DTargetKeep && re.UI2DClearRectFb) {
+		batch.beginTargetKeep = uir_begin_target_keep;
+		batch.clearRectFb = uir_clear_rect_fb;
+	}
 	UIR_BatchSetBackend(&batch);
 	CL_UIR_SyncGpuDrawBatch();
 
@@ -942,6 +1020,7 @@ static void CL_UIR_WireBackends(void)
 	stencil.available = uir_stencil_available;
 	stencil.beginMask = uir_begin_stencil_mask;
 	stencil.maskBox = uir_stencil_mask_box;
+	stencil.maskTris = uir_stencil_mask_tris;
 	stencil.beginDraw = uir_begin_stencil_draw;
 	stencil.end = uir_end_stencil;
 	UIR_StencilSetBackend(&stencil);
@@ -1123,6 +1202,38 @@ static bool uid_cvar_number(const char *name, double *outValue, unsigned *outMod
 static unsigned uid_cvar_epoch(void)
 {
 	return (unsigned)Cvar_GlobalModCount();
+}
+
+/* Added in Omaha: Phase 4.4 — per-cvar modificationCount without string format. */
+static unsigned uid_cvar_mod_count(const char *name)
+{
+	cvar_t *var;
+
+	if (!name || !name[0]) {
+		return 0u;
+	}
+	var = Cvar_FindVar(name);
+	if (!var) {
+		return 0u;
+	}
+	return (unsigned)var->modificationCount;
+}
+
+static void *uid_cvar_find(const char *name)
+{
+	if (!name || !name[0]) {
+		return NULL;
+	}
+	return Cvar_FindVar(name);
+}
+
+static unsigned uid_cvar_mod_count_handle(void *handle)
+{
+	const cvar_t *var = static_cast<const cvar_t *>(handle);
+	if (!var) {
+		return 0u;
+	}
+	return (unsigned)var->modificationCount;
 }
 
 static bool uid_cvar_write(const char *name, const char *value)
@@ -1901,6 +2012,7 @@ static void CL_UIR_UpdateHudMenus(unsigned int time, qboolean applyWheel)
 
 	CL_UIR_SyncScoreboardPointer();
 	if (CL_UIR_UseModernHudPack() && clc.state == CA_ACTIVE) {
+		UiPerfScope hudCvarScope(UIPERF_HUD_CVAR);
 		UIR_Hud_Sync();
 	}
 	/*
@@ -3636,7 +3748,54 @@ static int uid_query_collection_vote_options(
 
 static int uid_query_collection_items(const uid_collection_query_t *query, uid_collection_item_t *out, int max)
 {
-	if (!query || !query->source) {
+	if (!query) {
+		return 0;
+	}
+	switch (query->hostId) {
+	case UID_COLHOST_SCOREBOARD:
+		return uid_query_collection_scoreboard(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max
+		);
+	case UID_COLHOST_HUD_GAME_MESSAGES:
+		return uid_query_collection_hud_messages(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max, 1
+		);
+	case UID_COLHOST_HUD_CHAT:
+		return uid_query_collection_hud_messages(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max, 2
+		);
+	case UID_COLHOST_HUD_KILL_FEED:
+		return uid_query_collection_hud_kill_feed(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max
+		);
+	case UID_COLHOST_HUD_MESSAGES:
+		return uid_query_collection_hud_messages(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max, 0
+		);
+	case UID_COLHOST_HUD_OBJECTIVES:
+		return uid_query_collection_objectives(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max
+		);
+	case UID_COLHOST_VOTE_OPTIONS:
+		return uid_query_collection_vote_options(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max
+		);
+	case UID_COLHOST_SERVERS:
+		return uid_query_collection_servers(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max
+		);
+	case UID_COLHOST_HUD_PACKS:
+		return uid_query_collection_hud_packs(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max
+		);
+	case UID_COLHOST_HITMARKER_SOUNDS:
+		return uid_query_collection_hitmarker_sounds(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max
+		);
+	default:
+		break;
+	}
+	if (!query->source) {
 		return 0;
 	}
 	if (!Q_stricmp(query->source, "vote-options")) {
@@ -5271,14 +5430,15 @@ static bool uid_begin_image_mask(float x, float y, float w, float h, const char 
 	const uir_status_t st =
 		UIR_BeginImageMask(x, y, w, h, vfsPathOrBrush, static_cast<uir_image_fit_t>(fit));
 	if (st == UIR_OK) {
-		/* Fixed in Omaha: paint-list cannot replay soft mask-image layer RT. */
-		UID_PaintListMarkImageMask();
+		/* Soft mask-image is retained via IMAGE_MASK_* paint-list cmds. */
+		UID_PaintListRecordImageMaskBegin(x, y, w, h, vfsPathOrBrush, fit);
 	}
 	return st == UIR_OK;
 }
 
 static void uid_end_image_mask(void)
 {
+	UID_PaintListRecordImageMaskEnd();
 	UIR_EndImageMask();
 }
 
@@ -5319,6 +5479,9 @@ static void CL_UIR_FillUidBackend(uid_backend_t *out)
 	out->cvarWrite = uid_cvar_write;
 	out->cvarReset = uid_cvar_reset;
 	out->cvarEpoch = uid_cvar_epoch;
+	out->cvarModCount = uid_cvar_mod_count;
+	out->cvarFind = uid_cvar_find;
+	out->cvarModCountHandle = uid_cvar_mod_count_handle;
 	out->keyNameToNum = uid_key_name_to_num;
 	out->keyNumToName = uid_key_num_to_name;
 	out->getBinding = uid_get_binding;
@@ -5352,6 +5515,9 @@ static void CL_UIR_FillUidBackend(uid_backend_t *out)
 	out->getHiResScale = uid_get_hi_res_scale;
 	out->getFramebufferSize = uid_get_framebuffer_size;
 	out->diag = uid_diag;
+	out->perfNoteReplay = CL_UIPerf_NoteReplay;
+	out->perfNoteLayout = CL_UIPerf_NoteLayoutRan;
+	out->perfNoteRegions = CL_UIPerf_NoteRegions;
 	out->userdata = NULL;
 }
 
@@ -5617,8 +5783,8 @@ static qboolean CL_UIR_SyncHudLayerMenus(unsigned int time, int *lw, int *lh, in
 {
 	int localLw = 0;
 	int localLh = 0;
-	int localFw = 0;
 	int localFh = 0;
+	int localFw = 0;
 
 	if (clc.state != CA_ACTIVE || CL_UIR_UseLegacyHud() || !CL_UIMenu_HasMenusUpTo(4)) {
 		return qfalse;
@@ -5993,6 +6159,8 @@ void CL_UIR_RegisterCvars(void)
 	ui_layout_scoped = Cvar_Get("ui_layout_scoped", "1", CVAR_ARCHIVE);
 	ui_style_cache = Cvar_Get("ui_style_cache", "1", CVAR_ARCHIVE);
 	ui_paint_list = Cvar_Get("ui_paint_list", "1", CVAR_ARCHIVE);
+	/* Added in Omaha: GPU stencil shape clips; 0 = AABB (Phase 0 default). */
+	ui_shape_clip = Cvar_Get("ui_shape_clip", "0", CVAR_ARCHIVE);
 	ui_batch_tile = Cvar_Get("ui_batch_tile", "0", CVAR_ARCHIVE);
 	ui_bind_cache = Cvar_Get("ui_bind_cache", "1", CVAR_ARCHIVE);
 	/* Added in Omaha: skip unchanged UIR_Hud_SetCvar* format/Cvar_Set work. */
@@ -6006,6 +6174,20 @@ void CL_UIR_RegisterCvars(void)
 	/* Added in Omaha: retained chrome RT; default off (rebuilds every frame while HUD is live).
 	 * Follow-up: auto-enable only after N clean (paint-only / no dirty) frames — not a forced-on cache. */
 	ui_chrome_cache = Cvar_Get("ui_chrome_cache", "0", CVAR_ARCHIVE);
+	/* Added in Omaha: Phase 1 — skip redundant Set2DWindow/scissor in compositor. */
+	ui_d2d_dedup = Cvar_Get("ui_d2d_dedup", "1", CVAR_ARCHIVE);
+	/* Added in Omaha: Phase 3 — replay CLIP dedup / EndRecord collapse. */
+	ui_replay_clip_dedup = Cvar_Get("ui_replay_clip_dedup", "1", CVAR_ARCHIVE);
+	/* Added in Omaha: Phase 4.1 — per-region retained chrome chunks. */
+	ui_paint_regions = Cvar_Get("ui_paint_regions", "1", CVAR_ARCHIVE);
+	/* Added in Omaha: Phase 4.2 — cached geometry for bound translate-x/y. */
+	ui_live_translate_cache = Cvar_Get("ui_live_translate_cache", "1", CVAR_ARCHIVE);
+	/* Added in Omaha: Phase 4.3 — cached foreach lifetime fades. */
+	ui_live_opacity_cache = Cvar_Get("ui_live_opacity_cache", "1", CVAR_ARCHIVE);
+	ui_paint_retain = Cvar_Get("ui_paint_retain", "1", CVAR_ARCHIVE);
+	/* Added in Omaha: Phase 4.4 — skip bind walks when listed cvars are unchanged. */
+	ui_bind_deps = Cvar_Get("ui_bind_deps", "1", CVAR_ARCHIVE);
+	ui_bind_deps_verify = Cvar_Get("ui_bind_deps_verify", "0", CVAR_TEMP);
 	/* Added in Omaha: batched GPU UI path; default on. */
 	ui_gpu_draw = Cvar_Get("ui_gpu_draw", "1", CVAR_ARCHIVE);
 	Cvar_CheckRange(ui_gpu_draw, 0, 1, qtrue);
@@ -6226,6 +6408,16 @@ void CL_UIR_EnsureStarted(void)
 	CL_UIR_ApplyDebugRenderPreset();
 }
 
+static void CL_UIPerf_Reset_f(void)
+{
+	CL_UIPerf_Reset();
+}
+
+static void CL_UIPerf_Dump_f(void)
+{
+	CL_UIPerf_Dump();
+}
+
 void CL_UIR_Init(void)
 {
 	if (g_uirStarted) {
@@ -6242,6 +6434,8 @@ void CL_UIR_Init(void)
 	UIR_Init();
 	Cmd_AddCommand("ui_render_reloadworld", CL_UIR_ReloadWorld_f);
 	Cmd_AddCommand("ui_render_test", CL_UIR_Test_f);
+	Cmd_AddCommand("ui_perf_reset", CL_UIPerf_Reset_f);
+	Cmd_AddCommand("ui_perf_dump", CL_UIPerf_Dump_f);
 	Cmd_AddCommand("uir_stress_uiscale", CL_UIR_StressUiScale_f);
 	Cmd_AddCommand("ui_design_dump", CL_UIR_DesignDump_f);
 	Cmd_AddCommand("ui_compare_goto", CL_UIR_CompareGoto_f);
@@ -6249,6 +6443,7 @@ void CL_UIR_Init(void)
 	/* Added in Omaha: bindable scoreboard sort cycle (Misc options). */
 	Cmd_AddCommand("cycle_scoreboard_sort", CL_UIR_CycleScoreboardSort_f);
 	CL_UIR_RegisterBakeCommands();
+	CL_UIPerf_Init();
 	Cvar_Get("ui_browser_want_refresh", "0", CVAR_TEMP);
 	Cvar_Get("ui_selected_server", "", CVAR_TEMP);
 	Cvar_Get("ui_reset_cvar", "", CVAR_TEMP);
@@ -6269,6 +6464,8 @@ void CL_UIR_Shutdown(void)
 	}
 	Cmd_RemoveCommand("ui_render_reloadworld");
 	Cmd_RemoveCommand("ui_render_test");
+	Cmd_RemoveCommand("ui_perf_reset");
+	Cmd_RemoveCommand("ui_perf_dump");
 	Cmd_RemoveCommand("uir_stress_uiscale");
 	Cmd_RemoveCommand("ui_design_dump");
 	Cmd_RemoveCommand("ui_compare_goto");
@@ -6282,6 +6479,7 @@ void CL_UIR_Shutdown(void)
 	UID_ClearInvokes();
 	CL_ModernBrowser_Shutdown();
 	UIR_Shutdown();
+	CL_UIPerf_Shutdown();
 	g_browserDidFirstRefresh = qfalse;
 	g_uirStarted = qfalse;
 }
@@ -6969,6 +7167,7 @@ void CL_UIR_DrawCrosshair(void)
 	qboolean       hadCallbacks;
 	qboolean       paintHud;
 	qboolean       paintSniper;
+	uir_status_t   beginRc = UIR_ERR_NOT_READY;
 
 	CL_UIR_EnsureStarted();
 	CL_UIR_SyncEligibility();
@@ -6980,12 +7179,24 @@ void CL_UIR_DrawCrosshair(void)
 	if (CL_UIR_UseLegacyHud()) {
 		return;
 	}
+
+	UiPerfScope uiTotalScope(UIPERF_UI_TOTAL);
+
 	/*
 	 * Fixed in Omaha: sync HUD menus before paint gates so layout/uiPxScale stay
 	 * current even when ShouldPaintHudLayer returns false (zoom, settings, etc.).
 	 */
 	CL_UIR_ProfileBeginSample("hud_layer");
-	(void)CL_UIR_SyncHudLayerMenus(cls.realtime, &lw, &lh, &fw, &fh);
+	{
+		UiPerfScope syncScope(UIPERF_SYNC);
+		(void)CL_UIR_SyncHudLayerMenus(cls.realtime, &lw, &lh, &fw, &fh);
+	}
+	if (UID_ProfileEnabled()) {
+		uid_prof_timings_t t;
+		UID_ProfileCaptureFrame(&t);
+		CL_UIPerf_Mark(UIPERF_BIND, (double)t.us[UID_PROF_FRAME_BIND]);
+		CL_UIPerf_Mark(UIPERF_LAYOUT, (double)t.us[UID_PROF_FRAME_LAYOUT]);
+	}
 
 	paintSniper = (Cvar_VariableIntegerValue("ui_om_hud_sniper_zoom") != 0
 				   && Cvar_VariableIntegerValue("cg_crosshair_sniper_modern") != 0
@@ -7028,6 +7239,14 @@ void CL_UIR_DrawCrosshair(void)
 	}
 
 	hadCallbacks = CL_UIMenu_HasInteractiveOpen() ? qtrue : qfalse;
+	/*
+	 * Phase 4.6: the retained UI target only holds region-owned HUD pixels.
+	 * Sniper overlay, interactive menus, or a hidden HUD must start from a clear
+	 * so nothing stale shows for even one frame.
+	 */
+	if (paintSniper || !paintHud || hadCallbacks) {
+		UIR_CompositorRetainSuppress();
+	}
 	if (!hadCallbacks) {
 		if (paintHud) {
 			UIR_CompositorSetChromeCallback(CL_UIR_HudChromeCallback, NULL);
@@ -7038,7 +7257,12 @@ void CL_UIR_DrawCrosshair(void)
 			UIR_CompositorSetOverlayCallback(NULL, NULL);
 		}
 	}
-	if (UIR_BeginOverlayFrame(&vp, cls.realtime) == UIR_OK) {
+	{
+		UiPerfScope paintScope(UIPERF_PAINT);
+		beginRc = UIR_BeginOverlayFrame(&vp, cls.realtime);
+	}
+	if (beginRc == UIR_OK) {
+		UiPerfScope overlayScope(UIPERF_OVERLAY);
 		UIR_EndOverlayFrame();
 	}
 	if (!hadCallbacks) {

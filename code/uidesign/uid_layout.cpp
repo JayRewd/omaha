@@ -27,6 +27,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "uid_binding.h"
 #include "uid_collection.h"
 #include "uid_modal.h"
+#include "uid_profile.h"
 
 #include "uid_opt.h"
 #include "uid_value.h"
@@ -1803,7 +1804,13 @@ void LayoutNode(
 			}
 		}
 	} else {
-		bw = ResolveLengthPx(doc, width, borderAvailW, borderAvailW, borderAvailW);
+		/*
+		 * Fixed in Omaha: percent must use the containing block (percentBase*), not
+		 * borderAvail (assigned box). Scoped layout re-enters LayoutNode on a
+		 * width=50% boundary with borderAvail=previous border — 50% of that halves
+		 * the box (HUD score row shifts left when scoreboard dirties the column).
+		 */
+		bw = ResolveLengthPx(doc, width, percentBaseW, borderAvailW, borderAvailW);
 	}
 
 	if (height.unit == UID_LENGTH_FILL) {
@@ -1818,7 +1825,7 @@ void LayoutNode(
 			}
 		}
 	} else {
-		bh = ResolveLengthPx(doc, height, borderAvailH, borderAvailH, borderAvailH);
+		bh = ResolveLengthPx(doc, height, percentBaseH, borderAvailH, borderAvailH);
 	}
 
 	/* Added in Omaha: max-width / max-height after authored/intrinsic/fill resolve. */
@@ -2967,6 +2974,7 @@ void UID_ShiftSubtreeBoxes(uid_document_t *doc, uid_node_id_t id, float dx, floa
 		return;
 	}
 
+
 	st->borderBox.x += dx;
 	st->borderBox.y += dy;
 	st->marginBox.x += dx;
@@ -2998,6 +3006,21 @@ void UID_ShiftSubtreeBoxes(uid_document_t *doc, uid_node_id_t id, float dx, floa
 	}
 }
 
+void UID_RebuildParentMap(uid_document_t *doc)
+{
+	if (!doc) {
+		return;
+	}
+	doc->parentOf.assign(doc->nodes.size(), UID_INVALID_NODE_ID);
+	for (size_t i = 0; i < doc->nodes.size(); ++i) {
+		for (uid_node_id_t c : doc->nodes[i].children) {
+			if (c >= 0 && static_cast<size_t>(c) < doc->parentOf.size()) {
+				doc->parentOf[static_cast<size_t>(c)] = static_cast<uid_node_id_t>(i);
+			}
+		}
+	}
+}
+
 void UID_ApplyPendingTranslateDeltas(uid_document_t *doc)
 {
 	if (!doc || doc->pendingTranslateDeltas.empty()) {
@@ -3005,13 +3028,8 @@ void UID_ApplyPendingTranslateDeltas(uid_document_t *doc)
 	}
 	EnsureStates(doc);
 
-	std::vector<uid_node_id_t> parents(doc->nodes.size(), UID_INVALID_NODE_ID);
-	for (size_t i = 0; i < doc->nodes.size(); ++i) {
-		for (uid_node_id_t c : doc->nodes[i].children) {
-			if (c >= 0 && static_cast<size_t>(c) < parents.size()) {
-				parents[static_cast<size_t>(c)] = static_cast<uid_node_id_t>(i);
-			}
-		}
+	if (doc->parentOf.size() != doc->nodes.size()) {
+		UID_RebuildParentMap(doc);
 	}
 
 	const float lw = static_cast<float>(doc->lastLogicalW > 0 ? doc->lastLogicalW : 0);
@@ -3026,7 +3044,10 @@ void UID_ApplyPendingTranslateDeltas(uid_document_t *doc)
 			continue;
 		}
 		uid_rect_t parentClip = canvasClip;
-		const uid_node_id_t parentId = parents[static_cast<size_t>(d.nodeId)];
+		uid_node_id_t parentId = UID_INVALID_NODE_ID;
+		if (static_cast<size_t>(d.nodeId) < doc->parentOf.size()) {
+			parentId = doc->parentOf[static_cast<size_t>(d.nodeId)];
+		}
 		if (parentId != UID_INVALID_NODE_ID) {
 			if (const uid_node_state_t *pst = State(doc, parentId)) {
 				parentClip = pst->effectiveClip;
@@ -3035,6 +3056,10 @@ void UID_ApplyPendingTranslateDeltas(uid_document_t *doc)
 		UID_ShiftSubtreeBoxes(doc, d.nodeId, d.dx, d.dy, parentClip);
 	}
 
+	/*
+	 * Bound translate motion shifts boxes only. Retained paint-list stays valid:
+	 * LIVE_SUBTREE cmds re-paint those nodes with current boxes on replay.
+	 */
+
 	doc->pendingTranslateDeltas.clear();
-	doc->dirty = static_cast<uid_dirty_flags_t>(doc->dirty | UID_DIRTY_PAINT);
 }

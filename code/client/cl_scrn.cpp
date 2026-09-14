@@ -24,6 +24,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "client.h"
 #include "cl_ui.h"
 #include "cl_uirender.h"
+#include "../uidesign/uid_profile.h"
+#include "cl_uiperf.h"
 
 qboolean	scr_initialized;		// ready to draw
 stereoFrame_t	s_scr_stereoFrame;
@@ -115,7 +117,6 @@ void SCR_DrawPic( float x, float y, float width, float height, qhandle_t hShader
 	SCR_AdjustFrom640( &x, &y, &width, &height );
 	re.DrawStretchPic( x, y, width, height, 0, 0, 1, 1, hShader );
 }
-
 
 
 /*
@@ -295,7 +296,6 @@ void SCR_DrawSmallStringExt( int x, int y, const char *string, float *setColor, 
 	}
 	re.SetColor( NULL );
 }
-
 
 
 /*
@@ -498,6 +498,7 @@ SCR_SimpleUpdateScreen
 ==================
 */
 void SCR_SimpleUpdateScreen( void ) {
+
 	// if running in stereo, we need to draw the frame twice
 	if( cls.glconfig.stereoEnabled ) {
 		UpdateStereoSide( STEREO_LEFT );
@@ -507,7 +508,9 @@ void SCR_SimpleUpdateScreen( void ) {
 		UpdateStereoSide( STEREO_CENTER );
 	}
 
+
 	re.EndFrame( &time_frontend, &time_backend );
+
 }
 
 /*
@@ -531,7 +534,10 @@ void SCR_UpdateScreen( void ) {
 	}
 
 	screen_recursive = qtrue;
-	
+
+	/* Added in Omaha: ui_perf_hud frame/render wall timing. */
+	CL_UIPerf_FrameBegin();
+
 	CL_StartHunkUsers(qfalse);
 	SCR_SimpleUpdateScreen();
 
@@ -554,6 +560,7 @@ void SCR_UpdateScreen( void ) {
 		}
 	}
 
+	CL_UIPerf_FrameEnd();
 	screen_recursive = qfalse;
 }
 

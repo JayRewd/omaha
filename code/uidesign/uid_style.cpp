@@ -27,6 +27,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "uid_binding.h"
 #include "uid_expr_bool.h"
 #include "uid_layout.h"
+#include "uid_profile.h"
 #include "uid_value.h"
 #include "uid_widget.h"
 
@@ -348,18 +349,13 @@ const uid_computed_style_t *UID_EnsureComputedStyle(
 	const unsigned interactionKey = InteractionKeyOf(st);
 	const bool cvarOk = !st->computedStyle.dependsOnCvar || st->computedStyle.cvarEpoch == cvarEpoch;
 
+
 	if (st->computedStyle.valid && st->computedStyle.propsVersion == propsVersion &&
 	    st->computedStyle.scaleEpoch == scaleEpoch && cvarOk &&
 	    st->computedStyle.interactionKey == interactionKey) {
 		return &st->computedStyle;
 	}
 
-	if (!st->computedStyle.valid) {
-	} else if (st->computedStyle.propsVersion != propsVersion) {
-	} else if (st->computedStyle.scaleEpoch != scaleEpoch) {
-	} else if (st->computedStyle.dependsOnCvar && st->computedStyle.cvarEpoch != cvarEpoch) {
-	} else {
-	}
 	RebuildComputedStyle(doc, id, backend, st);
 	return st->computedStyle.valid ? &st->computedStyle : nullptr;
 }

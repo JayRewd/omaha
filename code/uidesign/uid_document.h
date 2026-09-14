@@ -177,6 +177,9 @@ struct uid_node_def_t {
 
 	/* Added in Omaha: collection scope (source= on container) */
 	std::string                    collectionSource;
+	/* Added in Omaha: Phase 4.4 — 0 unresolved, 1 XML <sources>, 2 host provider. */
+	int                            collectionSourceClass;
+	int                            collectionHostId;
 	std::string                    collectionDisplay; /* label|value for {item.display} */
 	int                            collectionDefaultIndex;
 	bool                           hasCollectionDefaultIndex;
@@ -365,6 +368,8 @@ struct uid_node_state_t {
 	std::unordered_map<std::string, int> foreachAppearAtMs;
 	/* Added in Omaha: per-row opacity mul from foreach lifetime fade (wrap roots). */
 	float               lifetimeOpacityMul;
+	/* Added in Omaha: Phase 4.3 — row wrapper has a valid LIVE_OPACITY cache. */
+	bool                liveOpacityCached;
 
 	/* Added in Omaha: scrollbar chrome layout / drag (on scroll container). */
 	uid_rect_t          scrollbarTrackRect;
@@ -407,6 +412,10 @@ struct uid_node_state_t {
 	 */
 	uint64_t            itemBindRevision;
 	int                 itemBindItemIndex;
+	/* Added in Omaha: Phase 4.4 — last collectionRevision consumed by bind deps. */
+	uint64_t            bindDepsSeenCollectionRev;
+	/* Added in Omaha: Phase 4.4 — last RefreshCollectionScope was a no-op this frame. */
+	bool                collectionRefreshUnchanged;
 
 	/* Added in Omaha: cached UID_ResolveShape output. */
 	std::vector<uid_resolved_path_t> cachedShapePaths;
@@ -495,6 +504,26 @@ struct uid_document_t {
 
 	/* Added in Omaha Stage 4: retained chrome paint list (opaque; uid_paint.cpp). */
 	void                                        *paintList;
+	/* Added in Omaha: Phase 4.1 per-region retained paint (opaque vector in uid_paint.cpp). */
+	std::vector<uid_node_id_t>                   parentOf;
+	std::vector<int>                             regionOf;
+	bool                                         regionsStale;
+	void                                        *paintRegions;
+	/* Added in Omaha: Phase 4.4 — cvar dependency index for targeted bind sync. */
+	std::vector<std::string>                     depCvars;
+	std::vector<std::vector<uid_node_id_t>>      depNodes;
+	std::vector<unsigned>                        depLastMod;
+	std::vector<void *>                          depCvarPtrs;
+	std::vector<unsigned char>                   depAffectsVisible;
+	/* Added in Omaha: Phase 4.4 — cvar only appears in translate-x/y. */
+	std::vector<unsigned char>                   depTranslateOnly;
+	std::vector<uid_node_id_t>                   impureNodes;
+	bool                                         bindDepsStale;
+	bool                                         bindDepsWarm;
+	size_t                                       bindDepsNodeCount;
+	/* Added in Omaha: Phase 4.4 — reused per-frame scratch (avoid heap in FRAME_BIND). */
+	std::vector<unsigned char>                   bindTouchedScratch;
+	std::vector<unsigned char>                   visMemoScratch;
 };
 
 void UID_InitNodeDef(uid_node_def_t *node);

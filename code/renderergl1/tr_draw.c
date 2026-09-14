@@ -57,6 +57,10 @@ void Draw_StretchPic(float x, float y, float w, float h, float s1, float t1, flo
 
 	R_IssuePendingRenderCommands();
 	RE_UI2DTargetRebind();
+	if (RE_UI2DTargetIsActive()) {
+		/* Added in Omaha: Phase 2 — host/legacy FBO draws force full resolve. */
+		RE_UI2D_MarkFullResolve();
+	}
 
 	if (hShader) {
 		shader = R_GetShaderByHandle(hShader);
@@ -105,6 +109,10 @@ void Draw_StretchPic2(float x, float y, float w, float h, float s1, float t1, fl
 
 	R_IssuePendingRenderCommands();
 	RE_UI2DTargetRebind();
+	if (RE_UI2DTargetIsActive()) {
+		/* Added in Omaha: Phase 2 — host/legacy FBO draws force full resolve. */
+		RE_UI2D_MarkFullResolve();
+	}
 
 	if (hShader) {
 		shader = R_GetShaderByHandle(hShader);
@@ -156,6 +164,10 @@ void Draw_TilePic(float x, float y, float w, float h, qhandle_t hShader) {
 
 	R_IssuePendingRenderCommands();
 	RE_UI2DTargetRebind();
+	if (RE_UI2DTargetIsActive()) {
+		/* Added in Omaha: Phase 2 — host/legacy FBO draws force full resolve. */
+		RE_UI2D_MarkFullResolve();
+	}
 
 	if (hShader) {
 		shader = R_GetShaderByHandle(hShader);
@@ -203,6 +215,10 @@ void Draw_TilePicOffset(float x, float y, float w, float h, qhandle_t hShader, i
 
 	R_IssuePendingRenderCommands();
 	RE_UI2DTargetRebind();
+	if (RE_UI2DTargetIsActive()) {
+		/* Added in Omaha: Phase 2 — host/legacy FBO draws force full resolve. */
+		RE_UI2D_MarkFullResolve();
+	}
 
 	if (hShader) {
 		shader = R_GetShaderByHandle(hShader);
@@ -250,6 +266,10 @@ void Draw_TrianglePic(const vec2_t vPoints[3], const vec2_t vTexCoords[3], qhand
 
 	R_IssuePendingRenderCommands();
 	RE_UI2DTargetRebind();
+	if (RE_UI2DTargetIsActive()) {
+		/* Added in Omaha: Phase 2 — host/legacy FBO draws force full resolve. */
+		RE_UI2D_MarkFullResolve();
+	}
 
 	if (hShader) {
 		shader = R_GetShaderByHandle(hShader);
@@ -285,6 +305,10 @@ void RE_DrawBackground_TexSubImage(int cols, int rows, int bgr, byte* data) {
 
 	R_IssuePendingRenderCommands();
 	RE_UI2DTargetRebind();
+	if (RE_UI2DTargetIsActive()) {
+		/* Added in Omaha: Phase 2 — host/legacy FBO draws force full resolve. */
+		RE_UI2D_MarkFullResolve();
+	}
 	qglFinish();
 
 	if (bgr) {
@@ -339,6 +363,10 @@ RE_DrawBackground_DrawPixels
 void RE_DrawBackground_DrawPixels(int cols, int rows, int bgr, byte* data) {
 	R_IssuePendingRenderCommands();
 	RE_UI2DTargetRebind();
+	if (RE_UI2DTargetIsActive()) {
+		/* Added in Omaha: Phase 2 — host/legacy FBO draws force full resolve. */
+		RE_UI2D_MarkFullResolve();
+	}
 
 	GL_State(0);
 	qglDisable(GL_TEXTURE_2D);
@@ -364,6 +392,10 @@ AddBox
 void AddBox(float x, float y, float w, float h) {
 	R_IssuePendingRenderCommands();
 	RE_UI2DTargetRebind();
+	if (RE_UI2DTargetIsActive()) {
+		/* Added in Omaha: Phase 2 — host/legacy FBO draws force full resolve. */
+		RE_UI2D_MarkFullResolve();
+	}
 
 	qglColor4ubv(backEnd.color2D);
 	qglDisable(GL_TEXTURE_2D);
@@ -387,23 +419,36 @@ DrawBox
 ================
 */
 void DrawBox(float x, float y, float w, float h) {
-	GLboolean msaaEnabled = GL_FALSE;
+	qboolean msaaWasEnabled = qfalse;
 
 	R_IssuePendingRenderCommands();
 	RE_UI2DTargetRebind();
+	if (RE_UI2DTargetIsActive()) {
+		/* Added in Omaha: Phase 2 — host/legacy FBO draws force full resolve. */
+		RE_UI2D_MarkFullResolve();
+	}
 
 #ifdef GL_MULTISAMPLE
-	msaaEnabled = qglIsEnabled(GL_MULTISAMPLE);
-	if (msaaEnabled) {
-		qglDisable(GL_MULTISAMPLE);
+	/* Changed in Omaha: track MSAA via glState; r_uiSyncQueries restores old glIsEnabled. */
+	if (r_uiSyncQueries && r_uiSyncQueries->integer) {
+		msaaWasEnabled = qglIsEnabled(GL_MULTISAMPLE) ? qtrue : qfalse;
+		tr_uiStats.glQueries++;
+	} else {
+		msaaWasEnabled = glState.multisampleEnabled;
+	}
+	if (msaaWasEnabled) {
+		GL_MultisampleEnable(qfalse);
 	}
 #endif
 
 	qglColor4ubv(backEnd.color2D);
 	qglDisable(GL_TEXTURE_2D);
 	GL_State(GLS_DEPTHTEST_DISABLE | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA | GLS_SRCBLEND_SRC_ALPHA);
+	/* After GL_State — keep stencil mask write from painting white. */
+	RE_UiStencilReassertMaskWrite();
 
 	qglBegin(GL_QUADS);
+	tr_uiStats.immediateQuads++;
 
 	qglVertex2f(x, y);
 	qglVertex2f(x + w, y);
@@ -415,8 +460,8 @@ void DrawBox(float x, float y, float w, float h) {
 	qglEnable(GL_TEXTURE_2D);
 
 #ifdef GL_MULTISAMPLE
-	if (msaaEnabled) {
-		qglEnable(GL_MULTISAMPLE);
+	if (msaaWasEnabled) {
+		GL_MultisampleEnable(qtrue);
 	}
 #endif
 }
@@ -431,6 +476,10 @@ void DrawLineLoop(const vec2_t* points, int count, int stipple_factor, int stipp
 
 	R_IssuePendingRenderCommands();
 	RE_UI2DTargetRebind();
+	if (RE_UI2DTargetIsActive()) {
+		/* Added in Omaha: Phase 2 — host/legacy FBO draws force full resolve. */
+		RE_UI2D_MarkFullResolve();
+	}
 
 	qglDisable(GL_TEXTURE_2D);
 
@@ -459,11 +508,48 @@ void DrawLineLoop(const vec2_t* points, int count, int stipple_factor, int stipp
 Set2DWindow
 ================
 */
+/*
+================
+Set2DWindow
+================
+*/
+/* Added in Omaha: Phase 1 — software dedup for Set2DWindow issued calls. */
+static int   s_set2dAppliedValid;
+static int   s_set2dAX, s_set2dAY, s_set2dAW, s_set2dAH;
+static float s_set2dAL, s_set2dAR, s_set2dAB, s_set2dAT, s_set2dAN, s_set2dAF;
+
+void RE_InvalidateSet2DWindow(void)
+{
+	s_set2dAppliedValid = 0;
+}
+
 void Set2DWindow(int x, int y, int w, int h, float left, float right, float bottom, float top, float n, float f) {
+	/* Added in Omaha: Phase 1 — skip identical Set2DWindow after 3D invalidates tracking. */
+	if (!backEnd.in2D) {
+		s_set2dAppliedValid = 0;
+	}
+	if (s_set2dAppliedValid && backEnd.in2D && s_set2dAX == x && s_set2dAY == y && s_set2dAW == w && s_set2dAH == h
+		&& s_set2dAL == left && s_set2dAR == right && s_set2dAB == bottom && s_set2dAT == top
+		&& s_set2dAN == n && s_set2dAF == f) {
+		return;
+	}
+
+	/* Added in Omaha: ui_perf_hud counter. */
+	tr_uiStats.set2DWindow++;
 	R_IssuePendingRenderCommands();
 	RE_UI2DTargetRebind();
+	if (RE_UI2DTargetIsActive()) {
+		/* Added in Omaha: Phase 2 — host/legacy FBO draws force full resolve. */
+		RE_UI2D_MarkFullResolve();
+	}
 	qglViewport(x, y, w, h);
-	qglScissor(x, y, w, h);
+	/* Changed in Omaha: route through tracked scissor wrapper. */
+	{
+		const int prevSite = re_uiScissorSite;
+		re_uiScissorSite = RE_UI_SCISSOR_SET2D;
+		GL_Scissor(x, y, w, h);
+		re_uiScissorSite = prevSite;
+	}
 	qglMatrixMode(GL_PROJECTION);
 	qglLoadIdentity();
 	qglOrtho(left, right, bottom, top, n, f);
@@ -489,6 +575,19 @@ void Set2DWindow(int x, int y, int w, int h, float left, float right, float bott
 		backEnd.refdef.floatTime = backEnd.refdef.time / 1000.0;
         backEnd.shaderStartTime = 0; 
 	}
+	s_set2dAX = x;
+	s_set2dAY = y;
+	s_set2dAW = w;
+	s_set2dAH = h;
+	s_set2dAL = left;
+	s_set2dAR = right;
+	s_set2dAB = bottom;
+	s_set2dAT = top;
+	s_set2dAN = n;
+	s_set2dAF = f;
+	s_set2dAppliedValid = 1;
+	/* Added in Omaha: Phase 2 — feed draw→window conversion for dirty rects. */
+	RE_UI2D_NoteWin2D(x, y, w, h, left, right, bottom, top);
 }
 
 /*
@@ -497,8 +596,12 @@ RE_Scissor
 ================
 */
 void RE_Scissor(int x, int y, int width, int height) {
-	qglEnable(GL_SCISSOR_TEST);
-	qglScissor(x, y, width, height);
+	/* Changed in Omaha: route through tracked scissor wrappers. */
+	const int prevSite = re_uiScissorSite;
+	re_uiScissorSite = RE_UI_SCISSOR_CLIP;
+	GL_ScissorEnable(qtrue);
+	GL_Scissor(x, y, width, height);
+	re_uiScissorSite = prevSite;
 }
 
 /*

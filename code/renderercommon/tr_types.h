@@ -287,6 +287,32 @@ typedef struct {
 	byte  rgba[4]; /* non-premultiplied, straight alpha */
 } ui2dVert_t;
 
+/* Added in Omaha: per-frame GL event counters for the modern UI path (ui_perf_hud). */
+typedef struct uiGlStats_s {
+	int fboBinds;        /* glBindFramebuffer calls actually issued */
+	int scissorCalls;    /* glScissor calls issued */
+	int scissorLayer;    /* subset: soft-mask layer begin/end */
+	int scissorClip;     /* subset: RE_Scissor / compositor clip stack */
+	int scissorSet2d;    /* subset: Set2DWindow */
+	int scissorStencil;  /* subset: stencil mask */
+	int scissorOther;    /* subset: unclassified */
+	int glQueries;       /* glIsEnabled / glGetIntegerv / glGetQueryObject* calls */
+	int drawElements;    /* RE_DrawUI2D glDrawElements calls */
+	int drawVerts;       /* verts submitted through RE_DrawUI2D */
+	int immediateQuads;  /* glBegin(GL_QUADS) quads: composites, mask apply, DrawBox */
+	int set2DWindow;     /* Set2DWindow calls */
+	int issuePending;    /* R_IssuePendingRenderCommands calls */
+	int targetBegins;    /* RE_BeginUI2DTarget that actually bound+cleared */
+	int targetEnds;      /* RE_EndUI2DTarget that actually resolved+composited */
+	int layerBegins;     /* RE_BeginUiLayer successes */
+	int stencilBegins;   /* RE_BeginUiStencilMask */
+	int resolvePixels;   /* sum of blit rect areas in RE_EndUI2DTarget (full screen today) */
+	unsigned long long gpuUiNs;       /* GPU ns: BeginUI2DTarget..EndUI2DTarget (0 if off/unavailable) */
+	unsigned long long gpuResolveNs;  /* GPU ns: blit+composite inside RE_EndUI2DTarget */
+	unsigned long long gpuLayerNs;    /* GPU ns: sum of layer begin..end spans */
+	int gpuSamplesValid;              /* 1 when the gpu* fields hold a completed frame */
+} uiGlStats_t;
+
 #include "new/tr_types_new.h"
 
 #endif	// __TR_TYPES_H

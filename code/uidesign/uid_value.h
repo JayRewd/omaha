@@ -83,6 +83,11 @@ bool UID_ParseDurationMs(const char *text, int *outMs, std::string *diagMessage)
 bool UID_ParseColor(const char *text, uid_color_t *out, std::string *diagMessage);
 /* Added in Omaha: fill may be #RRGGBB(AA) or linear(...)/radial(...) atlas brush. */
 bool UID_IsGradientBrush(const char *text);
+/*
+ * Added in Omaha: true when a gradient mask is fully opaque white (no fade).
+ * Soft-mask FBO is a no-op in that case and can be skipped.
+ */
+bool UID_MaskBrushIsOpaqueWhite(const char *text);
 bool UID_IsFillPaint(const char *text); /* color, cvar-rgba, or gradient brush */
 bool UID_ParseBool(const char *text, bool *out, std::string *diagMessage);
 bool UID_ParseNumber(const char *text, double *out, std::string *diagMessage);

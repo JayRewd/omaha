@@ -26,6 +26,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "uir_fov.h"
 #include "uir_map_env.h"
 #include "uir_menu_weather.h"
+#include "uir_draw2d.h"
 
 #include "../qcommon/q_shared.h"
 #include "../renderercommon/tr_types.h"
@@ -268,6 +269,9 @@ uir_status_t UIR_MenuWorldDraw(const uir_rect_t *destPx, int realtime)
 	if (!destPx || destPx->w <= 0 || destPx->h <= 0) {
 		return UIR_ERR_INVALID_ARG;
 	}
+
+	/* Added in Omaha: Phase 1 — menu world changes projection / 2D window. */
+	UIR_Draw2DInvalidate();
 
 	st = UIR_MenuWorldEnsureLoaded();
 	if (st != UIR_OK) {

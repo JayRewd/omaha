@@ -82,6 +82,7 @@ cvar_t *cg_animationviewmodel;
 cvar_t *cg_hitmessages;
 cvar_t *cg_acidtrip;
 cvar_t *cg_hud;
+cvar_t *cg_hud_push_cache; /* Added in Omaha: Phase 4.5 */
 cvar_t *cg_huddraw_force;
 cvar_t *cg_drawsvlag;
 cvar_t *cg_crosshair;
@@ -174,6 +175,8 @@ void CG_RegisterCvars(void)
     cg_hitmessages                = cgi.Cvar_Get("cg_hitmessages", "1", CVAR_ARCHIVE);
     cg_acidtrip                   = cgi.Cvar_Get("cg_acidtrip", "0", CVAR_CHEAT);
     cg_hud                        = cgi.Cvar_Get("cg_hud", "1", 0);
+    /* Added in Omaha: Phase 4.5 — skip unchanged ui_om_hud_* Cvar_Set. */
+    cg_hud_push_cache             = cgi.Cvar_Get("cg_hud_push_cache", "1", 0);
     cg_huddraw_force              = cgi.Cvar_Get("cg_huddraw_force", "0", CVAR_SAVEGAME);
     cg_drawsvlag                  = cgi.Cvar_Get("cg_drawsvlag", "1", CVAR_ARCHIVE);
     cg_crosshair                  = cgi.Cvar_Get("cg_crosshair", "textures/hud/crosshair", CVAR_ARCHIVE);
@@ -747,6 +750,7 @@ void CG_Init(clientGameImport_t *imported, int serverMessageNum, int serverComma
     cgs.serverCommandSequence = serverCommandSequence;
 
     CG_RegisterCvars();
+    CG_HudPushCacheReset(); /* Added in Omaha: Phase 4.5 */
     CG_RP_Init(); // Added in Omaha: clear remote-prediction state on map load
 
     L_InitEvents();

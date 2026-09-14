@@ -64,6 +64,11 @@ bool UID_ParseItemFieldBind(const char *bind, std::string *fieldNameOut);
  */
 void UID_SyncBindings(uid_document_t *doc, const uid_backend_t *backend);
 
+/* Added in Omaha: Phase 4.4 — skip bind walks for subtrees with unchanged cvars. */
+void UID_SetBindDeps(int enabled);
+int  UID_BindDepsEnabled(void);
+void UID_SetBindDepsVerify(int enabled);
+
 /*
  * Push the node's staged runtimeValue to the bound cvar (or keybind adapter).
  * Respects commit mode: CHANGE/SUBMIT/APPLY all write when called; callers

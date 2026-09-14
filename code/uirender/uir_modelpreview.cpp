@@ -24,6 +24,8 @@ source tree, or write to the Free Software Foundation, Inc.,
 
 #include "uir_modelpreview.h"
 
+#include "uir_draw2d.h"
+
 #include "../corepp/tiki.h"
 #include "../qcommon/q_shared.h"
 #include "../renderercommon/tr_types.h"
@@ -324,6 +326,9 @@ uir_status_t UIR_ModelPreviewDraw(const uir_rect_t *destPx, const uir_model_prev
 	if (!g_mp.clearScene || !g_mp.addRefEntity || !g_mp.renderScene || !g_mp.anglesToAxis) {
 		return UIR_ERR_NOT_READY;
 	}
+
+	/* Added in Omaha: Phase 1 — 3D preview changes projection / 2D window. */
+	UIR_Draw2DInvalidate();
 
 	fovIn = params->fov > 0.0f ? params->fov : UIR_MP_FOV_DEFAULT;
 	if (UIR_ModelPreviewCalcFov((int)destPx->w, (int)destPx->h, fovIn, &fovX, &fovY) != UIR_OK) {

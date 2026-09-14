@@ -23,20 +23,27 @@ source tree, or write to the Free Software Foundation, Inc.,
 */
 
 #include "uid_profile.h"
+#include "uid_types.h"
 
 #include <chrono>
-#include <cstring>
 
 namespace {
 
 using prof_clock = std::chrono::steady_clock;
 
 static int                    g_enabled;
+static int                    g_externalEnable;
 static prof_clock::time_point g_starts[UID_PROF_COUNT];
 static int                    g_active[UID_PROF_COUNT];
 
+static int ProfileActive(void)
+{
+	return (g_enabled || g_externalEnable) ? 1 : 0;
+}
+
 static uid_prof_timings_t g_load;
 static uid_prof_timings_t g_frame;
+
 
 /* Nested sample stack (ui_total → legacy_ui → hud_layer / disconnected_main). */
 static uid_prof_timings_t g_frameStack[4];
@@ -119,9 +126,15 @@ void UID_ProfileSetEnabled(int enabled)
 	g_enabled = enabled ? 1 : 0;
 }
 
+/* Added in Omaha: ui_perf_hud keeps timers ticking without ui_profile console prints. */
+void UID_ProfileSetExternalEnable(int enabled)
+{
+	g_externalEnable = enabled ? 1 : 0;
+}
+
 int UID_ProfileEnabled(void)
 {
-	return g_enabled;
+	return ProfileActive();
 }
 
 const char *UID_ProfilePhaseName(uid_prof_phase_t phase)
@@ -208,7 +221,7 @@ void UID_ProfileResetFrame(void)
 
 void UID_ProfilePushFrame(void)
 {
-	if (!g_enabled) {
+	if (!ProfileActive()) {
 		return;
 	}
 	SnapshotActiveIntoFrame(&g_frame);
@@ -222,7 +235,7 @@ void UID_ProfilePushFrame(void)
 
 void UID_ProfilePopFrame(void)
 {
-	if (!g_enabled) {
+	if (!ProfileActive()) {
 		return;
 	}
 	if (g_frameStackDepth > 0) {
@@ -236,7 +249,7 @@ void UID_ProfilePopFrame(void)
 
 void UID_ProfileBegin(uid_prof_phase_t phase)
 {
-	if (!g_enabled || phase < 0 || phase >= UID_PROF_COUNT) {
+	if (!ProfileActive() || phase < 0 || phase >= UID_PROF_COUNT) {
 		return;
 	}
 	g_starts[phase] = prof_clock::now();
@@ -248,7 +261,7 @@ void UID_ProfileEnd(uid_prof_phase_t phase)
 	long long           us;
 	uid_prof_timings_t *dst;
 
-	if (!g_enabled || phase < 0 || phase >= UID_PROF_COUNT || !g_active[phase]) {
+	if (!ProfileActive() || phase < 0 || phase >= UID_PROF_COUNT || !g_active[phase]) {
 		return;
 	}
 	us = std::chrono::duration_cast<std::chrono::microseconds>(prof_clock::now() - g_starts[phase]).count();
@@ -293,7 +306,7 @@ void UID_ProfileSetFrameMeta(int layoutRan, int nodeCount)
 
 void UID_ProfileNoteLayoutDirty(int nodeId, const char *kind, const char *reason)
 {
-	if (!g_enabled) {
+	if (!ProfileActive()) {
 		return;
 	}
 	g_frame.layoutDirtyHits++;
@@ -317,7 +330,7 @@ void UID_ProfileNoteLayoutDirty(int nodeId, const char *kind, const char *reason
 
 void UID_ProfileSetSubmitStats(int batches, int batchVerts, int batchTris, int clipApplies, int clipSkips)
 {
-	if (!g_enabled) {
+	if (!ProfileActive()) {
 		return;
 	}
 	g_frame.batches = batches;
@@ -334,7 +347,7 @@ void UID_ProfileCountReset(void)
 
 void UID_ProfileCountInc(uid_prof_counter_t counter)
 {
-	if (!g_enabled || counter < 0 || counter >= UID_PROF_CNT_COUNT) {
+	if (!ProfileActive() || counter < 0 || counter >= UID_PROF_CNT_COUNT) {
 		return;
 	}
 	g_counts[counter]++;
@@ -342,7 +355,7 @@ void UID_ProfileCountInc(uid_prof_counter_t counter)
 
 void UID_ProfileCountBeginNew(void)
 {
-	g_countingNew = g_enabled ? 1 : 0;
+	g_countingNew = ProfileActive() ? 1 : 0;
 }
 
 void UID_ProfileCountEndNew(void)
@@ -377,3 +390,4 @@ void UID_ProfileCaptureFrame(uid_prof_timings_t *out)
 		out->counts[i] = g_counts[i];
 	}
 }
+

@@ -40,6 +40,7 @@ set(CLIENT_SOURCES
     ${SOURCE_DIR}/client/cl_uiplayermodelpicker.cpp
     ${SOURCE_DIR}/client/cl_uiradar.cpp
     ${SOURCE_DIR}/client/cl_uirender.cpp
+    ${SOURCE_DIR}/client/cl_uiperf.cpp
     ${SOURCE_DIR}/client/cl_uimenu_dispatcher.cpp
     ${SOURCE_DIR}/client/cl_hud_registry.cpp
     ${SOURCE_DIR}/client/cl_hud_host.cpp

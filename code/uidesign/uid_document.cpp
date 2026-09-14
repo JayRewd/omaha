@@ -94,6 +94,8 @@ void UID_InitNodeDef(uid_node_def_t *node)
 	node->hasModelColor = false;
 	node->role.clear();
 	node->collectionSource.clear();
+	node->collectionSourceClass = 0;
+	node->collectionHostId = 0;
 	node->collectionDisplay.clear();
 	node->collectionDefaultIndex = -1;
 	node->hasCollectionDefaultIndex = false;
@@ -173,6 +175,7 @@ void UID_InitNodeState(uid_node_state_t *state)
 	state->foreachExpandSig = 0;
 	state->foreachAppearAtMs.clear();
 	state->lifetimeOpacityMul = 1.0f;
+	state->liveOpacityCached = false;
 	std::memset(&state->scrollbarTrackRect, 0, sizeof(state->scrollbarTrackRect));
 	std::memset(&state->scrollbarThumbRect, 0, sizeof(state->scrollbarThumbRect));
 	state->scrollbarDragging = false;
@@ -197,6 +200,8 @@ void UID_InitNodeState(uid_node_state_t *state)
 	state->cvarPropsModStamp = 0;
 	state->itemBindRevision = 0;
 	state->itemBindItemIndex = -1;
+	state->bindDepsSeenCollectionRev = 0;
+	state->collectionRefreshUnchanged = false;
 	state->cachedShapePaths.clear();
 	state->cachedShapeKey = 0;
 	state->cachedShapeValid = false;
@@ -304,9 +309,18 @@ void UID_MarkDirty(uid_document_t *doc, uid_dirty_flags_t flags, uid_node_id_t n
 		doc->dirtyLayoutNodes.push_back(nodeId);
 	}
 	doc->dirty = static_cast<uid_dirty_flags_t>(doc->dirty | flags);
-	/* Stage 4: any paint/layout/structure dirt drops the retained chrome list. */
-	if (flags & (UID_DIRTY_PAINT | UID_DIRTY_LAYOUT | UID_DIRTY_STRUCTURE)) {
+	/* Stage 4 / Phase 4.1: structure always drops the whole list; paint/layout is per-region. */
+	if (flags & UID_DIRTY_STRUCTURE) {
+		doc->regionsStale = true;
+		doc->bindDepsStale = true;
 		UID_PaintListInvalidate(doc);
+		UID_PaintRegionsInvalidateAll(doc);
+	} else if (flags & (UID_DIRTY_PAINT | UID_DIRTY_LAYOUT)) {
+		if (UID_PaintRegionsEnabled()) {
+			UID_PaintRegionsInvalidateNode(doc, nodeId);
+		} else {
+			UID_PaintListInvalidate(doc);
+		}
 	}
 }
 
@@ -360,6 +374,19 @@ void UID_ClearDocument(uid_document_t *doc)
 	doc->keybindPending.command.clear();
 	doc->pendingTranslateDeltas.clear();
 	doc->dirtyLayoutNodes.clear();
+	doc->parentOf.clear();
+	doc->regionOf.clear();
+	doc->regionsStale = true;
+	doc->depCvars.clear();
+	doc->depNodes.clear();
+	doc->depLastMod.clear();
+	doc->depCvarPtrs.clear();
+	doc->depAffectsVisible.clear();
+	doc->depTranslateOnly.clear();
+	doc->impureNodes.clear();
+	doc->bindDepsStale = true;
+	doc->bindDepsWarm = false;
+	doc->bindDepsNodeCount = 0;
 	UID_PaintListFree(doc);
 }
 

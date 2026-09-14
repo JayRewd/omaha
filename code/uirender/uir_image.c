@@ -39,6 +39,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 static uir_image_backend_t g_imageBackend;
 static uir_color_t         g_imageTint = {1.0f, 1.0f, 1.0f, 1.0f};
 
+
 #define UIR_IMAGE_REGISTRY_MAX 128
 
 struct uir_image_s {
@@ -657,6 +658,7 @@ uir_status_t UIR_ImageDrawClipped(
 		clipPathCount = UIR_IMAGE_MAX_CLIP_PATHS;
 	}
 
+
 	for (i = 0; i < clipPathCount; i++) {
 		builtPaths[i] = NULL;
 		st = uir_image_build_clip_path(clipPathD[i], x, y, w, h, viewW, viewH, rotationDeg, &builtPaths[i]);
@@ -703,7 +705,8 @@ uir_status_t UIR_ImageDrawClipped(
 	} else if (useAxisScissor) {
 		UIR_PushClipRect(clipAabb.x, clipAabb.y, clipAabb.w, clipAabb.h);
 		pushedClip = 1;
-	} else {
+	} else if (builtCount == 0 && (rotationDeg != 0.0f || backgroundScale > 1.0f)) {
+		/* Scaled/rotated draws can extend past dest; unclipped quads do not. */
 		UIR_PushClipRect(x, y, w, h);
 		pushedClip = 1;
 	}

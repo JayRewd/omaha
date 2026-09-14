@@ -88,6 +88,8 @@ typedef struct uid_prof_timings_s {
 } uid_prof_timings_t;
 
 void        UID_ProfileSetEnabled(int enabled);
+/* Added in Omaha: ui_perf_hud enables timers without ui_profile console path. */
+void        UID_ProfileSetExternalEnable(int enabled);
 int         UID_ProfileEnabled(void);
 const char *UID_ProfilePhaseName(uid_prof_phase_t phase);
 const char *UID_ProfileCounterName(uid_prof_counter_t counter);

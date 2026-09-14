@@ -40,6 +40,10 @@ typedef struct {
 
 void UIR_Draw2D_SetBackend(const uir_draw2d_backend_t *backend);
 void UIR_Draw2D_Begin(const uir_viewport_t *vp);
+/* Added in Omaha: Phase 1 — skip redundant Set2DWindow/scissor (ui_d2d_dedup). */
+void UIR_Draw2DInvalidate(void);
+void UIR_Draw2DSetDedup(int enable);
+int UIR_Draw2DDedupEnabled(void);
 void UIR_Draw2D_Scissor(int x, int y, int w, int h);
 uir_status_t UIR_Draw2D_Box(float x, float y, float w, float h, const uir_color_t *rgba);
 uir_status_t UIR_Draw2D_Polygon(
