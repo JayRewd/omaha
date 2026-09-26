@@ -94,24 +94,29 @@ static cvar_t *ui_hud_push_cache;
 /* Added in Omaha: quantize animated HUD angles/fracs so paint dirty settles. Gate: ui_hud_anim_quantize. */
 static cvar_t *ui_hud_anim_quantize;
 
-enum { UIR_HUD_PUSH_CACHE_SLOTS = 96 };
+enum { UIR_HUD_PUSH_CACHE_SLOTS = 96, UIR_HUD_PUSH_NAME_LEN = 64 };
 
+/*
+ * Fixed in Omaha: slots own a copy of the cvar name and match by content.
+ * Callers build names in reused stack buffers (Com_sprintf), so keying by
+ * pointer made distinct cvars share one slot and skip real updates.
+ */
 struct UirHudPushStrSlot {
-	const char *name;
-	char        value[MAX_CVAR_VALUE_STRING];
-	qboolean    valid;
+	char     name[UIR_HUD_PUSH_NAME_LEN];
+	char     value[MAX_CVAR_VALUE_STRING];
+	qboolean valid;
 };
 
 struct UirHudPushIntSlot {
-	const char *name;
-	int         value;
-	qboolean    valid;
+	char     name[UIR_HUD_PUSH_NAME_LEN];
+	int      value;
+	qboolean valid;
 };
 
 struct UirHudPushFloatSlot {
-	const char *name;
-	float       value;
-	qboolean    valid;
+	char     name[UIR_HUD_PUSH_NAME_LEN];
+	float    value;
+	qboolean valid;
 };
 
 static UirHudPushStrSlot   g_hudPushStr[UIR_HUD_PUSH_CACHE_SLOTS];
@@ -120,6 +125,7 @@ static UirHudPushFloatSlot g_hudPushFloat[UIR_HUD_PUSH_CACHE_SLOTS];
 static int                 g_hudPushStrUsed;
 static int                 g_hudPushIntUsed;
 static int                 g_hudPushFloatUsed;
+
 
 static qboolean UIR_Hud_PushCacheEnabled(void)
 {
@@ -155,10 +161,19 @@ static float UIR_Hud_QuantizeFrac(float value)
 	return floorf(value * 50.0f + 0.5f) / 50.0f;
 }
 
+/* Names that do not fit a slot are never cached (truncation could alias two cvars). */
+static qboolean UIR_Hud_PushNameFits(const char *name)
+{
+	return (name && name[0] && strlen(name) < UIR_HUD_PUSH_NAME_LEN) ? qtrue : qfalse;
+}
+
 static UirHudPushStrSlot *UIR_Hud_FindStrSlot(const char *name, qboolean create)
 {
+	if (!UIR_Hud_PushNameFits(name)) {
+		return nullptr;
+	}
 	for (int i = 0; i < g_hudPushStrUsed; ++i) {
-		if (g_hudPushStr[i].name == name) {
+		if (!strcmp(g_hudPushStr[i].name, name)) {
 			return &g_hudPushStr[i];
 		}
 	}
@@ -166,7 +181,7 @@ static UirHudPushStrSlot *UIR_Hud_FindStrSlot(const char *name, qboolean create)
 		return nullptr;
 	}
 	UirHudPushStrSlot *s = &g_hudPushStr[g_hudPushStrUsed++];
-	s->name = name;
+	Q_strncpyz(s->name, name, sizeof(s->name));
 	s->value[0] = '\0';
 	s->valid = qfalse;
 	return s;
@@ -174,8 +189,11 @@ static UirHudPushStrSlot *UIR_Hud_FindStrSlot(const char *name, qboolean create)
 
 static UirHudPushIntSlot *UIR_Hud_FindIntSlot(const char *name, qboolean create)
 {
+	if (!UIR_Hud_PushNameFits(name)) {
+		return nullptr;
+	}
 	for (int i = 0; i < g_hudPushIntUsed; ++i) {
-		if (g_hudPushInt[i].name == name) {
+		if (!strcmp(g_hudPushInt[i].name, name)) {
 			return &g_hudPushInt[i];
 		}
 	}
@@ -183,7 +201,7 @@ static UirHudPushIntSlot *UIR_Hud_FindIntSlot(const char *name, qboolean create)
 		return nullptr;
 	}
 	UirHudPushIntSlot *s = &g_hudPushInt[g_hudPushIntUsed++];
-	s->name = name;
+	Q_strncpyz(s->name, name, sizeof(s->name));
 	s->value = 0;
 	s->valid = qfalse;
 	return s;
@@ -191,8 +209,11 @@ static UirHudPushIntSlot *UIR_Hud_FindIntSlot(const char *name, qboolean create)
 
 static UirHudPushFloatSlot *UIR_Hud_FindFloatSlot(const char *name, qboolean create)
 {
+	if (!UIR_Hud_PushNameFits(name)) {
+		return nullptr;
+	}
 	for (int i = 0; i < g_hudPushFloatUsed; ++i) {
-		if (g_hudPushFloat[i].name == name) {
+		if (!strcmp(g_hudPushFloat[i].name, name)) {
 			return &g_hudPushFloat[i];
 		}
 	}
@@ -200,11 +221,12 @@ static UirHudPushFloatSlot *UIR_Hud_FindFloatSlot(const char *name, qboolean cre
 		return nullptr;
 	}
 	UirHudPushFloatSlot *s = &g_hudPushFloat[g_hudPushFloatUsed++];
-	s->name = name;
+	Q_strncpyz(s->name, name, sizeof(s->name));
 	s->value = 0.0f;
 	s->valid = qfalse;
 	return s;
 }
+
 
 static void UIR_Hud_SetCvar(const char *name, const char *value)
 {
@@ -1206,6 +1228,7 @@ void UIR_Hud_Sync(void)
 		}
 		UIR_Hud_SetCvarInt("ui_om_hud_grenade_count", g_modernGrenadeCount);
 	}
+
 
 	UIR_Hud_SyncCompassCvars();
 

@@ -173,6 +173,12 @@ void UID_InitNodeState(uid_node_state_t *state)
 	state->collectionScrollOffset = 0;
 	state->collectionRefreshFrame = 0;
 	state->foreachExpandSig = 0;
+	state->foreachStamped = false;
+	state->foreachStampRev = 0;
+	state->foreachStampCount = 0;
+	state->foreachStampSize = 0;
+	state->foreachStampSel = -1;
+	state->foreachStampScroll = 0;
 	state->foreachAppearAtMs.clear();
 	state->lifetimeOpacityMul = 1.0f;
 	state->liveOpacityCached = false;

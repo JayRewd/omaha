@@ -448,6 +448,7 @@ static void uir_set_color(const float *rgba)
 	re.SetColor(rgba);
 }
 
+
 static void uir_draw_box(float x, float y, float w, float h)
 {
 	/* Phase 4.6: immediate draws bypass region tracking — retained target must reset. */
@@ -5308,7 +5309,7 @@ static void uid_draw_image(
 		tint.a = tintRgba[3];
 		tintPtr = &tint;
 	}
-	(void)UIR_ImageDrawClipped(
+	UIR_ImageDrawClipped(
 		vfsPath,
 		x,
 		y,
@@ -5809,8 +5810,15 @@ static qboolean CL_UIR_SyncHudLayerMenus(unsigned int time, int *lw, int *lh, in
 	 * run the HUD pointer path — UpdateAllWithPointer would deliver ungated
 	 * clicks to the top interactive menu and defeat the open click-gate
 	 * (fire → team → auto_join within 1ms).
+	 * Fixed in Omaha: still push HUD cvars from the snap while pause owns input.
+	 * Connected overlay paints HUD chrome with those cvars; skipping UIR_Hud_Sync
+	 * left health/weapons stuck at death values until the menu closed.
 	 */
 	if (CL_UIMenu_ShouldOwnInput()) {
+		if (CL_UIR_UseModernHudPack()) {
+			UiPerfScope hudCvarScope(UIPERF_HUD_CVAR);
+			UIR_Hud_Sync();
+		}
 		CL_UIMenu_UpdateAll(time);
 	} else {
 		const qboolean applyWheel =

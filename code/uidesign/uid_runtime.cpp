@@ -542,6 +542,7 @@ void UID_Update(uid_runtime_t *runtime, int realtime, const uid_pointer_state_t 
 		UID_ApplyPendingTranslateDeltas(doc);
 	}
 
+
 	if (pointer) {
 		UID_ProfileBegin(UID_PROF_FRAME_POINTER);
 		UID_HandlePointer(doc, pointer, static_cast<unsigned int>(realtime), &runtime->backend);

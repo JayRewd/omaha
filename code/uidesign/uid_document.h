@@ -364,6 +364,17 @@ struct uid_node_state_t {
 
 	/* Added in Omaha: foreach expansion cache (skip rebuild when unchanged). */
 	uint64_t            foreachExpandSig;
+	/*
+	 * Fixed in Omaha: scope identity the last expand consumed. Skip paths must
+	 * prove the rows match the scope as it is now, not merely that the host did
+	 * not change this frame (hidden-while-loaded and selection-only changes).
+	 */
+	bool                foreachStamped;
+	uint64_t            foreachStampRev;
+	int                 foreachStampCount;
+	int                 foreachStampSize;
+	int                 foreachStampSel;
+	int                 foreachStampScroll;
 	/* Added in Omaha: first-seen time (doc updateTimeMs) per item.key when lifetime is set. */
 	std::unordered_map<std::string, int> foreachAppearAtMs;
 	/* Added in Omaha: per-row opacity mul from foreach lifetime fade (wrap roots). */

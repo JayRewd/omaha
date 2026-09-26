@@ -2016,6 +2016,21 @@ void LayoutChildren(
 	const uid_align_t mainAlign = horiz ? halign : valign;
 	const uid_align_t crossAlign = horiz ? valign : halign;
 
+	/*
+	 * Fixed in Omaha: end/center keep their anchor when children overflow, like
+	 * overlap children (AlignCross) and CSS flex. Flooring free space at 0 turned
+	 * an overflowing halign=end row into start-aligned, spilling it past the
+	 * parent's end edge. Scroll containers keep the floor so content stays
+	 * reachable from the scroll origin.
+	 */
+	uid_overflow_t parentOverflow = UID_OVERFLOW_NONE;
+	UID_ParseOverflow(PropCStr(*parent, "overflow", "none"), &parentOverflow, nullptr);
+	const bool parentScrolls = (parentOverflow == UID_OVERFLOW_SCROLL);
+	const bool mainKeepsAnchor =
+		!parentScrolls && (mainAlign == UID_ALIGN_END || mainAlign == UID_ALIGN_CENTER);
+	const bool crossKeepsAnchor =
+		!parentScrolls && (crossAlign == UID_ALIGN_END || crossAlign == UID_ALIGN_CENTER);
+
 	if (crossAlign == UID_ALIGN_EQUAL_SPACING && diags) {
 		diags->Error(parent->source, "equal-spacing is only valid on the main axis");
 	}
@@ -2237,7 +2252,7 @@ void LayoutChildren(
 		usedMain += g.margin0 + g.borderMain + g.margin1;
 	}
 	float freeMain = contentMain - usedMain;
-	if (freeMain < 0.0f) {
+	if (freeMain < 0.0f && !mainKeepsAnchor) {
 		freeMain = 0.0f;
 	}
 
@@ -2283,7 +2298,7 @@ void LayoutChildren(
 
 		const float crossAvail = contentCross - g.crossM0 - g.crossM1;
 		float crossFree = crossAvail - g.borderCross;
-		if (crossFree < 0.0f) {
+		if (crossFree < 0.0f && !crossKeepsAnchor) {
 			crossFree = 0.0f;
 		}
 		if (crossAlign == UID_ALIGN_CENTER) {

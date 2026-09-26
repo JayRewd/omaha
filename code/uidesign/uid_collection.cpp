@@ -283,6 +283,7 @@ bool PropBool(const uid_node_def_t &node, const char *name, bool fallback)
 	return out;
 }
 
+
 /* Added in Omaha: mode=window visible count — viewport / row-height + overscan. */
 constexpr int kWindowFallbackVisible = 32;
 constexpr int kWindowOverscan = 2;
@@ -1468,6 +1469,36 @@ bool ForeachLifetimeNeedsOpacityPass(
 	return false;
 }
 
+/*
+ * Fixed in Omaha: record which scope contents the foreach rows were built from.
+ * Every expand exit (rebuild, empty, signature hit) stamps; skip paths require
+ * ForeachStampCurrent so rows never outlive the items/selection they show.
+ */
+static void ForeachStampScope(uid_node_state_t *fnSt, const uid_node_state_t *scopeSt)
+{
+	if (!fnSt || !scopeSt) {
+		return;
+	}
+	fnSt->foreachStamped = true;
+	fnSt->foreachStampRev = scopeSt->collectionRevision;
+	fnSt->foreachStampCount = scopeSt->collectionItemCount;
+	fnSt->foreachStampSize = static_cast<int>(scopeSt->collectionItems.size());
+	fnSt->foreachStampSel = scopeSt->collectionSelectedIndex;
+	fnSt->foreachStampScroll = scopeSt->collectionScrollOffset;
+}
+
+static bool ForeachStampCurrent(const uid_node_state_t *fnSt, const uid_node_state_t *scopeSt)
+{
+	if (!fnSt || !scopeSt || !fnSt->foreachStamped || fnSt->foreachExpandSig == 0) {
+		return false;
+	}
+	return fnSt->foreachStampRev == scopeSt->collectionRevision &&
+		fnSt->foreachStampCount == scopeSt->collectionItemCount &&
+		fnSt->foreachStampSize == static_cast<int>(scopeSt->collectionItems.size()) &&
+		fnSt->foreachStampSel == scopeSt->collectionSelectedIndex &&
+		fnSt->foreachStampScroll == scopeSt->collectionScrollOffset;
+}
+
 bool ForeachLifetimeCanSkipExpand(
 	const uid_document_t *doc,
 	uid_node_id_t foreachId,
@@ -1479,7 +1510,7 @@ bool ForeachLifetimeCanSkipExpand(
 	if (!doc || !fn || !fnSt || !scopeSt || !fn->hasForeachLifetime) {
 		return false;
 	}
-	if (fnSt->foreachExpandSig == 0) {
+	if (!ForeachStampCurrent(fnSt, scopeSt)) {
 		return false;
 	}
 	if (scopeSt->collectionRefreshFrame != doc->syncFrameCounter || !scopeSt->collectionRefreshUnchanged) {
@@ -1750,7 +1781,7 @@ void ExpandForeach(uid_document_t *doc, uid_node_id_t foreachId, const uid_backe
 				if (mode != "window" && mode != "selected" &&
 					scopeSt->collectionRefreshFrame == doc->syncFrameCounter &&
 					scopeSt->collectionRefreshUnchanged &&
-					fnStEarly->foreachExpandSig != 0) {
+					ForeachStampCurrent(fnStEarly, scopeSt)) {
 					return;
 				}
 			}
@@ -1932,6 +1963,7 @@ void ExpandForeach(uid_document_t *doc, uid_node_id_t foreachId, const uid_backe
 				}
 			}
 		}
+		ForeachStampScope(&doc->states[static_cast<size_t>(foreachId)], &doc->states[static_cast<size_t>(scopeId)]);
 		return;
 	}
 
@@ -1951,7 +1983,21 @@ void ExpandForeach(uid_document_t *doc, uid_node_id_t foreachId, const uid_backe
 				fnSt = &doc->states[static_cast<size_t>(foreachId)];
 			}
 		}
+		if (!scopeStableId.empty()) {
+			auto sit = doc->idIndex.find(scopeStableId);
+			if (sit != doc->idIndex.end()) {
+				scopeId = sit->second;
+			}
+		} else {
+			scopeId = UID_FindCollectionScope(doc, foreachId);
+		}
+		if (scopeId == UID_INVALID_NODE_ID || static_cast<size_t>(scopeId) >= doc->states.size()) {
+			return;
+		}
+		fnSt = &doc->states[static_cast<size_t>(foreachId)];
+		scopeSt = &doc->states[static_cast<size_t>(scopeId)];
 		fnSt->foreachExpandSig = sig;
+		ForeachStampScope(fnSt, scopeSt);
 		if (hadChildren) {
 			UID_MarkDirty(
 				doc,
@@ -2025,6 +2071,7 @@ void ExpandForeach(uid_document_t *doc, uid_node_id_t foreachId, const uid_backe
 	fn = &doc->nodes[static_cast<size_t>(foreachId)];
 	fnSt = &doc->states[static_cast<size_t>(foreachId)];
 	scopeSt = &doc->states[static_cast<size_t>(scopeId)];
+	ForeachStampScope(fnSt, scopeSt);
 	if (fn->hasForeachLifetime) {
 		ApplyForeachLifetimeOpacity(doc, foreachId, fn, fnSt, scopeSt->collectionItems, nowMs);
 	}
@@ -2396,8 +2443,10 @@ void UID_SyncCollections(uid_document_t *doc, const uid_backend_t *backend)
 			const bool vis = treeVisible(static_cast<uid_node_id_t>(i));
 			const bool needsWarmRefresh = st->collectionItems.empty();
 			if (vis || needsWarmRefresh) {
-				if (RefreshCollectionScope(doc, static_cast<uid_node_id_t>(i), backend) ||
-					!st->collectionRefreshUnchanged) {
+				const bool changed =
+					RefreshCollectionScope(doc, static_cast<uid_node_id_t>(i), backend) ||
+					!st->collectionRefreshUnchanged;
+				if (changed) {
 					anyHostChange = true;
 				}
 				if (!doc->nodes[i].bind.empty()) {
@@ -2406,13 +2455,37 @@ void UID_SyncCollections(uid_document_t *doc, const uid_backend_t *backend)
 			}
 		}
 
+		/*
+		 * Fixed in Omaha: "no host change this frame" does not mean the rows are
+		 * current. A foreach hidden when its scope loaded (or whose selection moved)
+		 * still has rows from older scope contents; it must expand once visible.
+		 */
+		auto foreachStale = [&](size_t i) -> bool {
+			const uid_node_def_t &fn = doc->nodes[i];
+			if (fn.kind != UID_NODE_FOREACH || fn.hasForeachCount) {
+				return false;
+			}
+			const uid_node_id_t sid = FindCollectionScopeFromParentOf(doc, static_cast<uid_node_id_t>(i));
+			if (sid < 0 || static_cast<size_t>(sid) >= doc->states.size()) {
+				return false;
+			}
+			return !ForeachStampCurrent(&doc->states[i], &doc->states[static_cast<size_t>(sid)]);
+		};
+
 		if (!anyHostChange) {
 			for (size_t i = 0; i < doc->nodes.size() && i < doc->states.size(); ++i) {
 				const uid_node_def_t *fn = &doc->nodes[i];
-				if (fn->kind != UID_NODE_FOREACH || !fn->hasForeachLifetime) {
+				if (fn->kind != UID_NODE_FOREACH) {
 					continue;
 				}
 				if (!treeVisible(static_cast<uid_node_id_t>(i))) {
+					continue;
+				}
+				if (foreachStale(i)) {
+					++nNeedOp;
+					break;
+				}
+				if (!fn->hasForeachLifetime) {
 					continue;
 				}
 				const uid_node_id_t sid = FindCollectionScopeFromParentOf(
@@ -2439,6 +2512,7 @@ void UID_SyncCollections(uid_document_t *doc, const uid_backend_t *backend)
 			}
 		}
 
+
 		if (nSkipAll) {
 			/* Hosts unchanged and no lifetime fade window — skip expand/apply. */
 		} else
@@ -2449,7 +2523,7 @@ void UID_SyncCollections(uid_document_t *doc, const uid_backend_t *backend)
 				if (doc->nodes[i].kind != UID_NODE_FOREACH) {
 					continue;
 				}
-				if (!anyHostChange && !doc->nodes[i].hasForeachLifetime) {
+				if (!anyHostChange && !doc->nodes[i].hasForeachLifetime && !foreachStale(i)) {
 					continue;
 				}
 				if (!treeVisible(static_cast<uid_node_id_t>(i))) {
@@ -2481,7 +2555,7 @@ void UID_SyncCollections(uid_document_t *doc, const uid_backend_t *backend)
 							if (mode != "window" && mode != "selected" &&
 								scopeSt->collectionRefreshFrame == doc->syncFrameCounter &&
 								scopeSt->collectionRefreshUnchanged &&
-								fnSt->foreachExpandSig != 0) {
+								ForeachStampCurrent(fnSt, scopeSt)) {
 								continue;
 							}
 						}

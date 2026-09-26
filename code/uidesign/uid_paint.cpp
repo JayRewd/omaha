@@ -1419,6 +1419,7 @@ static int ReplayList(
 	return 1;
 }
 
+
 int UID_PaintListTryReplay(uid_document_t *doc, const uid_backend_t *backend)
 {
 	if (!g_paintList || !doc) {
@@ -1508,6 +1509,8 @@ void UID_PaintListBeginRecord(uid_document_t *doc)
 	EnsurePaintList(doc);
 	BeginRecordList(ListOf(doc), doc);
 }
+
+uid_node_id_t UID_PaintChromeRootId(const uid_document_t *doc);
 
 void UID_PaintListEndRecord(uid_document_t *doc)
 {

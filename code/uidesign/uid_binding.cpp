@@ -3196,7 +3196,8 @@ void UID_SyncBindings(uid_document_t *doc, const uid_backend_t *backend)
 		 */
 		if (node->foreachGenerated && node->foreachScopeId >= 0 &&
 			static_cast<size_t>(node->foreachScopeId) < d->states.size() &&
-			!NodeBindInteractionDirty(st)) {
+			!NodeBindInteractionDirty(st)
+			) {
 			const uid_node_state_t &scopeSt = d->states[static_cast<size_t>(node->foreachScopeId)];
 			const uint64_t scopeRev = scopeSt.collectionRevision;
 			if (st->itemBindRevision == scopeRev && scopeRev != 0 &&
@@ -3396,6 +3397,7 @@ void UID_SyncBindings(uid_document_t *doc, const uid_backend_t *backend)
 			syncTranslateLeaves();
 		}
 	}
+
 
 	/* Added in Omaha: Phase 4.4 verify — full walk after targeted sync; must stay silent. */
 	if (useBindDeps && (g_bindDepsVerify || ((doc->syncFrameCounter % 2000) == 1))) {
