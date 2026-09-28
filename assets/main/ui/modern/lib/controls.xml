@@ -400,7 +400,7 @@
 							<use template="settings-on-off-compact-row" label="Friendly warning" bind="cvar:cg_crosshair_friendly_warning" commit="change"
 							     visible="{cvar.cg_crosshair_mode != none}"/>
 							<use template="settings-on-off-compact-row" label="Follow recoil" bind="cvar:cg_crosshair_recoil" commit="change"
-							     visible="{cvar.cg_crosshair_mode == open}"/>
+							     visible="{cvar.cg_crosshair_mode != none}"/>
 							<use template="settings-on-off-compact-row" label="Dynamic" bind="cvar:cg_crosshair_dynamic" commit="change"
 							     visible="{cvar.cg_crosshair_mode != none}"/>
 							<use template="settings-on-off-compact-row" label="Movement inaccuracy" bind="cvar:cg_crosshair_dynamic_movement" commit="change"
