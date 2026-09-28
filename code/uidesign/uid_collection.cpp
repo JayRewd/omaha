@@ -2459,11 +2459,24 @@ void UID_SyncCollections(uid_document_t *doc, const uid_backend_t *backend)
 		 * Fixed in Omaha: "no host change this frame" does not mean the rows are
 		 * current. A foreach hidden when its scope loaded (or whose selection moved)
 		 * still has rows from older scope contents; it must expand once visible.
+		 * Fixed in Omaha: count="{N}" foreaches (health pips) have no collection
+		 * stamp — excluding them from stale left nSkipAll=1 forever if they were
+		 * invisible on the first host-change frames, so pips never appeared.
 		 */
 		auto foreachStale = [&](size_t i) -> bool {
 			const uid_node_def_t &fn = doc->nodes[i];
-			if (fn.kind != UID_NODE_FOREACH || fn.hasForeachCount) {
+			if (fn.kind != UID_NODE_FOREACH) {
 				return false;
+			}
+			if (fn.hasForeachCount) {
+				if (i >= doc->states.size()) {
+					return false;
+				}
+				const uid_node_state_t &st = doc->states[i];
+				if (!fn.children.empty() && st.foreachExpandSig != 0) {
+					return false;
+				}
+				return treeVisible(static_cast<uid_node_id_t>(i));
 			}
 			const uid_node_id_t sid = FindCollectionScopeFromParentOf(doc, static_cast<uid_node_id_t>(i));
 			if (sid < 0 || static_cast<size_t>(sid) >= doc->states.size()) {

@@ -122,7 +122,6 @@ static int CL_UIR_ApplyDmPauseClickGate(int buttons)
 #include "../uidesign/uid_menu_map_view.h"
 #include "../uidesign/uid_profile.h"
 
-#include <ctime>
 #include "../uidesign/uid_opt.h"
 #include "../uidesign/uid_layout.h"
 #include "../uidesign/uid_paint.h"
@@ -453,6 +452,8 @@ static void uir_draw_box(float x, float y, float w, float h)
 {
 	/* Phase 4.6: immediate draws bypass region tracking — retained target must reset. */
 	UIR_BatchNoteExternalDraw();
+	/* Fixed in Omaha: host draws bypass the paint recorder — list/live replay would drop them. */
+	UID_PaintListMarkHostDraw();
 	re.DrawBox(x, y, w, h);
 }
 
@@ -571,12 +572,14 @@ static int uir_update_atlas(int h, const unsigned char *rgba, int width, int hei
 static void uir_draw_pic(float x, float y, float w, float h, float s1, float t1, float s2, float t2, int shader)
 {
 	UIR_BatchNoteExternalDraw();
+	UID_PaintListMarkHostDraw();
 	re.DrawStretchPic(x, y, w, h, s1, t1, s2, t2, (qhandle_t)shader);
 }
 
 static void uir_draw_tile_pic(float x, float y, float w, float h, int shader)
 {
 	UIR_BatchNoteExternalDraw();
+	UID_PaintListMarkHostDraw();
 	re.DrawTilePic(x, y, w, h, (qhandle_t)shader);
 }
 
@@ -593,6 +596,8 @@ static void uir_draw_triangle_pic(const float points[3][2], const float texCoord
 		t[i][1] = texCoords[i][1];
 	}
 	UIR_BatchNoteExternalDraw();
+	/* Fixed in Omaha: rotated-image fallback draws outside the batch recorder. */
+	UID_PaintListMarkHostDraw();
 	re.DrawTrianglePic(p, t, (qhandle_t)shader);
 }
 

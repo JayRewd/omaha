@@ -207,6 +207,7 @@ void UID_InitNodeState(uid_node_state_t *state)
 	state->itemBindRevision = 0;
 	state->itemBindItemIndex = -1;
 	state->bindDepsSeenCollectionRev = 0;
+	state->bindDepsSeenCollectionSel = -1;
 	state->collectionRefreshUnchanged = false;
 	state->cachedShapePaths.clear();
 	state->cachedShapeKey = 0;

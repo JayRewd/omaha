@@ -155,8 +155,21 @@ void RE_DrawUiStencilMaskTris(const float *xy, int strideBytes, int nv, const un
 		qglDrawElements(GL_TRIANGLES, ni, GL_UNSIGNED_SHORT, idx);
 	}
 
-	/* Force next GL_State to re-apply blend (we set ZERO,ONE manually). */
-	glState.glStateBits ^= (GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS);
+	/*
+	 * Fixed in Omaha: the backend treats GL_TEXTURE_2D on unit 0 as always enabled
+	 * (legacy tess draws never re-enable it). Leaving it off made the next clipped
+	 * host draw — classic rotated compassface — render as a flat white quad.
+	 */
+	qglEnable(GL_TEXTURE_2D);
+
+	/*
+	 * Fixed in Omaha: record the blend actually set (ZERO,ONE) instead of XOR-toggling
+	 * the cache. Mask-tris followed by BeginUiStencilDraw used to XOR twice and cancel,
+	 * so GL_State skipped the UI FBO Separate(alpha=ONE) re-apply and clipped legacy
+	 * draws (classic compassface) wrote reduced destination alpha — see-through dial.
+	 */
+	glState.glStateBits = (glState.glStateBits & ~(GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS)) |
+		GLS_SRCBLEND_ZERO | GLS_DSTBLEND_ONE;
 }
 
 void RE_BeginUiStencilDraw(void)
@@ -169,7 +182,10 @@ void RE_BeginUiStencilDraw(void)
 	/* Restore normal UI straight-alpha blend after ZERO,ONE mask write. */
 	qglEnable(GL_BLEND);
 	qglBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	glState.glStateBits ^= (GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS);
+	/* Same state GL_State produces for SRC_ALPHA,ONE_MINUS_SRC_ALPHA on the UI FBO. */
+	RE_UI2DRestoreFboBlend();
+	glState.glStateBits = (glState.glStateBits & ~(GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS)) |
+		GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
 	qglStencilFunc(GL_EQUAL, 1, 0xFF);
 	qglStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
 }

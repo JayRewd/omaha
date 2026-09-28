@@ -42,7 +42,6 @@ extern cvar_t *r_uiFramebuffer;
 
 typedef struct {
 	qboolean active;
-	qboolean inPlace; /* Added in Omaha: Phase 1 — mask on UI MSAA target (no layer FBO hop). */
 	int      width;
 	int      height;
 	GLuint   fbo;
@@ -130,10 +129,6 @@ void RE_UiLayerRebind(void)
 	if (!s_uiLayer.active) {
 		return;
 	}
-	/* Added in Omaha: Phase 1 in-place mask stays on the UI MSAA target. */
-	if (s_uiLayer.inPlace) {
-		return;
-	}
 	if (!s_uiLayer.fbo) {
 		return;
 	}
@@ -188,33 +183,6 @@ qboolean RE_BeginUiLayer(int fbX, int fbY, int fbW, int fbH, float uiX, float ui
 	s_uiLayer.uiW = uiW;
 	s_uiLayer.uiH = uiH;
 
-	/*
-	 * Changed in Omaha: Phase 1 gate — soft-mask in-place on the active UI MSAA
-	 * target (clear + draw + mask multiply). Removes layer FBO bind + MSAA rebind
-	 * so Still fbo drops begin+draw+zero (=3) instead of begin+layer+rebind+draw+zero (=5).
-	 */
-	if (RE_UI2DTargetIsActive()) {
-		RE_UI2DTargetRebind();
-		RE_InvalidateSet2DWindow();
-		GL_ScissorEnable(qtrue);
-		GL_Scissor(fbX, fbY, fbW, fbH);
-		qglClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-		qglClear(GL_COLOR_BUFFER_BIT);
-		qglBlendFuncSeparate(
-			GL_SRC_ALPHA,
-			GL_ONE_MINUS_SRC_ALPHA,
-			GL_ONE,
-			GL_ONE_MINUS_SRC_ALPHA
-		);
-		s_uiLayer.inPlace = qtrue;
-		s_uiLayer.width = glConfig.vidWidth;
-		s_uiLayer.height = glConfig.vidHeight;
-		s_uiLayer.active = qtrue;
-		tr_uiStats.layerBegins++;
-		RE_UiGpuBeginLayer();
-		re_uiScissorSite = RE_UI_SCISSOR_OTHER;
-		return qtrue;
-	}
 
 	if (!RE_UiLayer_Ensure(glConfig.vidWidth, glConfig.vidHeight)) {
 		re_uiScissorSite = RE_UI_SCISSOR_OTHER;
@@ -235,7 +203,6 @@ qboolean RE_BeginUiLayer(int fbX, int fbY, int fbW, int fbH, float uiX, float ui
 		GL_ONE_MINUS_SRC_ALPHA
 	);
 
-	s_uiLayer.inPlace = qfalse;
 	s_uiLayer.active = qtrue;
 	tr_uiStats.layerBegins++;
 	/* Added in Omaha: GPU layer span (ends ui query while active). */
@@ -323,36 +290,6 @@ void RE_EndUiLayer(void)
 
 	re_uiScissorSite = RE_UI_SCISSOR_LAYER;
 
-	/* Added in Omaha: Phase 1 — in-place mask already lives in the UI MSAA target. */
-	if (s_uiLayer.inPlace) {
-		/* Added in Omaha: Phase 2 — dirty rect for in-place soft mask region. */
-		RE_UI2D_AccumRectFb(
-			s_uiLayer.scissorX,
-			s_uiLayer.scissorY,
-			s_uiLayer.scissorW,
-			s_uiLayer.scissorH
-		);
-		s_uiLayer.active = qfalse;
-		s_uiLayer.inPlace = qfalse;
-		GL_ScissorEnable(s_uiLayer.savedScissorEnabled ? qtrue : qfalse);
-		GL_Scissor(
-			s_uiLayer.savedScissor[0],
-			s_uiLayer.savedScissor[1],
-			s_uiLayer.savedScissor[2],
-			s_uiLayer.savedScissor[3]
-		);
-		GL_State(GLS_DEPTHTEST_DISABLE | GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA);
-		qglBlendFuncSeparate(
-			GL_SRC_ALPHA,
-			GL_ONE_MINUS_SRC_ALPHA,
-			GL_ONE,
-			GL_ONE_MINUS_SRC_ALPHA
-		);
-		RE_UiGpuEndLayer();
-		re_uiScissorSite = RE_UI_SCISSOR_OTHER;
-		return;
-	}
-
 	x = s_uiLayer.uiX;
 	y = s_uiLayer.uiY;
 	w = s_uiLayer.uiW;
@@ -380,6 +317,7 @@ void RE_EndUiLayer(void)
 	GL_State(GLS_DEPTHTEST_DISABLE | GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA);
 	qglEnable(GL_TEXTURE_2D);
 	qglBindTexture(GL_TEXTURE_2D, s_uiLayer.colorTex);
+	glState.currenttextures[glState.currenttmu] = (int)s_uiLayer.colorTex;
 	{
 		static const byte compositeWhite[4] = {255, 255, 255, 255};
 		qglColor4ubv(compositeWhite);

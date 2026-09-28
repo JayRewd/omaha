@@ -744,6 +744,8 @@ void RE_EndUI2DTarget(void)
 	int compositeFull;
 	const uiRectI_t *compRects;
 	int compCount;
+	uiRectI_t blitRects[UI_FBO_MAX_RECTS * 2];
+	int blitCount;
 	int i;
 
 	if (!s_uiFbo.active) {
@@ -763,12 +765,53 @@ void RE_EndUI2DTarget(void)
 	 * Phase 4.6: the keep list is the union of everything drawn since the last
 	 * clear. Non-retained sessions start it fresh from this frame's rects.
 	 */
+	blitCount = 0;
 	if (blitFull) {
 		s_uiKeepFull = qtrue;
 		s_uiKeepRectCount = 0;
 	} else {
+		uiRectI_t prevKeep[UI_FBO_MAX_RECTS];
+		const int prevKeepCount = s_uiKeepRectCount;
+		int j;
+
+		memcpy(prevKeep, s_uiKeepRects, sizeof(prevKeep));
 		for (i = 0; i < s_uiRectCount; i++) {
 			RE_UI2D_RectListAdd(s_uiKeepRects, &s_uiKeepRectCount, &s_uiRects[i]);
+		}
+		/*
+		 * The keep list merges into bounding boxes, so a grown or new keep rect
+		 * can cover pixels no earlier blit wrote since the last clear. The resolve
+		 * texture still holds whatever was there before (a closed scoreboard or
+		 * menu), and the composite would show it. Resolve such rects in full.
+		 */
+		if (!s_uiKeepFull) {
+			for (i = 0; i < s_uiKeepRectCount; i++) {
+				const uiRectI_t *k = &s_uiKeepRects[i];
+				qboolean unchanged = qfalse;
+				for (j = 0; j < prevKeepCount; j++) {
+					if (prevKeep[j].x == k->x && prevKeep[j].y == k->y && prevKeep[j].w == k->w && prevKeep[j].h == k->h) {
+						unchanged = qtrue;
+						break;
+					}
+				}
+				if (!unchanged) {
+					blitRects[blitCount++] = *k;
+				}
+			}
+		}
+		for (i = 0; i < s_uiRectCount; i++) {
+			const uiRectI_t *r = &s_uiRects[i];
+			qboolean covered = qfalse;
+			for (j = 0; j < blitCount; j++) {
+				const uiRectI_t *b = &blitRects[j];
+				if (r->x >= b->x && r->y >= b->y && r->x + r->w <= b->x + b->w && r->y + r->h <= b->y + b->h) {
+					covered = qtrue;
+					break;
+				}
+			}
+			if (!covered) {
+				blitRects[blitCount++] = *r;
+			}
 		}
 	}
 	compositeFull = s_uiKeepFull ? 1 : 0;
@@ -785,7 +828,7 @@ void RE_EndUI2DTarget(void)
 		return;
 	}
 
-	if (blitFull || s_uiRectCount > 0) {
+	if (blitFull || blitCount > 0) {
 		GL_BindFramebuffer(GL_READ_FRAMEBUFFER, s_uiFbo.msaaFbo);
 		GL_BindFramebuffer(GL_DRAW_FRAMEBUFFER, s_uiFbo.resolveFbo);
 
@@ -804,8 +847,8 @@ void RE_EndUI2DTarget(void)
 			);
 			tr_uiStats.resolvePixels += s_uiFbo.width * s_uiFbo.height;
 		} else {
-			for (i = 0; i < s_uiRectCount; i++) {
-				uiRectI_t *r = &s_uiRects[i];
+			for (i = 0; i < blitCount; i++) {
+				const uiRectI_t *r = &blitRects[i];
 				qglBlitFramebuffer(
 					r->x,
 					r->y,

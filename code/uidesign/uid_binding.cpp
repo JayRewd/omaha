@@ -2949,11 +2949,13 @@ static int BindDepsMarkTouched(
 		if (doc->nodes[i].collectionSource.empty()) {
 			continue;
 		}
-		if (st->collectionRevision == st->bindDepsSeenCollectionRev) {
+		if (st->collectionRevision == st->bindDepsSeenCollectionRev &&
+			st->collectionSelectedIndex == st->bindDepsSeenCollectionSel) {
 			continue;
 		}
 		if (commitMods) {
 			st->bindDepsSeenCollectionRev = st->collectionRevision;
+			st->bindDepsSeenCollectionSel = st->collectionSelectedIndex;
 		}
 		++nChanged;
 		if (!doc->bindDepsWarm) {

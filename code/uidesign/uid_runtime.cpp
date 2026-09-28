@@ -435,6 +435,8 @@ void UID_SetSurface(uid_runtime_t *runtime, int logicalW, int logicalH, int fram
 	runtime->fbScale = ComputeFbScale(logicalW, logicalH, framebufferW, framebufferH);
 
 	if (changed && runtime->doc) {
+		/* Fixed in Omaha: drop scoped dirty nodes so the next update must full-layout. */
+		runtime->doc->dirtyLayoutNodes.clear();
 		UID_MarkDirty(
 			runtime->doc,
 			static_cast<uid_dirty_flags_t>(UID_DIRTY_LAYOUT | UID_DIRTY_PAINT),
@@ -465,6 +467,8 @@ void UID_SetUiPxScale(uid_runtime_t *runtime, float uiPxScale)
 	runtime->uiPxScale = s;
 	if (runtime->doc) {
 		runtime->doc->lastUiPxScale = s;
+		/* Fixed in Omaha: scale change affects all px layout; scoped boundaries are stale. */
+		runtime->doc->dirtyLayoutNodes.clear();
 		UID_MarkDirty(
 			runtime->doc,
 			static_cast<uid_dirty_flags_t>(UID_DIRTY_LAYOUT | UID_DIRTY_PAINT),
@@ -508,7 +512,16 @@ void UID_Update(uid_runtime_t *runtime, int realtime, const uid_pointer_state_t 
 		uid_result_t layoutRc = UID_ERR_NOT_READY;
 		const int scopedOn = UID_LayoutScopedEnabled();
 		const int dirtyN = static_cast<int>(doc->dirtyLayoutNodes.size());
-		if (scopedOn && dirtyN > 0) {
+		/*
+		 * Fixed in Omaha: surface/uiPxScale resize marks LAYOUT with no node ids.
+		 * SyncBindings can then fill dirtyLayoutNodes; scoped layout succeeds using
+		 * stale boundary boxes and never refreshes lastLogicalW/root — UI stays at
+		 * the pre-vid_restart size until a full UID_LoadFile (ui_menu_reload).
+		 */
+		const int viewportStale =
+			(runtime->logicalW != doc->lastLogicalW) ||
+			(runtime->logicalH != doc->lastLogicalH);
+		if (scopedOn && dirtyN > 0 && !viewportStale) {
 			layoutRc = UID_LayoutScoped(doc, runtime->fbScale, &runtime->backend, &diags);
 			if (layoutRc == UID_OK) {
 				layoutMode = 2;

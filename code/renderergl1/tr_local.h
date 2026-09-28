@@ -1877,6 +1877,7 @@ extern cvar_t     *r_uiResolveRects; /* Added in Omaha: Phase 2 */
 extern cvar_t     *r_uiVbo;          /* Added in Omaha: Phase 3 — UI batch VBO streaming */
 void		RE_UI2D_VboShutdown(void); /* Added in Omaha: Phase 3 */
 void		RE_UI2D_UnbindBuffers(void); /* Added in Omaha: Phase 4 — client-array paths call before glVertexPointer */
+void		RE_UI2D_ReleaseBuffersForClientArrays(void); /* Fixed in Omaha: no-op unless the UI batch holds VBO/IBO */
 void		RE_UiStatsFrameBegin(void);
 void		RE_UiStatsGet(uiGlStats_t *out);
 void		RE_UiGpuBeginUi(void);

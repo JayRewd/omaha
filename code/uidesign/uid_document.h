@@ -425,6 +425,11 @@ struct uid_node_state_t {
 	int                 itemBindItemIndex;
 	/* Added in Omaha: Phase 4.4 — last collectionRevision consumed by bind deps. */
 	uint64_t            bindDepsSeenCollectionRev;
+	/*
+	 * Fixed in Omaha: last collectionSelectedIndex consumed by bind deps. Selection
+	 * steps rebind mode=selected rows in place without a revision bump.
+	 */
+	int                 bindDepsSeenCollectionSel;
 	/* Added in Omaha: Phase 4.4 — last RefreshCollectionScope was a no-op this frame. */
 	bool                collectionRefreshUnchanged;
 

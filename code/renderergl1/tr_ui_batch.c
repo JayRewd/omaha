@@ -86,6 +86,20 @@ void RE_UI2D_UnbindBuffers(void)
 	s_uiBuffersBound = qfalse;
 }
 
+/*
+ * Fixed in Omaha: an owned UI batch session keeps its VBO/IBO bound between
+ * draws. Client-array draws (tess / RB_EndSurface) issued inside that session
+ * would have their CPU pointers read as buffer offsets → GPU out-of-bounds
+ * fetch (NVIDIA "kernel exception", 0xC0000409 in nvoglv64). Release first.
+ */
+void RE_UI2D_ReleaseBuffersForClientArrays(void)
+{
+	if (!s_uiBuffersBound) {
+		return;
+	}
+	RE_UI2D_UnbindBuffers();
+}
+
 void RE_UI2D_VboShutdown(void)
 {
 	RE_UI2D_UnbindBuffers();
