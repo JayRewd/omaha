@@ -26,6 +26,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "uid_types.h"
 
 #include <chrono>
+#include <cstring> /* Fixed in Omaha: std::memset / std::strncpy */
 
 namespace {
 
