@@ -22,6 +22,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include "cg_local.h"
 #include "cg_parsemsg.h"
+#include "cg_remotepredict.h" // Added in Omaha
 
 //============================================================================
 
@@ -876,6 +877,9 @@ void CG_DrawActiveFrame(int serverTime, int frameTime, stereoFrame_t stereoView,
     // update cg.predicted_player_state
     CG_PredictPlayerState();
 
+    // Added in Omaha: remote player prediction lead clock (after local pmove).
+    CG_RP_BeginFrame();
+
     // build cg.refdef
     CG_CalcViewValues();
 
@@ -996,6 +1000,9 @@ void CG_DrawActiveFrame(int serverTime, int frameTime, stereoFrame_t stereoView,
         CG_AddPacketEntities(); // after calcViewValues, so predicted player state is correct
         CG_AddMarks();
     }
+
+    // Added in Omaha: optional remote prediction debug boxes.
+    CG_RP_DebugDraw();
 
     // finish up the rest of the refdef
     CG_SetupPortalSky();

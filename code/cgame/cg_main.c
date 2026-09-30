@@ -25,6 +25,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include "cg_local.h"
 #include "cg_parsemsg.h"
+#include "cg_remotepredict.h" // Added in Omaha
 #include "cg_archive.h"
 #include "cg_radar.h"
 
@@ -176,6 +177,8 @@ void CG_RegisterCvars(void)
     // as it doesn't have crosshair_friend texture
     cg_crosshair_friend = cgi.Cvar_Get("cg_crosshair_friend", "textures/hud/crosshair_friend", CVAR_ARCHIVE);
     ui_crosshair                  = cgi.Cvar_Get("ui_crosshair", "1", CVAR_ARCHIVE);
+
+    CG_RP_RegisterCvars(); // Added in Omaha
     vm_offset_max                 = cgi.Cvar_Get("vm_offset_max", "8.0", 0);
     vm_offset_speed               = cgi.Cvar_Get("vm_offset_speed", "8.0", 0);
     vm_sway_front                 = cgi.Cvar_Get("vm_sway_front", "0.1", 0);
@@ -730,6 +733,7 @@ void CG_Init(clientGameImport_t *imported, int serverMessageNum, int serverComma
     cgs.serverCommandSequence = serverCommandSequence;
 
     CG_RegisterCvars();
+    CG_RP_Init(); // Added in Omaha: clear remote-prediction state on map load
 
     L_InitEvents();
 

@@ -3351,6 +3351,10 @@ void CL_InitRef( void ) {
 
 	re = *ret;
 
+	// Added in Omaha: pure clients never load fgame's G_AllocDebugLines — without a
+	// buffer, cgi.R_DebugLine null-derefs (cg_remotePredictionDebug crash).
+	CL_EnsureDebugLines();
+
 	// unpause so the cgame definately gets a snapshot and renders a frame
 	Cvar_Set( "cl_paused", "0" );
 
@@ -3543,6 +3547,70 @@ static void CL_GenerateQKey(void)
 CL_Init
 ====================
 */
+// Added in Omaha: allocate engine debug-line buffer when fgame did not (remote client).
+void CL_EnsureDebugLines(void)
+{
+	cvar_t *cv;
+	int     n;
+
+	if (DebugLines) {
+		return;
+	}
+
+	cv = Cvar_Get("g_numdebuglines", "4096", CVAR_LATCH);
+	n  = (cv && cv->integer > 0) ? cv->integer : 4096;
+	DebugLines    = (debugline_t *)malloc((size_t)n * sizeof(debugline_t));
+	numDebugLines = 0;
+
+	if (!DebugLines) {
+		Com_Printf("CL_EnsureDebugLines: malloc failed for %d lines\n", n);
+	}
+}
+
+void CL_ClearDebugLines(void)
+{
+	CL_EnsureDebugLines();
+	numDebugLines = 0;
+}
+
+void CL_PurgeObsoleteRemotePredictionCvars(void)
+{
+	static const char *const obsolete[] = {
+		"cg_remotePredictionMinSpeed",
+		"cg_remotePredictionMaxDist",
+		"cg_remotePredictionSnapDist",
+		"cg_remotePredictionSmooth",
+		"cg_remotePredictionStepMsec",
+		"cg_remotePredictionLeadKneeFrac",
+		"cg_remotePredictionLeadKnee",
+		"cg_remotePredictionInterpWeight",
+		"cg_remotePredictionScale",
+		"cg_remotePredictionPingSmooth",
+		"cg_remotePredictionBlendPingLow",
+		"cg_remotePredictionBlendPingMid",
+		"cg_remotePredictionBlendPingHigh",
+		"cg_remotePredictionCurveWLow",
+		"cg_remotePredictionCurveWMid",
+		"cg_remotePredictionCurveWHigh",
+		"cg_remotePredictionDecelWLow",
+		"cg_remotePredictionDecelWMid",
+		"cg_remotePredictionDecelWHigh",
+		"cg_remotePredictionMaxYawRate",
+		"cg_remotePredictionDecelRate",
+		"cg_remotePredictionCurveStabilityMin",
+		"cg_remotePredictionDecelTrendMin",
+		"cg_remotePredictionDebug",
+	};
+	int i;
+
+	for (i = 0; i < (int)ARRAY_LEN(obsolete); i++) {
+		cvar_t *cv = Cvar_FindVar(obsolete[i]);
+		if (cv) {
+			Cvar_Unset(cv);
+		}
+	}
+}
+
 void CL_Init( void ) {
 	int start, end;
 
@@ -3749,6 +3817,10 @@ void CL_Init( void ) {
 	SCR_Init ();
 
 	Cbuf_Execute (0);
+
+	// Added in Omaha: archived calibration knobs may still be seta'd in omahaconfig;
+	// drop them so only enable + MaxLead remain console-visible.
+	CL_PurgeObsoleteRemotePredictionCvars();
 
 	Cvar_Set( "cl_running", "1" );
 

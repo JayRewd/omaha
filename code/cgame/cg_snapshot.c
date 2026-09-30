@@ -42,6 +42,8 @@ static void CG_ResetEntity(centity_t *cent)
     int      i;
 
     VectorCopy(cent->currentState.origin, cent->lerpOrigin);
+    // Added in Omaha: keep collision pose in sync when entity is reset
+    VectorCopy(cent->currentState.origin, cent->netLerpOrigin);
 
     VectorCopy(cent->currentState.angles, cent->lerpAngles);
 

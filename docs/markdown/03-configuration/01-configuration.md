@@ -166,3 +166,22 @@ set sv_numbots 4 // Spawn 4 bots
 - Bots won't complete objectives. They only navigate the map and attack other players.
 - Minefields may fully block bot paths. For example, on Omaha Beach, bots spawning at the West axis spawn may get stuck in the spawn area.
 - Some obstacles might completely block bot paths.
+
+## Project: Omaha client — remote player prediction
+
+Client-only display prediction for other players. Stock MOHAA servers do **not** lag-compensate (no antilag / rewind); bullet traces use remotes at their current server positions when your usercmd is executed. Leading remotes by approximately ping (capped by MaxLead) therefore shows the geometrically correct aim point. Nothing is sent to the server; no custom `game.so` is required.
+
+Default is Safe (`1`). Mode `0` is vanilla display; mode `2` (Lead) is the stronger
+opt-in aiming aid. Player-facing overview:
+[Player prediction](../02-running/05-player-prediction.md).
+
+Players may only set these two cvars. Soft-mix, blend schedule, Scale (1.0), smoothing, and related knobs are **compile-time locked** in `code/cgame/cg_remotepredict.cpp`.
+
+| Cvar | Default | Description |
+|------|---------|-------------|
+| `cg_remotePrediction` | `1` | `0` off (vanilla). `1` safe: collision-aware coast only when the render clock overshoots the newest snapshot. `2` lead: lag-compensating visual lead so you can aim at models. |
+| `cg_remotePredictionMaxLead` | `100` | Hard ceiling on lead in ms. Lead tracks smoothed ping from **0** up to this value (range **0–150**). `0` disables lead in mode `2`. |
+
+Debug draw/stats: set `CG_RP_DEBUG_DRAW` to `1` in `cg_remotepredict.cpp` and rebuild `cgame` (no player cvar in shipping builds).
+
+**Limits:** a jump or strafe juke that has not yet appeared in a snapshot cannot be predicted. Water / ladder / noclip remotes fall back to vanilla. Curve is off while airborne. Mode `2` is display-only and derived from data the client already received, but some communities may still consider lead compensation contentious.

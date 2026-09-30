@@ -573,6 +573,7 @@ qboolean CL_CheckPaused(void);
 int CL_GetRefSequence(void);
 qboolean CL_IsRendererLoaded(void);
 void CL_ApplyOriginalConfigTweaks();
+void CL_PurgeObsoleteRemotePredictionCvars(void); // Added in Omaha
 
 //
 // cl_input
@@ -727,6 +728,8 @@ void CL_ShutdownCGame( void );
 qboolean CL_GameCommand( void );
 void CL_CGameRendering( stereoFrame_t stereo );
 void CL_CGame2D( stereoFrame_t stereo );
+void CL_EnsureDebugLines( void ); // Added in Omaha
+void CL_ClearDebugLines( void );  // Added in Omaha
 void CL_UpdateSnapFlags( void );
 void CL_SetCGameTime( void );
 void CL_FirstSnapshot( void );

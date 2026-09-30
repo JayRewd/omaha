@@ -145,6 +145,19 @@ As you see the default variable above, you can add multiple keys (between the qu
 
 ---
 
+<details>
+<summary>What is player / remote prediction?</summary>
+
+Project: Omaha can show other players slightly ahead on your screen so online
+aiming feels closer to what you see. Modes are **Off**, **Safe** (default), and
+**Lead**. It is display-only and works on stock servers.
+
+Full overview and accuracy numbers:
+[Player prediction](05-player-prediction.md).
+</details>
+
+---
+
 Footnotes:
 
 [^1]: `omahaconfig.cfg` is the Project: Omaha configuration file under `main` / `mainta` / `maintt` `/configs/` in the game install directory (or under `fs_homepath` if overridden).
