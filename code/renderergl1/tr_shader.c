@@ -3542,6 +3542,117 @@ shader_t* R_FindShader(const char* name, int lightmapIndex, qboolean mipRawImage
 }
 
 
+/*
+====================
+RE_RegisterShaderFromImage
+====================
+*/
+qhandle_t RE_RegisterShaderFromImage(const char *name, int lightmapIndex, image_t *image, qboolean mipRawImage) {
+	char		strippedName[MAX_QPATH];
+	int			i, j, hash;
+	shader_t	*sh;
+
+	(void)mipRawImage;
+
+	if ( lightmapIndex >= tr.numLightmaps ) {
+		lightmapIndex = LIGHTMAP_WHITEIMAGE;
+	}
+
+	COM_StripExtension(name, strippedName, sizeof(strippedName));
+	hash = generateHashValue(strippedName);
+
+	//
+	// see if the shader is already loaded
+	//
+	for (currentShader = hashTable[hash]; currentShader; currentShader = currentShader->next) {
+		if (!Q_stricmp(currentShader->name, strippedName)) {
+			break;
+		}
+	}
+
+	if (currentShader) {
+		for (sh = currentShader->shader; sh; sh = sh->next) {
+			if (sh->lightmapIndex == lightmapIndex || sh == tr.defaultShader) {
+				return sh->index;
+			}
+		}
+	} else {
+		currentShader = AddShaderTextToHash(strippedName, hash);
+	}
+
+	// clear the global shader
+	Com_Memset( &shader, 0, sizeof( shader ) );
+	Com_Memset(&unfoggedStages, 0, sizeof(unfoggedStages));
+	Com_Memset(&texMods, 0, sizeof(texMods));
+
+	shader.sprite.scale = 1.0;
+	shader_noPicMip = qfalse;
+	shader_noMipMaps = qfalse;
+	shader_force32bit = qfalse;
+	Q_strncpyz(shader.name, strippedName, sizeof(shader.name));
+	shader.lightmapIndex = lightmapIndex;
+	for ( i = 0 ; i < MAX_SHADER_STAGES ; i++ ) {
+		for (j = 0; j < NUM_TEXTURE_BUNDLES; j++) {
+			unfoggedStages[i].bundle[j].texMods = texMods[i];
+		}
+	}
+
+	shader.needsNormal = qfalse;
+	shader.needsST1 = qtrue;
+	shader.needsST2 = qtrue;
+	shader.needsColor = qtrue;
+
+	//
+	// create the default shading commands
+	//
+	if ( shader.lightmapIndex == LIGHTMAP_NONE ) {
+		unfoggedStages[0].bundle[0].image[0] = image;
+		unfoggedStages[0].active = qtrue;
+		unfoggedStages[0].rgbGen = CGEN_LIGHTING_GRID;
+		unfoggedStages[0].stateBits = GLS_DEFAULT;
+	} else if ( shader.lightmapIndex == LIGHTMAP_BY_VERTEX ) {
+		unfoggedStages[0].bundle[0].image[0] = image;
+		unfoggedStages[0].active = qtrue;
+		unfoggedStages[0].rgbGen = CGEN_EXACT_VERTEX;
+		unfoggedStages[0].alphaGen = AGEN_SKIP;
+		unfoggedStages[0].stateBits = GLS_DEFAULT;
+	} else if ( shader.lightmapIndex == LIGHTMAP_2D ) {
+		unfoggedStages[0].bundle[0].image[0] = image;
+		unfoggedStages[0].active = qtrue;
+		unfoggedStages[0].force32bit = qtrue;
+		unfoggedStages[0].rgbGen = CGEN_GLOBAL_COLOR;
+		unfoggedStages[0].alphaGen = AGEN_GLOBAL_ALPHA;
+		unfoggedStages[0].stateBits = GLS_DEPTHTEST_DISABLE |
+			  GLS_SRCBLEND_SRC_ALPHA |
+			  GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
+	} else if ( shader.lightmapIndex == LIGHTMAP_WHITEIMAGE ) {
+		unfoggedStages[0].bundle[0].image[0] = tr.whiteImage;
+		unfoggedStages[0].active = qtrue;
+		unfoggedStages[0].rgbGen = CGEN_IDENTITY_LIGHTING;
+		unfoggedStages[0].stateBits = GLS_DEFAULT;
+
+		unfoggedStages[1].bundle[0].image[0] = image;
+		unfoggedStages[1].active = qtrue;
+		unfoggedStages[1].rgbGen = CGEN_IDENTITY;
+		unfoggedStages[1].stateBits |= GLS_SRCBLEND_DST_COLOR | GLS_DSTBLEND_ZERO;
+	} else {
+		unfoggedStages[0].bundle[0].image[0] = tr.lightmaps[shader.lightmapIndex];
+		unfoggedStages[0].bundle[0].isLightmap = qtrue;
+		unfoggedStages[0].active = qtrue;
+		unfoggedStages[0].rgbGen = CGEN_IDENTITY;
+		unfoggedStages[0].stateBits = GLS_DEFAULT;
+
+		unfoggedStages[1].bundle[0].image[0] = image;
+		unfoggedStages[1].active = qtrue;
+		unfoggedStages[1].rgbGen = CGEN_IDENTITY;
+		unfoggedStages[1].stateBits |= GLS_SRCBLEND_DST_COLOR | GLS_DSTBLEND_ZERO;
+	}
+
+	sh = FinishShader();
+	return sh->index;
+}
+
+
 /* 
 ====================
 RE_RegisterShader
@@ -3946,6 +4057,47 @@ void R_ShutdownShaders()
             ri.Free(shader);
         }
         hashTable[hash] = NULL;
+	}
+}
+
+/*
+====================
+R_RemountLightmapShaderImages
+
+Fixed in OPM: Menu Backdrop cycling frees and recreates *lightmap images. Cached
+world shaders still point at the old image_t slots (often zeroed or reused for a
+different lightmap index), which shows up as wrong lighting or missing brushes.
+====================
+*/
+void R_RemountLightmapShaderImages(void)
+{
+	int i, stage, bundle;
+	shader_t *sh;
+	image_t *lm;
+
+	for (i = 0; i < tr.numShaders; i++) {
+		sh = tr.shaders[i];
+		if (!sh || sh->lightmapIndex < 0) {
+			continue;
+		}
+
+		if (sh->lightmapIndex >= tr.numLightmaps || !tr.lightmaps[sh->lightmapIndex]) {
+			lm = tr.whiteImage;
+		} else {
+			lm = tr.lightmaps[sh->lightmapIndex];
+		}
+
+		for (stage = 0; stage < MAX_SHADER_STAGES; stage++) {
+			if (!sh->unfoggedStages[stage] || !sh->unfoggedStages[stage]->active) {
+				continue;
+			}
+			for (bundle = 0; bundle < NUM_TEXTURE_BUNDLES; bundle++) {
+				if (!sh->unfoggedStages[stage]->bundle[bundle].isLightmap) {
+					continue;
+				}
+				sh->unfoggedStages[stage]->bundle[bundle].image[0] = lm;
+			}
+		}
 	}
 }
 

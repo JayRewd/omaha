@@ -56,6 +56,7 @@ void Draw_StretchPic(float x, float y, float w, float h, float s1, float t1, flo
 	shader_t* shader;
 
 	R_IssuePendingRenderCommands();
+	RE_UI2DTargetRebind();
 
 	if (hShader) {
 		shader = R_GetShaderByHandle(hShader);
@@ -103,6 +104,7 @@ void Draw_StretchPic2(float x, float y, float w, float h, float s1, float t1, fl
 	float scaledWidth2, scaledHeight2;
 
 	R_IssuePendingRenderCommands();
+	RE_UI2DTargetRebind();
 
 	if (hShader) {
 		shader = R_GetShaderByHandle(hShader);
@@ -153,6 +155,7 @@ void Draw_TilePic(float x, float y, float w, float h, qhandle_t hShader) {
 	float		picw, pich;
 
 	R_IssuePendingRenderCommands();
+	RE_UI2DTargetRebind();
 
 	if (hShader) {
 		shader = R_GetShaderByHandle(hShader);
@@ -199,6 +202,7 @@ void Draw_TilePicOffset(float x, float y, float w, float h, qhandle_t hShader, i
 	float		picw, pich;
 
 	R_IssuePendingRenderCommands();
+	RE_UI2DTargetRebind();
 
 	if (hShader) {
 		shader = R_GetShaderByHandle(hShader);
@@ -245,6 +249,7 @@ void Draw_TrianglePic(const vec2_t vPoints[3], const vec2_t vTexCoords[3], qhand
 	shader_t* shader;
 
 	R_IssuePendingRenderCommands();
+	RE_UI2DTargetRebind();
 
 	if (hShader) {
 		shader = R_GetShaderByHandle(hShader);
@@ -279,6 +284,7 @@ void RE_DrawBackground_TexSubImage(int cols, int rows, int bgr, byte* data) {
 	h = glConfig.vidHeight;
 
 	R_IssuePendingRenderCommands();
+	RE_UI2DTargetRebind();
 	qglFinish();
 
 	if (bgr) {
@@ -332,6 +338,7 @@ RE_DrawBackground_DrawPixels
 */
 void RE_DrawBackground_DrawPixels(int cols, int rows, int bgr, byte* data) {
 	R_IssuePendingRenderCommands();
+	RE_UI2DTargetRebind();
 
 	GL_State(0);
 	qglDisable(GL_TEXTURE_2D);
@@ -356,6 +363,7 @@ AddBox
 */
 void AddBox(float x, float y, float w, float h) {
 	R_IssuePendingRenderCommands();
+	RE_UI2DTargetRebind();
 
 	qglColor4ubv(backEnd.color2D);
 	qglDisable(GL_TEXTURE_2D);
@@ -379,7 +387,17 @@ DrawBox
 ================
 */
 void DrawBox(float x, float y, float w, float h) {
+	GLboolean msaaEnabled = GL_FALSE;
+
 	R_IssuePendingRenderCommands();
+	RE_UI2DTargetRebind();
+
+#ifdef GL_MULTISAMPLE
+	msaaEnabled = qglIsEnabled(GL_MULTISAMPLE);
+	if (msaaEnabled) {
+		qglDisable(GL_MULTISAMPLE);
+	}
+#endif
 
 	qglColor4ubv(backEnd.color2D);
 	qglDisable(GL_TEXTURE_2D);
@@ -395,6 +413,12 @@ void DrawBox(float x, float y, float w, float h) {
 	qglEnd();
 
 	qglEnable(GL_TEXTURE_2D);
+
+#ifdef GL_MULTISAMPLE
+	if (msaaEnabled) {
+		qglEnable(GL_MULTISAMPLE);
+	}
+#endif
 }
 
 /*
@@ -406,6 +430,7 @@ void DrawLineLoop(const vec2_t* points, int count, int stipple_factor, int stipp
 	int		i;
 
 	R_IssuePendingRenderCommands();
+	RE_UI2DTargetRebind();
 
 	qglDisable(GL_TEXTURE_2D);
 
@@ -436,6 +461,7 @@ Set2DWindow
 */
 void Set2DWindow(int x, int y, int w, int h, float left, float right, float bottom, float top, float n, float f) {
 	R_IssuePendingRenderCommands();
+	RE_UI2DTargetRebind();
 	qglViewport(x, y, w, h);
 	qglScissor(x, y, w, h);
 	qglMatrixMode(GL_PROJECTION);

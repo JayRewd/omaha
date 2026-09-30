@@ -63,6 +63,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #define RDF_NOWORLDMODEL	0x0001		// used for player configuration screen
 #define RDF_HUD				0x0002
 #define RDF_HYPERSPACE		0x0004		// teleportation effect
+#define RDF_EXPORT			0x0008		// Added in OPM: offscreen transparent model PNG export
 
 typedef struct {
 	vec3_t		xyz;
@@ -278,6 +279,13 @@ typedef struct {
     qboolean				VAR;
     qboolean				fence;
 } glconfig_t;
+
+/* Added in OPM: batched 2D UI geometry vertex (modern UI GPU path). */
+typedef struct {
+	float xy[2];   /* draw-space position, matches the current Set2DWindow ortho */
+	float st[2];   /* texcoords; ignored when hShader == 0 */
+	byte  rgba[4]; /* non-premultiplied, straight alpha */
+} ui2dVert_t;
 
 #include "new/tr_types_new.h"
 

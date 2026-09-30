@@ -1787,6 +1787,7 @@ void        R_ClearWorld(void);
 qboolean	R_GetEntityToken( char *buffer, int size );
 
 model_t		*R_AllocModel( void );
+void		R_FreeModel( model_t *mod );
 
 void    	R_Init( void );
 
@@ -1807,6 +1808,49 @@ image_t* R_CreateImageOld(
     int glWrapClampModeX,
     int glWrapClampModeY
 );
+
+qhandle_t	RE_CreateUIAtlas(const char *name, const byte *rgba, int width, int height);
+qboolean	RE_UpdateUIAtlas(qhandle_t hShader, const byte *rgba, int width, int height);
+qboolean	RE_UiStencilAvailable(void);
+void		RE_BeginUiStencilMask(int x, int y, int width, int height);
+void		RE_BeginUiStencilDraw(void);
+void		RE_EndUiStencil(void);
+qboolean	RE_UI2DBatchSupported(void);
+qboolean	RE_UI2DCanBatchShader(qhandle_t hShader);
+void		RE_DrawUI2D(const ui2dVert_t *verts, int numVerts, const unsigned short *indexes, int numIndexes, qhandle_t hShader);
+qboolean	RE_UI2DTargetAvailable(void);
+qboolean	RE_BeginUI2DTarget(void);
+void		RE_EndUI2DTarget(void);
+qboolean	RE_UI2DTargetIsActive(void);
+int		RE_UI2DTargetSamples(void);
+void		RE_UI2DTargetRebind(void);
+void		RE_UI2D_FboShutdown(void);
+
+/* Added in OPM: soft mask-image layer RT (UI FBO only). */
+qboolean	RE_UiLayerAvailable(void);
+qboolean	RE_UiLayerIsActive(void);
+void		RE_UiLayerRebind(void);
+void		RE_UiLayerShutdown(void);
+qboolean	RE_BeginUiLayer(int fbX, int fbY, int fbW, int fbH, float uiX, float uiY, float uiW, float uiH);
+void		RE_UiLayerApplyMask(qhandle_t hShader, float x, float y, float w, float h, float s1, float t1, float s2, float t2);
+void		RE_EndUiLayer(void);
+
+/* Added in OPM: retained chrome cache RT (separate from soft-mask layer). */
+qboolean	RE_UiChromeCacheAvailable(void);
+qboolean	RE_UiChromeCacheIsActive(void);
+void		RE_UiChromeCacheRebind(void);
+void		RE_UiChromeCacheShutdown(void);
+qboolean	RE_BeginUiChromeCacheCapture(float uiX, float uiY, float uiW, float uiH);
+void		RE_EndUiChromeCacheCapture(void);
+void		RE_BlitUiChromeCache(void);
+void		RE_InvalidateUiChromeCache(void);
+
+void		RE_ClearWorld(void);
+void		RE_LoadMenuWorld(const char *name);
+qboolean	RE_LoadMenuWorldStaged(const char *name);
+void		RE_CommitMenuWorld(void);
+void		RE_CancelMenuWorldStaging(void);
+qboolean	RE_HasActiveWorld(void);
 
 qboolean R_ImageExists(const char* name);
 int R_CountTextureMemory();
@@ -1844,6 +1888,8 @@ qhandle_t RE_RegisterShaderFromImage(const char *name, int lightmapIndex, image_
 shader_t* R_FindShader(const char* name, int lightmapIndex, qboolean mipRawImage, qboolean picmip, qboolean wrapx, qboolean wrapy);
 shader_t	*R_GetShaderByHandle( qhandle_t hShader );
 shader_t	*R_GetShaderByState( int index, long *cycleTime );
+/* Fixed in OPM: menu world reload frees/recreates *lightmap images; refresh cached shaders. */
+void		R_RemountLightmapShaderImages( void );
 void R_StartupShaders();
 void R_ShutdownShaders();
 void R_SetupShaders();
@@ -2492,6 +2538,7 @@ extern	volatile qboolean	renderThreadActive;
 
 
 void *R_GetCommandBuffer( int bytes );
+void R_IssuePendingRenderCommands( void );
 void R_AddDrawSurfCmd( drawSurf_t *drawSurfs, int numDrawSurfs );
 void R_AddSpriteSurfCmd( drawSurf_t* drawSurfs, int numDrawSurfs );
 void RB_ExecuteRenderCommands( const void *data );

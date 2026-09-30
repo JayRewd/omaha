@@ -22,7 +22,6 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "tr_local.h"
 
 
-
 /*
 =================
 R_CullTriSurf
@@ -811,9 +810,13 @@ static void R_MarkLeaves (void) {
 
 	// if the cluster is the same and the area visibility matrix
 	// hasn't changed, we don't need to mark everything again
-
-	// if r_showcluster was just turned on, remark everything 
-	if ( tr.viewCluster == cluster && !tr.refdef.areamaskModified 
+	//
+	// Fixed in OPM: viewCluster == -1 is the "force remark" sentinel used after
+	// map/menu-world loads. Cameras outside the world also report cluster -1, so
+	// treating (-1 == -1) as a hit skips marking forever (Algiers / Southern France
+	// menu backdrops: brushes vanish, static models still draw).
+	if ( tr.viewCluster == cluster && tr.viewCluster != -1
+		&& !tr.refdef.areamaskModified
 		&& !r_showcluster->modified ) {
 		return;
 	}

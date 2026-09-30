@@ -2483,3 +2483,36 @@ void R_LoadPNG(const char *name, byte **pic, int *width, int *height)
 
 	CloseBufferedFile(ThePNG);
 }
+
+/*
+=================
+RE_SavePNG
+
+Added in OPM: write RGBA8 rows to a PNG file (model bake / UI export).
+=================
+*/
+#define STB_IMAGE_WRITE_STATIC
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "../../thirdparty/stb/stb_image_write.h"
+
+void RE_SavePNG(const char *filename, int width, int height, const byte *rgba)
+{
+	unsigned char *pngData = NULL;
+	int            pngLen = 0;
+
+	if (!filename || !filename[0] || width <= 0 || height <= 0 || !rgba) {
+		return;
+	}
+
+	pngData = stbi_write_png_to_mem((const unsigned char *)rgba, width * 4, width, height, 4, &pngLen);
+	if (!pngData || pngLen <= 0) {
+		ri.Printf(PRINT_WARNING, "RE_SavePNG: encode failed for '%s'\n", filename);
+		if (pngData) {
+			STBIW_FREE(pngData);
+		}
+		return;
+	}
+
+	ri.FS_WriteFile(filename, pngData, (int)pngLen);
+	STBIW_FREE(pngData);
+}

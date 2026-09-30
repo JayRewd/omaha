@@ -45,6 +45,7 @@ set(RENDERER_GL2_SOURCES
     ${SOURCE_DIR}/renderergl2/tr_surface.c
     ${SOURCE_DIR}/renderergl2/tr_swipe.cpp
     ${SOURCE_DIR}/renderergl2/tr_terrain.c
+    ${SOURCE_DIR}/renderergl2/tr_ui_atlas.c
     ${SOURCE_DIR}/renderergl2/tr_util.cpp
     ${SOURCE_DIR}/renderergl2/tr_vbo.c
     ${SOURCE_DIR}/renderergl2/tr_vis.cpp

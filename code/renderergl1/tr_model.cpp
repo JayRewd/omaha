@@ -26,6 +26,9 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "../corepp/tiki.h"
 #include "../corepp/vector.h"
 
+#include <cstdio>
+#include <ctime>
+
 #define LL(x) x = LittleLong(x)
 
 qboolean   g_bInfoworldtris = qfalse;

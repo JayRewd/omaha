@@ -422,8 +422,16 @@ void DrawBox(float x, float y, float w, float h) {
     vec4_t quadVerts[4];
     vec2_t texCoords[4];
     vec4_t color;
+    GLboolean msaaEnabled = GL_FALSE;
 
     R_IssuePendingRenderCommands();
+
+#ifdef GL_MULTISAMPLE
+    msaaEnabled = qglIsEnabled(GL_MULTISAMPLE);
+    if (msaaEnabled) {
+        qglDisable(GL_MULTISAMPLE);
+    }
+#endif
 
     GL_BindToTMU(tr.whiteImage, TB_COLORMAP);
     GL_State(GLS_DEPTHTEST_DISABLE | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA | GLS_SRCBLEND_SRC_ALPHA);
@@ -454,6 +462,12 @@ void DrawBox(float x, float y, float w, float h) {
     GLSL_SetUniformVec4(&tr.textureColorShader, UNIFORM_COLOR, color);
 
     RB_InstantQuad2(quadVerts, texCoords);
+
+#ifdef GL_MULTISAMPLE
+    if (msaaEnabled) {
+        qglEnable(GL_MULTISAMPLE);
+    }
+#endif
 }
 
 /*

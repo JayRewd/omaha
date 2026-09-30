@@ -161,6 +161,7 @@ void R_LoadBMP( const char *name, byte **pic, int *width, int *height );
 void R_LoadJPG( const char *name, byte **pic, int *width, int *height );
 void R_LoadPCX( const char *name, byte **pic, int *width, int *height );
 void R_LoadPNG( const char *name, byte **pic, int *width, int *height );
+void RE_SavePNG( const char *filename, int width, int height, const byte *rgba );
 void R_LoadPVR( const char *name, byte **pic, int *width, int *height );
 void R_LoadTGA( const char *name, byte **pic, int *width, int *height );
 
