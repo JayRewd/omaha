@@ -94,9 +94,9 @@ If changing the file precedences has no effect on the glitch you discovered, you
 <details>
 <summary>I cannot set my screen resolution in the Options/Video menu. How can I change it?</summary>
 
-### Edit `omconfig.cfg`:
+### Edit `omahaconfig.cfg`:
 
-If they do not exist, add the following console variables (cvars) to your `omconfig.cfg`[^1]
+If they do not exist, add the following console variables (cvars) to your `omahaconfig.cfg`[^1]
 
 ```
 seta r_mode "-1"
@@ -124,14 +124,14 @@ Change the width and height accordingly.
 ### 1. Check if console is enabled
 
 In the Options -> Advanced menu, make sure that the checkbox is checked (red "X") at the Console.
-Alternatively, check if the value is equal to 1 for the following cvar in `omconfig.cfg`[^1]:
+Alternatively, check if the value is equal to 1 for the following cvar in `omahaconfig.cfg`[^1]:
 ```
 seta ui_console "1"
 ```
 
 ### 2. Check Console keys cvar
 
-OpenMoHAA introduces a new cvar that stores the keys to open up console. Edit the following cvar in your `omconfig.cfg`[^1]:
+OpenMoHAA introduces a new cvar that stores the keys to open up console. Edit the following cvar in your `omahaconfig.cfg`[^1]:
 
 ```
 seta cl_consoleKeys "~ ` 0x7e 0x60"
@@ -147,4 +147,4 @@ As you see the default variable above, you can add multiple keys (between the qu
 
 Footnotes:
 
-[^1]: omconfig.cfg is the OpenMoHAA configuration file that is located in the user game data folder (on Windows,  `%APPDATA%\openmohaa\main` or `mainta` or `maintt` `\configs\omconfig.cfg`)
+[^1]: `omahaconfig.cfg` is the Project: Omaha configuration file under `main` / `mainta` / `maintt` `/configs/` in the game install directory (or under `fs_homepath` if overridden).

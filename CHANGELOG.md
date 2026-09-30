@@ -41,7 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Server
 
 - Prevent dropping the binoculars (this change was introduced in Spearhead v2.11).
-- Servers now read and write into a configuration file `omconfig_server.cfg`, separate from the client configuration for convenience.
+- Servers now read and write into a configuration file `omahaconfig_server.cfg`, separate from the client configuration for convenience.
 
 ### Fixed
 
@@ -387,7 +387,7 @@ If you have issues, executing `set g_navigation_legacy 1` command and then reloa
 
 - Don't execute newconfig.cfg anymore as it overrides graphical settings.
 - Some errors that show in console will only print in developer mode now (`developer` set to 1), as those are not relevant for the end-user.
-- The `unnamedsoldier.cfg` configuration file will be used as a template for creating the `omconfig.cfg` configuration file if the latter doesn't exist
+- The `unnamedsoldier.cfg` configuration file will be used as a template for creating the `omahaconfig.cfg` configuration file if the latter doesn't exist
 
 ## [0.80.0] - 2024-11-24
 

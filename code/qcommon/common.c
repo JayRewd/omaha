@@ -646,6 +646,31 @@ qboolean Com_SafeMode( void ) {
 	return qfalse;
 }
 
+/*
+===============
+Com_CommandLineCvarSpecified
+
+Returns qtrue when the original command line included
+  +set <name> <value>
+Used to allow startup-only overrides (e.g. cl_renderer opengl2 for bake tools).
+===============
+*/
+qboolean Com_CommandLineCvarSpecified( const char *name ) {
+	int i;
+
+	if ( !name || !name[0] ) {
+		return qfalse;
+	}
+
+	for ( i = 0; i < com_numConsoleLines; i++ ) {
+		Cmd_TokenizeString( com_consoleLines[i] );
+		if ( !strcmp( Cmd_Argv( 0 ), "set" ) && !strcmp( Cmd_Argv( 1 ), name ) ) {
+			return qtrue;
+		}
+	}
+
+	return qfalse;
+}
 
 /*
 ===============
@@ -1840,9 +1865,66 @@ void Com_Init( char *commandLine ) {
 		// Grab the config file from the original game
 		Cbuf_AddText( "exec configs/unnamedsoldier.cfg\n" );
 		com_gotOriginalConfig = qtrue;
+		/*
+		 * Added in Omaha: retail template uses F6 for messagemode and T/Y for
+		 * say/sayteam. Prefer T/Y for compose chat (matches modern settings rows).
+		 * Also re-apply Omaha gameplay/video defaults the template would clobber.
+		 */
+		Cbuf_AddText(
+			"unbind F6; bind t messagemode; bind y messagemode2\n"
+			"seta s_musicvolume 0.15\n"
+			"seta s_ambientvolume 0\n"
+			"seta in_mouse -1\n"
+			"seta cg_hitmarker 1\n"
+			"seta cg_hitmarker_sound classic\n"
+			"seta cg_crosshairsize 7\n"
+			"seta cg_crosshairthickness 2.5\n"
+			"seta cg_crosshairgap 4\n"
+			"seta cg_crosshair_outlinethickness 1.5\n"
+			"seta cg_crosshaircolor 5\n"
+			"seta cg_crosshaircolor_r 255\n"
+			"seta cg_crosshaircolor_g 255\n"
+			"seta cg_crosshaircolor_b 0\n"
+			"seta cg_crosshairalpha 220\n"
+			"seta cg_crosshair_sniper_thickness 2.5\n"
+			"seta cg_crosshair_sniper_gap 0\n"
+			"seta cg_crosshair_sniper_size 5\n"
+			"seta ui_console 1\n"
+			"seta cg_shadows 2\n"
+			"seta r_fastentlight 1\n"
+			"seta cl_playintro 0\n"
+			"seta r_fullscreen 1\n"
+			"seta r_mode -2\n"
+		);
 	} else {
         // Neither original or home config exist
 		com_firstConfig = qtrue;
+		Cbuf_AddText(
+			"bind t messagemode; bind y messagemode2\n"
+			"seta s_musicvolume 0.15\n"
+			"seta s_ambientvolume 0\n"
+			"seta in_mouse -1\n"
+			"seta cg_hitmarker 1\n"
+			"seta cg_hitmarker_sound classic\n"
+			"seta cg_crosshairsize 7\n"
+			"seta cg_crosshairthickness 2.5\n"
+			"seta cg_crosshairgap 4\n"
+			"seta cg_crosshair_outlinethickness 1.5\n"
+			"seta cg_crosshaircolor 5\n"
+			"seta cg_crosshaircolor_r 255\n"
+			"seta cg_crosshaircolor_g 255\n"
+			"seta cg_crosshaircolor_b 0\n"
+			"seta cg_crosshairalpha 220\n"
+			"seta cg_crosshair_sniper_thickness 2.5\n"
+			"seta cg_crosshair_sniper_gap 0\n"
+			"seta cg_crosshair_sniper_size 5\n"
+			"seta ui_console 1\n"
+			"seta cg_shadows 2\n"
+			"seta r_fastentlight 1\n"
+			"seta cl_playintro 0\n"
+			"seta r_fullscreen 1\n"
+			"seta r_mode -2\n"
+		);
     }
 
 	if( Com_SafeMode() )
