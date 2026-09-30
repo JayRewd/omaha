@@ -234,6 +234,7 @@ jobs:
         -DFLEX_EXECUTABLE='${{github.workspace}}/thirdparties/winflexbison-install/win_flex.exe' `
         -DUSE_RENDERER_DLOPEN=OFF `
         -DBUILD_RENDERER_GL2=OFF `
+        -DBUILD_TESTING=OFF `
         -DPRODUCT_VERSION_STAGE='${{ env.RELEASE_STAGE }}'".Replace("`r", "").Replace("`n", "") >> $env:GITHUB_ENV
 
     - name: Configure CMake
