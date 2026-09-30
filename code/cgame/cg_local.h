@@ -491,6 +491,8 @@ extern "C" {
     extern cvar_t *cg_crosshair;
     extern cvar_t *cg_crosshair_friend;
     extern cvar_t *ui_crosshair;
+    extern cvar_t *ui_legacy;
+    extern cvar_t *ui_om_hud;
     extern cvar_t *vm_offset_max;
     extern cvar_t *vm_offset_speed;
     extern cvar_t *vm_sway_front;
@@ -672,6 +674,7 @@ extern "C" {
     void CG_InitializeObjectives();
     void CG_DrawObjectives();
     void CG_Draw2D(void);
+    qboolean CG_UseModernHudPack(void);
 
     //
     // cg_draw.c

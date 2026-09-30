@@ -24,6 +24,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 // Init functions for the cgame
 
 #include "cg_local.h"
+#include "cg_crosshair.h"
 #include "cg_hitmarker.h"
 #include "cg_parsemsg.h"
 #include "cg_remotepredict.h" // Added in Omaha
@@ -86,6 +87,8 @@ cvar_t *cg_drawsvlag;
 cvar_t *cg_crosshair;
 cvar_t *cg_crosshair_friend;
 cvar_t *ui_crosshair;
+cvar_t *ui_legacy;
+cvar_t *ui_om_hud;
 cvar_t *vm_offset_max;
 cvar_t *vm_offset_speed;
 cvar_t *vm_sway_front;
@@ -179,6 +182,10 @@ void CG_RegisterCvars(void)
     cg_crosshair_friend = cgi.Cvar_Get("cg_crosshair_friend", "textures/hud/crosshair_friend", CVAR_ARCHIVE);
     ui_crosshair                  = cgi.Cvar_Get("ui_crosshair", "1", CVAR_ARCHIVE);
 
+    CG_Crosshair_RegisterCvars();
+    CG_Crosshair_SyncClAliases();
+    ui_legacy                     = cgi.Cvar_Get("ui_legacy", "0", CVAR_INIT);
+    ui_om_hud                     = cgi.Cvar_Get("ui_om_hud", "classic", CVAR_ARCHIVE);
     CG_Hitmarker_RegisterCvars(); /* Added in Omaha */
     CG_RP_RegisterCvars(); // Added in Omaha
     CG_SpectateFP_RegisterCvars();

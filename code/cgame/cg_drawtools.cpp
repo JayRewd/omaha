@@ -25,6 +25,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include "cg_local.h"
 #include "cg_hitmarker.h"
+#include "cg_crosshair.h"
 
 /*
 ================
@@ -516,7 +517,11 @@ void CG_DrawZoomOverlay()
     } else if (!Q_stricmp(weaponstring, "Binoculars")) {
         zoomType = 3;
     } else {
-        if (cg.snap->ps.stats[STAT_INZOOM] && cg.snap->ps.stats[STAT_INZOOM] <= 30) {
+        const int inZoomStat = cg.snap->ps.stats[STAT_INZOOM];
+        const int inZoomFov  = CG_SpectateFP_InZoom() ? CG_SpectateFP_ZoomFov() : 0;
+        const int zoomValue  = inZoomStat ? inZoomStat : inZoomFov;
+
+        if (zoomValue && zoomValue <= 30) {
             if (!Q_stricmp(weaponstring, "KAR98 - Sniper")) {
                 zoomType = 1;
             } else {
@@ -524,6 +529,20 @@ void CG_DrawZoomOverlay()
             }
         } else {
             bDrawOverlay = qfalse;
+        }
+    }
+
+    /*
+     * Added in Omaha: modern sniper scope is painted in uirender. When that
+     * mode is on, skip PK3 sniper overlays (types 0/1) so custom packs stay
+     * available when cg_crosshair_sniper_modern is 0. Binoculars / Spy Camera
+     * still use retail shaders.
+     */
+    if (zoomType == 0 || zoomType == 1) {
+        cvar_t *sniperModern = cgi.Cvar_Find("cg_crosshair_sniper_modern");
+        if (sniperModern && sniperModern->integer) {
+            fAlpha = 0.0f;
+            return;
         }
     }
 
@@ -1348,6 +1367,17 @@ void CG_DrawSpectatorView()
 }
 
 void CG_DrawHitmarker();
+qboolean CG_UseModernHudPack(void)
+{
+    if (ui_legacy && ui_legacy->integer) {
+        return qfalse;
+    }
+    if (ui_om_hud && ui_om_hud->string[0] && !Q_stricmp(ui_om_hud->string, "legacy")) {
+        return qfalse;
+    }
+    return qtrue;
+}
+
 void CG_DrawCrosshair()
 {
     centity_t *friendEnt;
@@ -1373,63 +1403,147 @@ void CG_DrawCrosshair()
         return;
     }
 
-    if (!cg.snap->ps.stats[STAT_CROSSHAIR]
-        && (!cg.snap->ps.stats[STAT_INZOOM] || cg.snap->ps.stats[STAT_INZOOM] > 30)) {
+    {
+        /* Added in Omaha: always show crosshair while spectating (chase + free + FP). */
+        const qboolean isSpectating =
+            ((cg.snap->ps.pm_flags & PMF_SPECTATING) != 0
+             || cg.snap->ps.stats[STAT_TEAM] == TEAM_SPECTATOR)
+                ? qtrue
+                : qfalse;
+        const qboolean inScopeZoom =
+            ((cg.snap->ps.stats[STAT_INZOOM] && cg.snap->ps.stats[STAT_INZOOM] <= 30)
+             || (CG_SpectateFP_InZoom() && CG_SpectateFP_ZoomFov() <= 30))
+                ? qtrue
+                : qfalse;
+
+        if (!cg.snap->ps.stats[STAT_CROSSHAIR] && !(isSpectating && !inScopeZoom) && !inScopeZoom) {
+            return;
+        }
+    }
+
+    /* Added in Omaha: procedural crosshair for modern HUD packs. */
+    if (CG_UseModernHudPack()) {
+        qboolean friendTarget = qfalse;
+        const int inZoom = cg.snap->ps.stats[STAT_INZOOM];
+
+        /*
+         * Added in Omaha: sniper zoom uses scope reticle (modern or PK3); skip short crosshair.
+         * Same gate as the HUD host: FOV <= 30, excluding Spy Camera / Binoculars.
+         */
+        if (inZoom > 0 && inZoom <= 30) {
+            const char *wpn = "";
+            if (cg.snap->ps.activeItems[ITEM_WEAPON] >= 0) {
+                wpn = CG_ConfigString(CS_WEAPONS + cg.snap->ps.activeItems[ITEM_WEAPON]);
+            }
+            if (!wpn) {
+                wpn = "";
+            }
+            if (Q_stricmp(wpn, "Spy Camera") && Q_stricmp(wpn, "Binoculars")) {
+                return;
+            }
+        }
+
+        if (cgs.gametype != GT_FFA) {
+            AngleVectorsLeft(cg.refdefViewAngles, forward, NULL, NULL);
+
+            VectorMA(cg.refdef.vieworg, 8192, forward, end);
+            VectorClear(mins);
+            VectorClear(maxs);
+
+            CG_Trace(
+                &trace, cg.refdef.vieworg, mins, maxs, end, 9999, MASK_SOLID, qfalse, qtrue, "CG_DrawCrosshair"
+            );
+
+            if ((trace.entityNum != ENTITYNUM_NONE && trace.entityNum != ENTITYNUM_WORLD)
+                && trace.entityNum != cg.snap->ps.clientNum) {
+                int myFlags;
+
+                friendEnt = &cg_entities[trace.entityNum];
+                if (cgs.gametype != GT_SINGLE_PLAYER) {
+                    myFlags = cg_entities[cg.snap->ps.clientNum].currentState.eFlags & EF_ANY_TEAM;
+                } else {
+                    myFlags = EF_ALLIES;
+                }
+
+                if (((myFlags & EF_ALLIES) && (friendEnt->currentState.eFlags & EF_ALLIES))
+                    || ((myFlags & EF_AXIS) && (friendEnt->currentState.eFlags & EF_AXIS))) {
+                    friendTarget = qtrue;
+                }
+            }
+        }
+
+        CG_DrawModernCrosshair(friendTarget);
         return;
     }
 
     // Fixed in OPM: R_RegisterShaderNoMip
     //  Use R_RegisterShaderNoMip, as it's UI stuff
 
-    if (cgs.gametype != GT_FFA) {
-        AngleVectorsLeft(cg.refdefViewAngles, forward, NULL, NULL);
+    {
+        /* Added in Omaha: spectate snaps lack STAT_CROSSHAIR; still draw (chase + free + FP). */
+        const qboolean isSpectating =
+            ((cg.snap->ps.pm_flags & PMF_SPECTATING) != 0
+             || cg.snap->ps.stats[STAT_TEAM] == TEAM_SPECTATOR)
+                ? qtrue
+                : qfalse;
+        const qboolean inScopeZoom =
+            ((cg.snap->ps.stats[STAT_INZOOM] && cg.snap->ps.stats[STAT_INZOOM] <= 30)
+             || (CG_SpectateFP_InZoom() && CG_SpectateFP_ZoomFov() <= 30))
+                ? qtrue
+                : qfalse;
+        const qboolean wantCrosshair =
+            (cg.snap->ps.stats[STAT_CROSSHAIR] || (isSpectating && !inScopeZoom)) ? qtrue : qfalse;
 
-        VectorMA(cg.refdef.vieworg, 8192, forward, end);
-        VectorClear(mins);
-        VectorClear(maxs);
+        if (cgs.gametype != GT_FFA) {
+            AngleVectorsLeft(cg.refdefViewAngles, forward, NULL, NULL);
 
-        CG_Trace(&trace, cg.refdef.vieworg, mins, maxs, end, 9999, MASK_SOLID, qfalse, qtrue, "CG_DrawCrosshair");
+            VectorMA(cg.refdef.vieworg, 8192, forward, end);
+            VectorClear(mins);
+            VectorClear(maxs);
 
-        // ENTITYNUM_WORLD check added in OPM
-        if ((trace.entityNum != ENTITYNUM_NONE && trace.entityNum != ENTITYNUM_WORLD)
-            && trace.entityNum != cg.snap->ps.clientNum) {
-            int myFlags;
+            CG_Trace(&trace, cg.refdef.vieworg, mins, maxs, end, 9999, MASK_SOLID, qfalse, qtrue, "CG_DrawCrosshair");
 
-            friendEnt = &cg_entities[trace.entityNum];
-            if (cgs.gametype != GT_SINGLE_PLAYER) {
-                myFlags = cg_entities[cg.snap->ps.clientNum].currentState.eFlags & EF_ANY_TEAM;
-            } else {
-                // the player will always be considered as an allied
-                // in single-player
-                myFlags = EF_ALLIES;
-            }
+            // ENTITYNUM_WORLD check added in OPM
+            if ((trace.entityNum != ENTITYNUM_NONE && trace.entityNum != ENTITYNUM_WORLD)
+                && trace.entityNum != cg.snap->ps.clientNum) {
+                int myFlags;
 
-            if (((myFlags & EF_ALLIES) && (friendEnt->currentState.eFlags & EF_ALLIES))
-                || ((myFlags & EF_AXIS) && (friendEnt->currentState.eFlags & EF_AXIS))) {
-                // friend
-                if (cg.snap->ps.stats[STAT_CROSSHAIR]) {
-                    shader = cgi.R_RegisterShaderNoMip(cg_crosshair_friend->string);
-                    if (!shader) {
-                        // Fixed in OPM
-                        //  Fallback to normal crosshair texture if it doesn't exist
+                friendEnt = &cg_entities[trace.entityNum];
+                if (cgs.gametype != GT_SINGLE_PLAYER) {
+                    myFlags = cg_entities[cg.snap->ps.clientNum].currentState.eFlags & EF_ANY_TEAM;
+                } else {
+                    // the player will always be considered as an allied
+                    // in single-player
+                    myFlags = EF_ALLIES;
+                }
+
+                if (((myFlags & EF_ALLIES) && (friendEnt->currentState.eFlags & EF_ALLIES))
+                    || ((myFlags & EF_AXIS) && (friendEnt->currentState.eFlags & EF_AXIS))) {
+                    // friend
+                    if (wantCrosshair) {
+                        shader = cgi.R_RegisterShaderNoMip(cg_crosshair_friend->string);
+                        if (!shader) {
+                            // Fixed in OPM
+                            //  Fallback to normal crosshair texture if it doesn't exist
+                            shader = cgi.R_RegisterShaderNoMip(cg_crosshair->string);
+                        }
+                    }
+                } else {
+                    // enemy
+                    if (wantCrosshair) {
                         shader = cgi.R_RegisterShaderNoMip(cg_crosshair->string);
                     }
                 }
             } else {
-                // enemy
-                if (cg.snap->ps.stats[STAT_CROSSHAIR]) {
+                if (wantCrosshair) {
                     shader = cgi.R_RegisterShaderNoMip(cg_crosshair->string);
                 }
             }
         } else {
-            if (cg.snap->ps.stats[STAT_CROSSHAIR]) {
+            // FFA
+            if (wantCrosshair) {
                 shader = cgi.R_RegisterShaderNoMip(cg_crosshair->string);
             }
-        }
-    } else {
-        // FFA
-        if (cg.snap->ps.stats[STAT_CROSSHAIR]) {
-            shader = cgi.R_RegisterShaderNoMip(cg_crosshair->string);
         }
     }
 
