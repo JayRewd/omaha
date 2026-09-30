@@ -1,109 +1,88 @@
-# OpenMoHAA
+# Project: Omaha
 
-[![Build](https://github.com/openmoh/openmohaa/actions/workflows/branches-build.yml/badge.svg?branch=main)](https://github.com/openmoh/openmohaa/actions/workflows/branches-build.yml) [![Release](https://img.shields.io/github/v/release/openmoh/openmohaa)](https://github.com/openmoh/openmohaa/releases) [![Downloads](https://img.shields.io/github/downloads/openmoh/openmohaa/total)](https://github.com/openmoh/openmohaa/releases)
+**Project: Omaha** is an independent, **multiplayer-first**, **client-focused** fork of
+[OpenMoHAA](https://github.com/openmoh/openmohaa) for *Medal of Honor: Allied Assault*. It targets **quality-of-life** play on
+**stock / retail servers**: a new declarative UI stack, swappable HUD packs, and
+client-side convenience—without requiring a custom `game.so`.
 
-![License](https://img.shields.io/github/license/openmoh/openmohaa) ![Commits](https://img.shields.io/github/commit-activity/t/openmoh/openmohaa)
+![Project: Omaha play menu](docs/assets/screenshots/readme/menu_play.jpg)
 
-![Discord](https://img.shields.io/discord/596049712579215361?logo=discord&logoColor=white&color=5865F2)
+Not affiliated with or endorsed by the OpenMoHAA team or Electronic Arts.
+Binaries and config paths may still use `openmohaa` for install compatibility.
 
-![logo](misc/openmohaa-text-sm.png)
+The modern UI is built and tested first for **base Allied Assault** multiplayer.
+**Spearhead** and **Breakthrough** support in that stack is **not complete yet**,
+but is planned—expansions still run through the OpenMoHAA/legacy paths today.
 
-## What is OpenMoHAA?
+## Highlights
 
-OpenMoHAA is an open-source project aimed at preserving and enhancing **Medal of Honor: Allied Assault** (including Spearhead and Breakthrough expansions) by providing more features and bugfixes, across modern platforms and architectures.
+- **Modern UI engine** — retained-mode XML UI (`uidesign` / `uirender`) with a
+  linear flex layout engine, batched GPU drawing, and compositing of world and
+  model views into the UI layer. More: [`docs/modern-ui/`](docs/modern-ui/README.md).
+- **Player prediction** — accurately shows other players up to about 100–120 ms ahead
+  so higher-ping players don’t have to lead shots as much. Modes: **Off**,
+  **Safe** (steadier motion, little lag help), **Lead** (full prediction).
+  Defaults to Safe. More:
+  [Player prediction](docs/markdown/02-running/05-player-prediction.md).
+- **HUD packs** — switch between Classic, Modern, or Competitive in settings,
+  or drop in your own pack (mods can ship custom HUDs the same way).
+- **Dynamic crosshairs** — shape, size, gap, color, and outline in settings;
+  optional dynamic mode that opens with spread and can follow recoil so the
+  reticle stays honest while you shoot.
+- **In-game overlay** — scoreboard, kill feed, pause menu, weapons and
+  grenades on screen, plus living/dead teammate cues on the Competitive pack.
+- **Client QoL** — faster internet server discovery, client-only first-person
+  chase spectate, and related presentation fixes—all stock-server compatible.
 
-Powered by [ioquake3](https://github.com/ioquake/ioq3) and the [F.A.K.K SDK](https://code.idtech.space/ritual/fakk2-sdk), OpenMoHAA provides:
-- Full compatibility with the original game: assets, scripts and multiplayer
-- Better support for modern systems
-- Cross-platform support (Linux, Windows, macOS)
-- Support for both single-player and multiplayer modes
-- Includes all fixes from Spearhead 2.15 and Breakthrough 2.40b
-- More fixes and features, such as bots and a ban system
+| Classic | Modern | Competitive |
+|:---:|:---:|:---:|
+| ![Classic HUD](docs/assets/screenshots/readme/hud_classic.jpg) | ![Modern HUD](docs/assets/screenshots/readme/hud_modern.jpg) | ![Competitive HUD](docs/assets/screenshots/readme/hud_competitive.jpg) |
 
-*OpenMoHAA is an independent project and is not affiliated with or endorsed by Electronic Arts.*
+![Scoreboard](docs/assets/screenshots/readme/scoreboard.jpg)
+
+![Crosshair settings](docs/assets/screenshots/readme/menu_crosshairs.jpg)
 
 ## Getting started
 
-- 📦 [Installing OpenMoHAA](docs/markdown/01-intro/01-installation.md)
-- ▶️ [How to play: Launching the game, expansions & file locations](docs/markdown/02-running/01-running.md)
-- ❓ [FAQ & Troubleshooting](docs/markdown/02-running/03-faq.md)
-- 🌐 [Setting up a game server](docs/markdown/02-running/02-running-server.md)
+Install and run like OpenMoHAA (you still need the original game data):
 
-## Reporting Issues
+- [Installing](docs/markdown/01-intro/01-installation.md)
+- [Running](docs/markdown/02-running/01-running.md)
+- [FAQ](docs/markdown/02-running/03-faq.md)
+- [Player prediction](docs/markdown/02-running/05-player-prediction.md)
+- [Building from source](docs/markdown/04-coding/01-compiling.md)
 
-> [!NOTE]
-> OpenMoHAA hasn't hit version 1.0.0 yet. Think of it like a beta build from the golden age of LAN parties. Features are being added, bugs are getting squashed, and more things are being tweaked. Things might change, break, or get even better over time.
-> 
-> If that sounds like your kind of mission, gear up, frag some bots, and help level up OpenMoHAA!
+Primary targets: `openmohaa` (client) and `omohaaded` (dedicated).
 
-If you encounter a bug or a problem, you can do one of the following:
-- Submit an [issue](https://github.com/openmoh/openmohaa/issues) on GitHub (use the template).
-- Join the [OpenMoHAA Discord](https://discord.gg/NYtH58R) for a quick help.
+**Multiplayer is the focus.** The modern menu and HUD packs are built for online
+play. For **single player** (campaign / co-op style retail menus), launch with
+legacy UI:
 
-## Additional documentation
+```bash
+openmohaa +set ui_legacy 1
+```
 
-- 📖 [Documentation](https://openmoh.github.io/openmohaa)
-- ⚙️ [Game settings & configuration](docs/markdown/03-configuration/01-configuration.md)
-- 📝 [Code & Scripting reference](docs/markdown/04-coding/02-coding.md)
-- 📜 [Contributing guidelines](CONTRIBUTING.md)
+That restores the stock UIFAKK menus and HUD path. Leave `ui_legacy` at `0`
+(the default) for Project: Omaha’s modern multiplayer UI.
 
-## Current state
+## Contributing
 
-- 🧰 [List of differences](docs/markdown/01-intro/04-differences.md)
+See [`CONTRIBUTING.md`](CONTRIBUTING.md). AI-assisted work is allowed **here**.
+Do not submit Omaha work to official OpenMoHAA under their generative-AI ban.
 
-### Single-player
+Modern UI overview: [`docs/modern-ui/`](docs/modern-ui/README.md).
+Implementer contracts: [`designformat.md`](docs/LLM-helpers/designformat.md),
+[`ui-rendering-pipeline.md`](docs/LLM-helpers/ui-rendering-pipeline.md).
 
-The entire single-player campaign should work (Allied Assault, Spearhead and Breakthrough). If you encounter any bug, please create a new [GitHub issue](https://github.com/openmoh/openmohaa/issues) describing them.
+## License
 
-### Multiplayer
+**GPL-2 or later** — see [`COPYING.txt`](COPYING.txt). Third-party licenses live
+under `code/thirdparty/`. Keep `COPYING.txt` with redistributed binaries;
+binary recipients are entitled to corresponding source (this repo or a written offer).
 
-- Almost fully stable
-- All official game modes are supported, including those from Spearhead and Breakthrough:
-  - Free-For-All
-  - Team-Deathmatch
-  - Round-based match
-  - Objective match
-  - Tug-of-War (Spearhead)
-  - Liberation (Breakthrough)
-- Popular mods like **Freeze-Tag** are supported
-- Built-in bots for offline practice and for testing
-  - 🔧 [Setting up bots](docs/markdown/02-running/01-running.md#Playing-with-bots)
+## Foundation
 
-You can host your own [OpenMoHAA server](docs/markdown/02-running/02-running-server.md#) or join others using OpenMoHAA.
-
-## Screenshots
-
-|                                                                                   |                                                                            |
-|-----------------------------------------------------------------------------------|----------------------------------------------------------------------------|
-| ![](docs/assets/images/v0.60.0-x86_64/mohdm1_1.png)                                      | ![](docs/assets/images/v0.60.0-x86_64/training_1.png)                               |
-| ![](docs/assets/images/v0.60.0-x86_64/flughafen_1.png)                                   | ![](docs/assets/images/v0.60.0-x86_64/flughafen_2.png)                            |
-| ![](docs/assets/images/v0.60.0-x86_64/mohdm2_1.png "Playing Freeze-Tag mode with bots")  | ![](docs/assets/images/v0.60.0-x86_64/training_3.png "Single-Player training")    |
-
-*More screenshots [here](docs/assets/images)*
-
-## Development & Compiling
-
-- 💻 [Building from source](docs/markdown/04-coding/01-compiling.md)
-
-## Third party librairies
-
-The following third party tools and libraries are used by the project
-
-- [Flex](https://github.com/westes/flex)
-- [Bison](https://savannah.gnu.org/projects/bison/)
-- [SDL](http://www.libsdl.org/)
-- [OpenAL](https://www.openal.org/)
-- [LibMAD](http://www.underbit.com/products/mad/)
-- [cURL](https://curl.se/)
-- [Libogg](https://github.com/gcp/libogg)
-- [Libvorbis](https://xiph.org/vorbis/)
-- [Libopus](https://opus-codec.org/)
-
-## Resources
-
-- 🔗 [GitHub Repository](https://github.com/openmoh/openmohaa/)
-- 🌐 [MOH-DB](https://www.moh-db.com/)
-- 🕹️ [333networks](https://333networks.com/)
-- 📂 [ModDB](https://www.moddb.com/games/medal-of-honor-allied-assault)
-- 📂 [GameBanana](https://gamebanana.com/games/720)
-- 💬 [Join us on Discord](https://discord.gg/NYtH58R)
+Built on the OpenMoHAA / [ioquake3](https://github.com/ioquake/ioq3) /
+[F.A.K.K.](https://code.idtech.space/ritual/fakk2-sdk) GPL foundations.
+Game preservation and the engine port this fork starts from are the work of
+those projects; Project: Omaha is a separate effort on top.
