@@ -26,6 +26,9 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "../server/server.h"
 #include "snd_codec.h"
 
+#include <stdio.h>
+#include <string.h>
+
 typedef struct {
     const char *funcname;
     void      **funcptr;
@@ -1365,6 +1368,8 @@ static void S_OPENAL_Start2DSound(
     fRealVolume       = S_GetBaseVolume() * fVolume;
     pChannel->fVolume = fVolume;
 
+    /* Fixed in Omaha: assign channel before LOCAL_LISTENER check (was using stale iEntChannel). */
+    pChannel->iEntChannel = iEntChannel;
     if (pChannel->iEntChannel == CHAN_LOCAL) {
         pChannel->iFlags |= CHANNEL_FLAG_LOCAL_LISTENER;
     } else {
@@ -1385,7 +1390,6 @@ static void S_OPENAL_Start2DSound(
     pChannel->fNewPitchMult = fPitch;
     pChannel->pSfx          = pSfx;
     pChannel->iEntNum       = iRealEntNum;
-    pChannel->iEntChannel   = iEntChannel;
     if (iRealEntNum == ENTITYNUM_NONE) {
         VectorClear(pChannel->vOrigin);
         pChannel->iFlags |= CHANNEL_FLAG_NO_ENTITY;
@@ -1432,9 +1436,19 @@ static void S_OPENAL_Start2DSound(
         pChannel->set_no_3d();
         fRealVolume = fRealVolume * s_fVolumeGain;
     } else {
+        bool sfxOk;
+
         pChannel->stop();
         pChannel->set_no_3d();
-        pChannel->set_sfx(pSfx);
+        sfxOk = pChannel->set_sfx(pSfx);
+        if (!sfxOk) {
+            return;
+        }
+    }
+
+    /* Fixed in Omaha: CHAN_LOCAL cues stay dry — OpenAL Soft spatialization/HRTF made hitmarker sound "wet". */
+    if (pChannel->iFlags & CHANNEL_FLAG_LOCAL_LISTENER) {
+        pChannel->set_no_virtualization();
     }
 
     pChannel->set_gain(fRealVolume);
@@ -2424,12 +2438,15 @@ void S_OPENAL_Respatialize(int iEntNum, const vec3_t vHeadPos, const vec3_t vAxi
 
         if (i >= MAX_SOUNDSYSTEM_CHANNELS_3D) {
             pChannel->set_gain(fVolume);
-            pChannel->set_sample_pan(iPan);
+            /* Fixed in Omaha: do not spatialize LOCAL_LISTENER (set_sample_pan at z=1 colors dry UI clicks). */
+            if (!(pChannel->iFlags & CHANNEL_FLAG_LOCAL_LISTENER)) {
+                pChannel->set_sample_pan(iPan);
+            }
         }
 
-        if (s_bReverbChanged) {
-            S_OPENAL_reverb(i, s_iReverbType, s_fReverbLevel);
-        }
+		if (s_bReverbChanged) {
+			S_OPENAL_reverb(i, s_iReverbType, s_fReverbLevel);
+		}
     }
 
     S_OPENAL_AddLoopSounds(vTempAxis);
@@ -2910,6 +2927,9 @@ openal_channel::set_gain
 */
 void openal_channel::set_gain(float gain)
 {
+    /* Fixed in Omaha: OpenAL Soft defaults AL_MAX_GAIN to 1.0, which clamps
+     * source gains above 1 and makes volume>1 (e.g. hit notify 2.0) ineffective. */
+    qalSourcef(source, AL_MAX_GAIN, 16.0f);
     qalSourcef(source, AL_GAIN, gain);
     alDieIfError();
 }
