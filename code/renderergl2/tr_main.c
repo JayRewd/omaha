@@ -1919,7 +1919,7 @@ R_DebugLine
 void R_DebugLine(const vec3_t start, const vec3_t end, float r, float g, float b, float alpha) {
 	debugline_t* line;
 
-	if (!ri.DebugLines || !ri.numDebugLines) {
+	if (!ri.DebugLines || !ri.numDebugLines || !*ri.DebugLines) {
 		return;
 	}
 
@@ -3289,9 +3289,9 @@ qboolean SurfIsOffscreen2(const srfBspSurface_t* surface, shader_t* shader, int 
 		vec3_t normal;
 		float dot;
 		float len;
-		unsigned* indices;
+		glIndex_t *indices;
 
-		indices = surface->indexes; // (unsigned*)(((char*)surface) + surface->ofsIndices);
+		indices = surface->indexes;
 
 		VectorSubtract( surface->verts[indices[i]].xyz, surfOr.viewOrigin, normal);
 
