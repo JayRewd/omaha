@@ -104,8 +104,8 @@ void S_Init(qboolean full_startup)
     iStart = Sys_Milliseconds();
 
     s_volume         = Cvar_Get("s_volume", "0.9", CVAR_ARCHIVE);
-    s_musicVolume    = Cvar_Get("s_musicvolume", "0.9", CVAR_ARCHIVE);
-    s_ambientVolume  = Cvar_Get("s_ambientvolume", "1.00", CVAR_ARCHIVE);
+    s_musicVolume    = Cvar_Get("s_musicvolume", "0.15", CVAR_ARCHIVE); /* Changed in Omaha */
+    s_ambientVolume  = Cvar_Get("s_ambientvolume", "0", CVAR_ARCHIVE); /* Changed in Omaha */
     s_separation     = Cvar_Get("s_separation", "0.5", CVAR_ARCHIVE);
     s_khz            = Cvar_Get("s_khz", "44", CVAR_ARCHIVE | CVAR_SOUND_LATCH);
     s_loadas8bit     = Cvar_Get("s_loadas8bit", "0", CVAR_ARCHIVE | CVAR_LATCH);

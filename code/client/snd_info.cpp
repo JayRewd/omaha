@@ -53,7 +53,7 @@ void load_sfx_info()
                 if (tiki.TokenAvailable(qtrue)) {
                     token = tiki.GetToken(qtrue);
 
-                    if (number_of_sfx_infos == 1000) {
+                    if (number_of_sfx_infos == MAX_SFX_INFOS) {
                         Com_DPrintf("Too many sound infos specified\n");
                         break;
                     }
@@ -66,24 +66,24 @@ void load_sfx_info()
                     number_of_sfx_infos++;
                 }
             } else if (!Q_stricmp(token, "loopstart")) {
-                if (!tiki.TokenAvailable(qtrue)) {
+                if (tiki.TokenAvailable(qtrue)) {
                     token                                         = tiki.GetToken(qtrue);
                     sfx_infos[number_of_sfx_infos - 1].loop_start = atoi(token);
                 }
             } else if (!Q_stricmp(token, "loopend")) {
-                if (!tiki.TokenAvailable(qtrue)) {
+                if (tiki.TokenAvailable(qtrue)) {
                     token                                       = tiki.GetToken(qtrue);
                     sfx_infos[number_of_sfx_infos - 1].loop_end = atoi(token);
                 }
             } else if (!Q_stricmp(token, "maxnumber")) {
-                if (!tiki.TokenAvailable(qtrue)) {
+                if (tiki.TokenAvailable(qtrue)) {
                     token                                                 = tiki.GetToken(qtrue);
                     sfx_infos[number_of_sfx_infos - 1].max_number_playing = atoi(token);
                 }
             } else if (!Q_stricmp(token, "maxfactor")) {
-                if (!tiki.TokenAvailable(qtrue)) {
+                if (tiki.TokenAvailable(qtrue)) {
                     token                                         = tiki.GetToken(qtrue);
-                    sfx_infos[number_of_sfx_infos - 1].max_factor = atoi(token);
+                    sfx_infos[number_of_sfx_infos - 1].max_factor = atof(token);
                 }
             }
         }
