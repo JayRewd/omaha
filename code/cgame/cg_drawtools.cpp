@@ -24,6 +24,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 // Some tools used to drawing 2d stuff
 
 #include "cg_local.h"
+#include "cg_hitmarker.h"
 
 /*
 ================
@@ -1346,6 +1347,7 @@ void CG_DrawSpectatorView()
     }
 }
 
+void CG_DrawHitmarker();
 void CG_DrawCrosshair()
 {
     centity_t *friendEnt;
@@ -1539,5 +1541,6 @@ void CG_Draw2D(void)
     CG_UpdateAttackerDisplay();
     CG_DrawVote();
     CG_DrawInstantMessageMenu();
+    CG_DrawHitmarker();
     CG_DrawCrosshair();
 }
