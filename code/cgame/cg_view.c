@@ -673,22 +673,32 @@ static int CG_CalcViewValues(void)
 
     // if we are in a camera view, we take our audio cues directly from the camera
     if (ps->pm_flags & PMF_CAMERA_VIEW) {
-        // Set the aural position to that of the camera
-        VectorCopy(cg.camera_origin, cg.refdef.vieworg);
+        vec3_t fpOrigin, fpAngles;
 
-        // Set the aural axis to the camera's angles
-        VectorCopy(cg.camera_angles, cg.refdefViewAngles);
+        /* Added in Omaha: client-side first-person chase override. */
+        if (CG_SpectateFP_CalcEye(fpOrigin, fpAngles)) {
+            VectorCopy(fpOrigin, cg.refdef.vieworg);
+            VectorCopy(fpAngles, cg.refdefViewAngles);
+            /* Fixed in Omaha: keep head/sound anchors in sync with FP eye (was chase height). */
+            VectorCopy(cg.refdef.vieworg, cg.playerHeadPos);
+        } else {
+            // Set the aural position to that of the camera
+            VectorCopy(cg.camera_origin, cg.refdef.vieworg);
 
-        if (cg_protocol >= PROTOCOL_MOHTA_MIN && (ps->pm_flags & PMF_DAMAGE_ANGLES)) {
-            // Handle camera shake
-            VectorSubtract(cg.refdefViewAngles, cg.predicted_player_state.damage_angles, cg.refdefViewAngles);
-        }
+            // Set the aural axis to the camera's angles
+            VectorCopy(cg.camera_angles, cg.refdefViewAngles);
 
-        if (ps->camera_posofs[0] || ps->camera_posofs[1] || ps->camera_posofs[2]) {
-            vec3_t vAxis[3], vOrg;
-            AnglesToAxis(cg.refdefViewAngles, vAxis);
-            MatrixTransformVector(ps->camera_posofs, vAxis, vOrg);
-            VectorAdd(cg.refdef.vieworg, vOrg, cg.refdef.vieworg);
+            if (cg_protocol >= PROTOCOL_MOHTA_MIN && (ps->pm_flags & PMF_DAMAGE_ANGLES)) {
+                // Handle camera shake
+                VectorSubtract(cg.refdefViewAngles, cg.predicted_player_state.damage_angles, cg.refdefViewAngles);
+            }
+
+            if (ps->camera_posofs[0] || ps->camera_posofs[1] || ps->camera_posofs[2]) {
+                vec3_t vAxis[3], vOrg;
+                AnglesToAxis(cg.refdefViewAngles, vAxis);
+                MatrixTransformVector(ps->camera_posofs, vAxis, vOrg);
+                VectorAdd(cg.refdef.vieworg, vOrg, cg.refdef.vieworg);
+            }
         }
 
         // copy view values
@@ -879,6 +889,9 @@ void CG_DrawActiveFrame(int serverTime, int frameTime, stereoFrame_t stereoView,
 
     // Added in Omaha: remote player prediction lead clock (after local pmove).
     CG_RP_BeginFrame();
+
+    /* Added in Omaha: rebuild FP spectate synthetic state before view/camera. */
+    CG_SpectateFP_Update();
 
     // build cg.refdef
     CG_CalcViewValues();

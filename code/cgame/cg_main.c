@@ -179,6 +179,7 @@ void CG_RegisterCvars(void)
     ui_crosshair                  = cgi.Cvar_Get("ui_crosshair", "1", CVAR_ARCHIVE);
 
     CG_RP_RegisterCvars(); // Added in Omaha
+    CG_SpectateFP_RegisterCvars();
     vm_offset_max                 = cgi.Cvar_Get("vm_offset_max", "8.0", 0);
     vm_offset_speed               = cgi.Cvar_Get("vm_offset_speed", "8.0", 0);
     vm_sway_front                 = cgi.Cvar_Get("vm_sway_front", "0.1", 0);
