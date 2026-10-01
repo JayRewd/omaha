@@ -21,12 +21,16 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
 
 #include "client.h"
+#include "cl_uirender.h"
+#include "cl_uimenu_dispatcher.h"
+#include "cl_hud_host.h"
 
 #include "../server/server.h"
 #include "../renderercommon/tr_public.h"
 #include "../corepp/tiki.h"
 #include "../qcommon/localization.h"
 #include "../qcommon/q_version.h"
+#include "../uidesign/uid_profile.h"
 
 #include "cl_ui.h"
 #include "cl_uigamespy.h"
@@ -42,7 +46,7 @@ typedef struct {
     UIReggedMaterial *material;
 } intro_stage_t;
 
-static qboolean             ui_hud;
+static qboolean             ui_hud = qtrue; /* Added in Omaha: default on so modern HUD packs show */
 static class UIFont        *globalFont;
 static UIFloatingConsole   *fakk_console;
 static UIFloatingDMConsole *dm_console;
@@ -62,6 +66,13 @@ static Menu                *crosshairhud;
 static Menu                *missionLog;
 qboolean                    server_loading;
 static qboolean             server_loading_waiting;
+/*
+ * Fixed in Omaha: Continue's stuffcommand finishloadingscreen was firing from a
+ * leftover mouse-up after ServerLoaded enabled the button (log: wait for Continue
+ * then mapReady ~1s later with no intentional click). Arm only after MOUSE1 has
+ * been fully up while waiting.
+ */
+static qboolean             server_loading_continue_armed;
 static str                 *s_intermediateconsole;
 static int                  ui_lastWeapHudState_Owned;
 static int                  ui_lastWeapHudState_Equipped = 0xFFFF;
@@ -1316,6 +1327,8 @@ void UI_PrintConsole(const char *msg)
         case MESSAGE_YELLOW:
             bNormalMessage = qtrue;
             pColor         = &UHudColor;
+            /* Added in Omaha: weapon pickups are yellow prints with the real item name. */
+            UIR_Hud_NotifyPickedUpWeapon(pszString + 1);
             break;
         case MESSAGE_CHAT_WHITE:
             bDMMessage = qtrue;
@@ -1487,7 +1500,16 @@ UI_MenuActive
 */
 qboolean UI_MenuActive(void)
 {
+    if (CL_UIR_IsModernMainActive()) {
+        return qtrue;
+    }
     return menuManager.CurrentMenu() != NULL;
+}
+
+/* Added in Omaha: expose View3D letterbox for modern HUD suppress. */
+qboolean UI_LetterboxActive(void)
+{
+    return (view3d && view3d->LetterboxActive()) ? qtrue : qfalse;
 }
 
 /*
@@ -1516,6 +1538,13 @@ void UI_FocusMenuIfExists(void)
             Cvar_Get("ui_newvidmode", va("%d", r_mode), CVAR_RESETSTRING);
             Cvar_SetValue("ui_newvidmode", r_mode);
         }
+    } else if (CL_UIR_IsModernMainActive()) {
+        IN_MouseOn();
+        if (view3d && view3d->IsActive()) {
+            uWinMan.DeactivateCurrentControl();
+        }
+    } else if (CL_UIMenu_HasPointerMenuOpen() && clc.state == CA_ACTIVE) {
+        CL_UIR_EnterModernInputModeKeepKeys();
     } else {
         UI_ActivateView3D();
         IN_MouseOff();
@@ -1537,6 +1566,43 @@ void UI_OpenConsole(void)
     fakk_console->setShow(true);
     uWinMan.ActivateControl(fakk_console);
     IN_MouseOn();
+    /*
+     * Fixed in Omaha: scoreboard OpenHold runs UpdateInputCatcher which clears
+     * KEYCATCH_UI while the console is closed. Opening the console must reclaim
+     * the catcher or CharEvent/KeyEvent never reach uWinMan until a click.
+     */
+    UI_WantsKeyboard();
+    /*
+     * Fixed in Omaha: yield scoreboard pointer mode in the same key event so the
+     * next ServiceEvents / Sync pass does not keep EnterModernInputModeKeepKeys
+     * fighting console focus during intermission.
+     */
+    CL_UIR_SyncPointerMenus();
+}
+
+/*
+====================
+UI_EnsureConsoleFocused
+
+Added in Omaha: re-assert fakk console activation if it is visible but lost focus
+(e.g. View3D / scoreboard pointer races during intermission).
+====================
+*/
+void UI_EnsureConsoleFocused(void)
+{
+    if (!fakk_console || !fakk_console->IsVisible()) {
+        return;
+    }
+    /*
+     * Fixed in Omaha: always reclaim KEYCATCH_UI while the console is visible.
+     * Focus alone is not enough — CharEvent is gated on the catcher.
+     */
+    UI_WantsKeyboard();
+    if (fakk_console->IsThisOrChildActive()) {
+        return;
+    }
+    uWinMan.ActivateControl(fakk_console);
+    IN_MouseOn();
 }
 
 /*
@@ -1556,7 +1622,11 @@ UI_ConsoleIsOpen
 */
 qboolean UI_ConsoleIsOpen(void)
 {
-    return fakk_console && fakk_console->IsVisible() && fakk_console->IsActive();
+    /* Fixed in Omaha: floating console ActivateOrder focuses a child edit, so
+     * IsActive() on the window itself is false while typing. Treat console or
+     * any descendant as focused (same pattern as developer console). */
+    return fakk_console && fakk_console->IsVisible() && fakk_console->IsThisOrChildActive() ? qtrue
+                                                                                           : qfalse;
 }
 
 /*
@@ -1566,7 +1636,8 @@ UI_CloseConsole
 */
 void UI_CloseConsole(void)
 {
-    if (fakk_console && fakk_console->getShow()) {
+    /* Changed in Omaha: always force-hide (startup intro path toggles it open). */
+    if (fakk_console) {
         fakk_console->setShow(false);
     }
     UI_FocusMenuIfExists();
@@ -1597,6 +1668,19 @@ UI_OpenDMConsole
 */
 void UI_OpenDMConsole(int iMode)
 {
+    /*
+     * Changed in Omaha: FAKK floating dm_console is legacy-HUD only.
+     * Modern packs use in-HUD compose when the pack defines hud_chat_input;
+     * never fall back to FAKK if the designer omitted it.
+     */
+    if (!CL_UIR_UseLegacyHud()) {
+        if (dm_console && dm_console->getShow()) {
+            dm_console->setShow(false);
+        }
+        CL_UIR_OpenHudChat(iMode);
+        return;
+    }
+
     if (!dm_console) {
         return;
     }
@@ -1614,6 +1698,9 @@ UI_CloseDMConsole
 */
 void UI_CloseDMConsole(void)
 {
+    /* Added in Omaha: always clear in-HUD chat compose when closing DM console. */
+    CL_UIR_CloseHudChat();
+
     if (dm_console && dm_console->getShow()) {
         dm_console->setShow(false);
     }
@@ -1627,6 +1714,15 @@ UI_ToggleDMConsole
 */
 void UI_ToggleDMConsole(int iMode)
 {
+    /* Changed in Omaha: modern HUD never opens FAKK dm_console. */
+    if (!CL_UIR_UseLegacyHud()) {
+        if (dm_console && dm_console->getShow()) {
+            dm_console->setShow(false);
+        }
+        CL_UIR_ToggleHudChat(iMode);
+        return;
+    }
+
     if (!dm_console) {
         return;
     }
@@ -1665,8 +1761,12 @@ UI_CloseDeveloperConsole
 */
 void UI_CloseDeveloperConsole(void)
 {
-    if (developer_console && developer_console->getShow()) {
+    /* Changed in Omaha: always force-hide; getShow() alone missed active-but-flagged cases. */
+    if (developer_console) {
         developer_console->setShow(false);
+        if (developer_console->IsThisOrChildActive()) {
+            uWinMan.ActivateControl(NULL);
+        }
     }
     UI_FocusMenuIfExists();
 }
@@ -1691,12 +1791,100 @@ void UI_ToggleDeveloperConsole_f(void)
 
 /*
 ====================
+UI_LegacyOverlayOwnsInput
+
+Added in Omaha — true when a legacy dialog, non-main menu, loading/connecting
+menu, or DM/developer console is actively showing and should own keys/pointer
+instead of modern design UI.
+====================
+*/
+qboolean UI_LegacyOverlayOwnsInput(void)
+{
+    Menu *currentMenu;
+
+    if (uWinMan.DialogExists()) {
+        return qtrue;
+    }
+
+    if (dm_console && dm_console->IsVisible()) {
+        return qtrue;
+    }
+
+    if (developer_console && developer_console->IsThisOrChildActive()) {
+        return qtrue;
+    }
+
+    /*
+     * Fixed in Omaha: Continue is interactive before finishloadingscreen; block
+     * modern pause (pushmenu_teamselect) from stacking on top of it.
+     */
+    if (server_loading || server_loading_waiting) {
+        return qtrue;
+    }
+
+    currentMenu = menuManager.CurrentMenu();
+    if (!currentMenu) {
+        return qfalse;
+    }
+
+    if (ui_pLoadingMenu && currentMenu == ui_pLoadingMenu) {
+        return qtrue;
+    }
+    if (ui_pConnectingMenu && currentMenu == ui_pConnectingMenu) {
+        return qtrue;
+    }
+
+    /* Non-main menus (options, multiplayer, etc.) take input over modern main. */
+    if (Q_stricmp(currentMenu->m_name.c_str(), "main") != 0) {
+        return qtrue;
+    }
+
+    return qfalse;
+}
+
+/*
+====================
+UI_IsLoadingContinueVisible
+
+Added in Omaha — true while the loading plaque / Continue button still owns the
+screen (including server_loading_waiting after the map finishes loading).
+====================
+*/
+qboolean UI_IsLoadingContinueVisible(void)
+{
+    if (server_loading || server_loading_waiting) {
+        return qtrue;
+    }
+    if (cls.loading != LOAD_PROGRESS_FALSE) {
+        return qtrue;
+    }
+    if (ui_pLoadingMenu && menuManager.CurrentMenu() == ui_pLoadingMenu) {
+        return qtrue;
+    }
+    return qfalse;
+}
+
+/*
+====================
 UI_KeyEvent
 ====================
 */
-void UI_KeyEvent(int key, unsigned int time)
+void UI_KeyEvent(int key, qboolean down, unsigned int time)
 {
-    uWinMan.KeyEvent(key, time);
+    /*
+     * Changed in Omaha: route design keys whenever modern UI owns input (menus,
+     * pause, in-HUD chat), not only when disconnected/connected main is open.
+     * CharEvent already used ShouldOwnInput; KeyEvent must match or Enter never
+     * reaches focused <input> during gameplay compose.
+     */
+    if (CL_UIR_ShouldOwnInput() && !CL_UIR_LegacyModalOwnsInput()) {
+        if (CL_UIR_KeyEvent(key, down, time)) {
+            return;
+        }
+    }
+    if (down) {
+        uWinMan.KeyEvent(key, time);
+    }
 }
 
 /*
@@ -1706,6 +1894,11 @@ UI_CharEvent
 */
 void UI_CharEvent(int ch)
 {
+    if (CL_UIR_ShouldOwnInput()) {
+        if (CL_UIR_CharEvent(ch)) {
+            return;
+        }
+    }
     uWinMan.CharEvent(ch);
 }
 
@@ -1725,6 +1918,22 @@ void UI_ClearBackground(void)
 
 /*
 ====================
+UI_ClearOrModernDisconnectedBackground
+
+Disconnected main uses the modern compositor when selected; otherwise solid clear.
+====================
+*/
+static void UI_ClearOrModernDisconnectedBackground(void)
+{
+    if (CL_UIR_ShouldRenderModernDisconnected()) {
+        CL_UIR_RenderDisconnectedMain();
+        return;
+    }
+    UI_ClearBackground();
+}
+
+/*
+====================
 UI_ActivateView3D
 ====================
 */
@@ -1736,6 +1945,50 @@ void UI_ActivateView3D(void)
 
     view3d->setShow(true);
     uWinMan.ActivateControl(view3d);
+}
+
+/*
+====================
+UI_EnterModernInputMode
+
+Added in Omaha: GUI mouse + release View3D for modern UI (disconnected main / connected overlay).
+====================
+*/
+void UI_EnterModernInputMode(void)
+{
+    IN_MouseOn();
+    if (view3d && view3d->IsActive()) {
+        uWinMan.DeactivateCurrentControl();
+    }
+}
+
+/*
+====================
+UI_EnterModernInputModeKeepKeys
+
+Added in Omaha: same as UI_EnterModernInputMode but do not synthesize key-ups.
+Hold-TAB menus (scoreboard) must keep the binding key down.
+====================
+*/
+void UI_EnterModernInputModeKeepKeys(void)
+{
+    IN_MouseOnKeepKeys();
+    if (view3d && view3d->IsActive()) {
+        uWinMan.DeactivateCurrentControl();
+    }
+}
+
+/*
+====================
+UI_LeaveModernInputMode
+
+Added in Omaha: restore View3D capture after closing modern UI overlay.
+====================
+*/
+void UI_LeaveModernInputMode(void)
+{
+    UI_ActivateView3D();
+    IN_MouseOff();
 }
 
 /*
@@ -1823,9 +2076,38 @@ void UI_Update(void)
     Menu    *currentMenu;
     UIRect2D frame;
 
+    /* Added in Omaha: ui_profile sample for legacy UIFAKK path (excludes modern overlay). */
+    CL_UIR_ProfileBeginSample("legacy_ui");
+
     re.SetRenderTime(cls.realtime);
     CL_FillUIDef();
-    uWinMan.ServiceEvents();
+    /*
+     * Fixed in Omaha: arm Continue only after MOUSE1 is up so Enable+leftover
+     * release cannot stuff finishloadingscreen.
+     */
+    if (server_loading_waiting && !server_loading_continue_armed && (cl.mouseButtons & 1) == 0) {
+        server_loading_continue_armed = qtrue;
+    }
+    /* Changed in Omaha: skip legacy mouse routing while modern UI owns input (connected
+     * overlay / disconnected main). Otherwise View3D::Pressed calls IN_MouseOff() and
+     * the design menu dies after the first click. Scoreboard (draw-order 4) uses the
+     * HasPointerMenuOpen path above ShouldOwnInput.
+     * Fixed in Omaha: still ServiceEvents when the console or a legacy overlay (loading
+     * Continue, dialogs) is up — pointer HUD must not starve them. */
+    {
+        const qboolean ptrOpen = CL_UIMenu_HasPointerMenuOpen();
+        const qboolean ownInput = CL_UIR_ShouldOwnInput();
+        const qboolean consoleVis = UI_ConsoleIsVisible();
+        const qboolean legacyOwns = UI_LegacyOverlayOwnsInput();
+        if (!ownInput && (!ptrOpen || consoleVis || legacyOwns)) {
+            UID_ProfileBegin(UID_PROF_LEGACY_EVENTS);
+            uWinMan.ServiceEvents();
+            UID_ProfileEnd(UID_PROF_LEGACY_EVENTS);
+        }
+        if (consoleVis) {
+            UI_EnsureConsoleFocused();
+        }
+    }
 
     //
     // draw the base HUD when in-game
@@ -1833,9 +2115,10 @@ void UI_Update(void)
     if (cls.no_menus && clc.state == CA_ACTIVE) {
         view3d->setShow(true);
         frame = uWinMan.getFrame();
-        view3d->Display(frame, 1.0);
+        view3d->Display(frame, 1.0); /* legacy_view3d inside View3D::Draw */
 
-        if (ui_hud && !view3d->LetterboxActive()) {
+        if (ui_hud && !view3d->LetterboxActive() && CL_UIR_UseLegacyHud()) {
+            UID_ProfileBegin(UID_PROF_LEGACY_URC);
             // draw the health hud
             if (hud_health) {
                 hud_health->ForceShow();
@@ -1856,10 +2139,14 @@ void UI_Update(void)
                 frame = uWinMan.getFrame();
                 hud_compass->GetContainerWidget()->Display(frame, 1.0);
             }
+            UID_ProfileEnd(UID_PROF_LEGACY_URC);
         }
 
+        CL_UIR_ProfileEndSample(CL_UIR_UseLegacyHud() ? "legacy_hud" : "legacy_view3d_only");
         return;
     }
+
+    UID_ProfileBegin(UID_PROF_LEGACY_MISC);
 
     if (fakk_console) {
         if (ui_minicon->integer) {
@@ -1920,7 +2207,7 @@ void UI_Update(void)
         }
     } else {
         if (currentMenu && currentMenu->isFullscreen() && (!server_loading || !ui_pLoadingMenu)) {
-            if (com_sv_running->integer && clc.state == CA_ACTIVE) {
+            if (com_sv_running->integer && clc.state == CA_ACTIVE && !CL_UIR_IsConnectedOverlayOpen()) {
                 Com_FakePause();
             }
 
@@ -1928,9 +2215,12 @@ void UI_Update(void)
         } else if (!server_loading) {
             if (clc.state <= CA_PRIMED) {
                 view3d->setShow(false);
-                UI_ClearBackground();
+                UI_ClearOrModernDisconnectedBackground();
             } else if (clc.state == CA_ACTIVE || clc.state == CA_CINEMATIC) {
-                Com_FakeUnpause();
+                /* Changed in Omaha: the modern connected overlay owns the pause state. */
+                if (!CL_UIR_IsConnectedOverlayOpen()) {
+                    Com_FakeUnpause();
+                }
                 view3d->setShow(true);
             } else {
                 UI_ClearBackground();
@@ -1970,6 +2260,7 @@ void UI_Update(void)
 
     // Hide the HUD when necessary
     if (!ui_hud || clc.state != CA_ACTIVE || view3d->LetterboxActive() || (currentMenu && currentMenu->isFullscreen())
+        || CL_UIR_IsConnectedOverlayOpen() || !CL_UIR_UseLegacyHud()
         || server_loading || ((cl.snap.ps.pm_flags & PMF_NO_HUD) || (cl.snap.ps.pm_flags & PMF_INTERMISSION))) {
         if (crosshairhud) {
             crosshairhud->ForceHide();
@@ -2393,7 +2684,29 @@ void UI_Update(void)
         }
     }
 
+    UID_ProfileEnd(UID_PROF_LEGACY_MISC);
+
+    /* View3D → legacy_view3d; remaining widgets → legacy_urc (see UpdateViews). */
     uWinMan.UpdateViews();
+
+    if (CL_UIR_ShouldRenderConnectedOverlay()) {
+        /* End legacy sample before modern overlay starts its own profile sample. */
+        CL_UIR_ProfileEndSample("legacy_ui");
+        CL_UIR_RenderModernOverlay();
+        /*
+         * Fixed in Omaha: connected modern overlay paints after uWinMan, which put
+         * the Fakk / developer consoles under the menu. Always keep modern overlay
+         * drawing in non-legacy mode; re-paint consoles on top afterward.
+         */
+        if (fakk_console && fakk_console->IsVisible()) {
+            fakk_console->Display(uWinMan.getFrame(), 1.0f);
+        }
+        if (developer_console && developer_console->IsVisible()) {
+            developer_console->Display(uWinMan.getFrame(), 1.0f);
+        }
+    } else {
+        CL_UIR_ProfileEndSample("legacy_ui");
+    }
 }
 
 /*
@@ -2606,6 +2919,70 @@ void UI_PushMenu(const char *name)
     Menu    *menu  = menuManager.CurrentMenu();
     qboolean bDiff = qfalse;
 
+    /* Modern disconnected main: route only the primary main menu names. */
+    if (!CL_UIR_UseLegacyMain() && clc.state == CA_DISCONNECTED && !server_loading
+        && name && (!Q_stricmp(name, "main") || !Q_stricmp(name, "dm_main"))) {
+        CL_UIR_ActivateModernMain();
+        UI_FocusMenuIfExists();
+        return;
+    }
+
+    if (!CL_UIR_UseLegacyMain() && clc.state == CA_ACTIVE && name
+        && !Q_stricmp(name, "main")) {
+        CL_UIR_OpenConnectedOverlay();
+        UI_FocusMenuIfExists();
+        return;
+    }
+
+    /*
+     * Changed in Omaha: modern HUD remaps classic pause tree into dm_pause panels
+     * (Escape + team/weapon/options/vote). Legacy HUD falls through to UIFAKK.
+     */
+    if (CL_UIR_UseModernHudPack() && clc.state == CA_ACTIVE && name && name[0]) {
+        if (!Q_stricmp(name, "dm_main")) {
+            CL_UIR_OpenDmPause("root");
+            UI_FocusMenuIfExists();
+            return;
+        }
+        if (!Q_stricmp(name, "SelectTeam") || !Q_stricmp(name, "SelectFFAModel")
+            || !Q_stricmp(name, "ObjSelectTeam")) {
+            CL_UIR_OpenDmPause("team");
+            UI_FocusMenuIfExists();
+            return;
+        }
+        if (!Q_stricmpn(name, "SelectPrimaryWeapon", 19)) {
+            CL_UIR_OpenDmPause("weapon");
+            UI_FocusMenuIfExists();
+            return;
+        }
+        if (!Q_stricmp(name, "mpoptions")) {
+            CL_UIR_OpenDmPause("options");
+            UI_FocusMenuIfExists();
+            return;
+        }
+        if (!Q_stricmp(name, "votemain")) {
+            CL_UIR_OpenDmPause("vote_call");
+            UI_FocusMenuIfExists();
+            return;
+        }
+        if (!Q_stricmp(name, "votecast")) {
+            CL_UIR_OpenDmPause("vote_cast");
+            UI_FocusMenuIfExists();
+            return;
+        }
+        if (!Q_stricmp(name, "votesublist") || !Q_stricmp(name, "votesubclient")) {
+            CL_UIR_OpenDmPause("vote_sub");
+            UI_FocusMenuIfExists();
+            return;
+        }
+        if (!Q_stricmp(name, "votesubtext") || !Q_stricmp(name, "votesubinteger")
+            || !Q_stricmp(name, "votesubfloat")) {
+            CL_UIR_OpenDmPause("vote_entry");
+            UI_FocusMenuIfExists();
+            return;
+        }
+    }
+
     if (menu) {
         bDiff = strcmp(menu->m_name, name) != 0;
     }
@@ -2634,6 +3011,22 @@ void UI_ForceMenu(const char *name)
 {
     Menu    *menu  = menuManager.CurrentMenu();
     qboolean bDiff = qfalse;
+
+    /*
+     * Changed in Omaha: forcemenu for classic pause-tree names hits the same
+     * modern dm_pause remaps as pushmenu when modern HUD is on.
+     */
+    if (CL_UIR_UseModernHudPack() && clc.state == CA_ACTIVE && name && name[0]
+        && (!Q_stricmp(name, "votemain") || !Q_stricmp(name, "votecast")
+            || !Q_stricmp(name, "votesublist") || !Q_stricmp(name, "votesubtext")
+            || !Q_stricmp(name, "votesubinteger") || !Q_stricmp(name, "votesubfloat")
+            || !Q_stricmp(name, "votesubclient") || !Q_stricmp(name, "dm_main")
+            || !Q_stricmp(name, "SelectTeam") || !Q_stricmp(name, "SelectFFAModel")
+            || !Q_stricmp(name, "ObjSelectTeam") || !Q_stricmpn(name, "SelectPrimaryWeapon", 19)
+            || !Q_stricmp(name, "mpoptions"))) {
+        UI_PushMenu(name);
+        return;
+    }
 
     if (menu) {
         bDiff = strcmp(menu->m_name, name) != 0;
@@ -2986,7 +3379,19 @@ void UI_MenuEscape(const char *name)
     }
 
     if (uWinMan.BindActive()) {
-        UI_KeyEvent(K_ESCAPE, qfalse);
+        /* Changed in Omaha: cancel bind with a real key-down Escape. */
+        UI_KeyEvent(K_ESCAPE, qtrue, 0);
+        return;
+    }
+
+    if (CL_UIR_IsModernMainActive() && clc.state == CA_DISCONNECTED) {
+        if (developer->integer) {
+            if (UI_ConsoleIsVisible()) {
+                UI_CloseConsole();
+            } else {
+                UI_OpenConsole();
+            }
+        }
         return;
     }
 
@@ -3006,11 +3411,33 @@ void UI_MenuEscape(const char *name)
         return;
     }
 
+    if (!CL_UIR_UseLegacyMain() && CL_UIR_IsConnectedOverlayOpen()) {
+        CL_UIR_CloseConnectedOverlay();
+        return;
+    }
+
+    /* Added in Omaha: Escape closes modern dm_pause before opening another menu. */
+    if (CL_UIR_UseModernHudPack() && CL_UIR_IsDmPauseOpen()) {
+        CL_UIR_CloseDmPause();
+        return;
+    }
+
+    if (CL_UIMenu_IsOpen(CL_UIR_ScoreboardMenuId()) && clc.state == CA_ACTIVE) {
+        return;
+    }
+
     if (menuManager.CurrentMenu()) {
         menuManager.PopMenu(qtrue);
     } else if (!Q_stricmp(name, "main") && clc.state > CA_PRIMED && cg_gametype->integer > 0) {
-        // multiplayer
-        UI_PushMenu("dm_main");
+        /* Changed in Omaha: modern HUD → dm_pause; legacy → retail dm_main. */
+        if (CL_UIR_UseModernHudPack()) {
+            CL_UIR_OpenDmPause("root");
+        } else {
+            UI_PushMenu("dm_main");
+        }
+    } else if (!CL_UIR_UseLegacyMain() && clc.state == CA_DISCONNECTED
+               && name && (!Q_stricmp(name, "main") || !Q_stricmp(name, "dm_main"))) {
+        CL_UIR_ActivateModernMain();
     } else {
         // single-player
         UI_PushMenu(name);
@@ -3367,10 +3794,10 @@ void UI_PlayerModel_f(void)
 
 /*
 ====================
-UI_ApplyPlayerModel_f
+UI_ApplyPlayerModelsFromUi
 ====================
 */
-void UI_ApplyPlayerModel_f(void)
+void UI_ApplyPlayerModelsFromUi(void)
 {
     const char *pszUIPlayerModel;
     char        donotshowssindeorfr[64];
@@ -3386,7 +3813,17 @@ void UI_ApplyPlayerModel_f(void)
     } else {
         Cvar_Set("dm_playergermanmodel", pszUIPlayerModel);
     }
+}
 
+/*
+====================
+UI_ApplyPlayerModel_f
+====================
+*/
+void UI_ApplyPlayerModel_f(void)
+{
+    /* Changed in Omaha: models and name are separate modern-UI commit paths. */
+    UI_ApplyPlayerModelsFromUi();
     Cvar_Set("name", CvarGetForUI("ui_name", "UnnamedSoldier"));
 }
 
@@ -3558,6 +3995,7 @@ void UI_LoadMenu(const char *name)
     Q_strcat(buffer, 256, ".urc");
 
     new UILayout(buffer);
+    CL_UIR_ProfileDumpLoad();
     uWinMan.CreateMenus();
     UI_FocusMenuIfExists();
 }
@@ -3671,16 +4109,118 @@ void UI_Cvar_Set(const char *var_name, const char *value)
 
 /*
 ====================
+UI_ApplyHighResScalingFromUid
+
+Added in Omaha: same high-res rules as UI_ResolutionChange.
+====================
+*/
+static void UI_ApplyHighResScalingFromUid(void)
+{
+    if (uid.vidWidth > maxWidthRes && uid.vidHeight > maxHeightRes) {
+        const float vidRatio = (float)uid.vidWidth / (float)uid.vidHeight;
+
+        uid.scaleRes[0]     = (float)uid.vidWidth / (maxHeightRes * vidRatio);
+        uid.scaleRes[1]     = (float)uid.vidHeight / maxHeightRes;
+        uid.bHighResScaling = qtrue;
+    } else {
+        uid.scaleRes[0]     = 1;
+        uid.scaleRes[1]     = 1;
+        uid.bHighResScaling = qfalse;
+    }
+}
+
+/*
+====================
+UI_RefreshLegacyFramesForUiVidSize
+
+Added in Omaha: when modern surface size S changes, re-frame legacy winman
+widgets that were created against the previous uid.vid.
+====================
+*/
+static void UI_RefreshLegacyFramesForUiVidSize(void)
+{
+    UIRect2D frame;
+
+    if (fakk_console) {
+        frame = getDefaultConsoleRectangle();
+        fakk_console->setFrame(frame);
+    }
+
+    if (dm_console) {
+        if (dm_console->GetQuickMessageMode()) {
+            frame = getQuickMessageDMConsoleRectangle();
+        } else {
+            frame = getDefaultDMConsoleRectangle();
+        }
+
+        dm_console->setFrame(frame);
+    }
+
+    if (developer_console) {
+        frame = getDefaultConsoleRectangle();
+        developer_console->setFrame(frame);
+    }
+
+    if (view3d) {
+        frame = UIRect2D(0, 0, uid.vidWidth, uid.vidHeight);
+        view3d->setFrame(frame);
+    }
+
+    if (gmbox) {
+        frame = getDefaultGMBoxRectangle();
+        gmbox->setFrame(frame);
+    }
+
+    if (dmbox) {
+        frame = getDefaultDMBoxRectangle();
+        dmbox->setFrame(frame);
+    }
+
+    menuManager.RealignMenus();
+}
+
+/*
+====================
 CL_FillUIDef
 ====================
 */
 void CL_FillUIDef(void)
 {
+    static int s_lastUiVidW = -1;
+    static int s_lastUiVidH = -1;
+    int        vidW         = 0;
+    int        vidH         = 0;
+    float      mx;
+    float      my;
+
     CL_GetMouseState(&uid.mouseX, &uid.mouseY, &uid.mouseFlags);
+    CL_UIR_GetUiVidSize(&vidW, &vidH);
+    uid.vidWidth   = vidW;
+    uid.vidHeight  = vidH;
     uid.time       = cls.realtime;
-    uid.vidHeight  = cls.glconfig.vidHeight;
-    uid.vidWidth   = cls.glconfig.vidWidth;
     uid.uiHasMouse = in_guimouse != qfalse;
+
+    /*
+     * Added in Omaha: modern maps a copy of window-space mouse into S for winman.
+     * UpdateModern/HudMenus map from cl.mouse* separately — do not remapping uid.
+     */
+    if (!CL_UIR_UseLegacyMain()) {
+        mx = (float)uid.mouseX;
+        my = (float)uid.mouseY;
+        CL_UIR_MapMouseToUiVid(&mx, &my);
+        uid.mouseX = (int)mx;
+        uid.mouseY = (int)my;
+
+        if (vidW != s_lastUiVidW || vidH != s_lastUiVidH) {
+            s_lastUiVidW = vidW;
+            s_lastUiVidH = vidH;
+            UI_ApplyHighResScalingFromUid();
+            UI_RefreshLegacyFramesForUiVidSize();
+        }
+    } else {
+        s_lastUiVidW = vidW;
+        s_lastUiVidH = vidH;
+    }
 }
 
 /*
@@ -3806,10 +4346,19 @@ void CL_FillUIImports(void)
 CL_BeginRegistration
 ====================
 */
+static int cl_beginRegistrationDepth;
+
+qboolean CL_IsBeginRegistrationActive(void)
+{
+    return cl_beginRegistrationDepth > 0 ? qtrue : qfalse;
+}
+
 void CL_BeginRegistration(void)
 {
+    cl_beginRegistrationDepth++;
     // init console stuff
     re.BeginRegistration(&cls.glconfig);
+    cl_beginRegistrationDepth--;
     uWinMan.CleanupShadersFromList();
 }
 
@@ -3890,21 +4439,10 @@ void UI_ResolutionChange(void)
     CL_FillUIImports();
     CL_FillUIDef();
 
-    // Added in OPM
-    //  Scaling for high resolutions
-    if (uid.vidWidth > maxWidthRes && uid.vidHeight > maxHeightRes) {
-        const float vidRatio = (float)uid.vidWidth / (float)uid.vidHeight;
+    CL_UIR_OnResolutionChanged();
 
-        uid.scaleRes[0] = (float)uid.vidWidth / (maxHeightRes * vidRatio);
-        uid.scaleRes[1] = (float)uid.vidHeight / maxHeightRes;
-        //uid.scaleRes[0] = (float)uid.vidWidth / maxWidthRes;
-        //uid.scaleRes[1] = (float)uid.vidHeight / maxHeightRes;
-        uid.bHighResScaling = qtrue;
-    } else {
-        uid.scaleRes[0]     = 1;
-        uid.scaleRes[1]     = 1;
-        uid.bHighResScaling = qfalse;
-    }
+    // Added in Omaha — Scaling for high resolutions
+    UI_ApplyHighResScalingFromUid();
 
     if (!uie.ResolutionChange) {
         return;
@@ -3962,15 +4500,28 @@ UI_FinishLoadingScreen_f
 */
 void UI_FinishLoadingScreen_f(void)
 {
+    /*
+     * Fixed in Omaha: reject finishloadingscreen until Continue is click-armed.
+     * Root cause: enabling continuebutton under a held/released MOUSE1 ran
+     * UIButtonBase::Action → stuffcommand finishloadingscreen, dismissed Continue,
+     * then stock pushmenu_weaponselect opened dm_pause on the loading screen.
+     */
+    if (server_loading_waiting && !server_loading_continue_armed) {
+        return;
+    }
+
     Com_Unpause();
     UI_ForceMenuOff(qtrue);
 
-    ui_pLoadingMenu        = NULL;
-    ui_sCurrentLoadingMenu = "";
-    server_loading         = qfalse;
-    server_loading_waiting = qfalse;
+    ui_pLoadingMenu               = NULL;
+    ui_sCurrentLoadingMenu        = "";
+    server_loading                = qfalse;
+    server_loading_waiting        = qfalse;
+    server_loading_continue_armed = qfalse;
 
     UI_ActivateView3D();
+    /* Fixed in Omaha: allow deferred team/weapon pause opens after Continue. */
+    CL_UIR_NotifyMapLoadFinished();
 }
 
 /*
@@ -4031,20 +4582,30 @@ void UI_ServerLoaded(void)
         return;
     }
 
+    /*
+     * Fixed in Omaha: BeginLoad ForceMenuOff's the stack and only ForceMenu's the
+     * loading plaque from UI_Update while server_loading. ServerLoaded often ran
+     * with CurrentMenu != ui_pLoadingMenu (or loading_default) and auto-finished
+     * — mapReady flipped true ~1s later and pushmenu_weaponselect opened over the
+     * Continue art. Force the loading menu current and wait whenever it has a
+     * continuebutton.
+     */
+    if (menuManager.CurrentMenu() != ui_pLoadingMenu) {
+        UI_ForceMenuOff(true);
+        UI_DeactiveFloatingWindows();
+        UI_ForceMenu(ui_sCurrentLoadingMenu);
+    }
     pCurrentMenu = menuManager.CurrentMenu();
 
-    if (pCurrentMenu != ui_pLoadingMenu || !pCurrentMenu->GetNamedWidget("continuebutton") || !com_sv_running->integer
-        || pMaxClients->integer > 1) {
+    if (!pCurrentMenu || pCurrentMenu != ui_pLoadingMenu
+        || !ui_pLoadingMenu->GetNamedWidget("continuebutton")) {
         UI_FinishLoadingScreen_f();
         return;
     }
 
-    if (ui_sCurrentLoadingMenu == "loading_default") {
-        UI_FinishLoadingScreen_f();
-        return;
-    }
 
-    server_loading_waiting = qtrue;
+    server_loading_waiting        = qtrue;
+    server_loading_continue_armed = qfalse;
 
     event = new Event(EV_Widget_Enable);
     ui_pLoadingMenu->PassEventToWidget("continuebutton", event);
@@ -4378,6 +4939,10 @@ UI_ShowScoreboard_f
 */
 void UI_ShowScoreboard_f(const char *pszMenuName)
 {
+    if (!CL_UIR_UseLegacyHud()) {
+        return;
+    }
+
     if (pszMenuName) {
         if (scoreboard_menuname.length() && str::icmp(scoreboard_menuname, pszMenuName) && scoreboard_menu) {
             scoreboard_menu->ForceHide();
@@ -4424,6 +4989,10 @@ UI_HideScoreboard_f
 */
 void UI_HideScoreboard_f(void)
 {
+    if (!CL_UIR_UseLegacyHud()) {
+        return;
+    }
+
     if (scoreboardlist) {
         scoreboardlist->setShow(false);
     }
@@ -4911,12 +5480,15 @@ CL_TryStartIntro
 void CL_TryStartIntro(void)
 {
     if (developer->integer || !cl_playintro->integer) {
-        UI_ToggleConsole();
-    } else {
-        // FIXME: no intro from now
-        Cvar_Set(cl_playintro->name, "0");
-        UI_StartIntro_f();
+        /* Changed in Omaha: do not auto-open the console at startup when skipping
+         * intros. Leave startStage at 0 so CL_Frame brings up the main menu;
+         * console still opens only via key toggle (or Escape in developer). */
+        return;
     }
+
+    // FIXME: no intro from now
+    Cvar_Set(cl_playintro->name, "0");
+    UI_StartIntro_f();
 }
 
 /*
@@ -5229,6 +5801,8 @@ void CL_ShutdownUI(void)
     // delete all menus
     menuManager.DeleteAllMenus();
 
+    CL_UIR_Shutdown();
+
     cls.uiStarted = false;
 }
 
@@ -5249,7 +5823,7 @@ void CL_InitializeUI(void)
     ui_minicon         = Cvar_Get("ui_minicon", "0", 1);
     ui_gmbox           = Cvar_Get("ui_gmbox", "1", 1);
     ui_consoleposition = Cvar_Get("ui_consoleposition", "", 1);
-    ui_console         = Cvar_Get("ui_console", "0", 1);
+    ui_console         = Cvar_Get("ui_console", "1", 1);
     ui_crosshair       = Cvar_Get("ui_crosshair", "1", 1);
     ui_weaponsbar      = Cvar_Get("ui_weaponsbar", "1", 1);
     ui_weaponsbartime  = Cvar_Get("ui_weaponsbartime", "2500", 1);
@@ -5295,7 +5869,7 @@ void CL_InitializeUI(void)
     ui_legalscreen_fadeout = Cvar_Get("ui_legalscreen_fadeout", "1", 0);
     ui_legalscreen_stay    = Cvar_Get("ui_legalscreen_stay", "3", 0);
     cl_greenfps            = Cvar_Get("cl_greenfps", "0", 1);
-    cl_playintro           = Cvar_Get("cl_playintro", "1", 0);
+    cl_playintro           = Cvar_Get("cl_playintro", "0", CVAR_ARCHIVE); /* Changed in Omaha: skip intro videos by default */
     cl_movieaudio          = Cvar_Get("cl_movieaudio", "1", 0);
     Cvar_Get("ui_startmap", "", 1);
     Cvar_Get("dlg_badsave", "This save game is invalid", 0);
@@ -5386,6 +5960,8 @@ void CL_InitializeUI(void)
     view3d->InitFrame(NULL, 0, 0, uid.vidWidth, uid.vidHeight, -1, "facfont-20");
     view3d->setName("view3d");
     view3d->InitSubtitle();
+    /* Added in Omaha: background so ui_profile can isolate URC Display from View3D. */
+    uWinMan.setBackgroundWidget(view3d);
 
     memset(&intro_stage, 0, sizeof(intro_stage));
 
@@ -5436,6 +6012,7 @@ void CL_InitializeUI(void)
 
         Com_sprintf(szFilename, sizeof(szFilename), "ui/%s", filenames[i]);
         new UILayout(szFilename);
+        CL_UIR_ProfileDumpLoad();
     }
 
     FS_FreeFileList(filenames);
@@ -5487,6 +6064,8 @@ void CL_InitializeUI(void)
     if (!com_dedicated->integer) {
         CL_TryStartIntro();
     }
+
+    CL_UIR_Init();
 }
 
 //
@@ -5858,7 +6437,10 @@ void UI_BeginLoad(const char *pszMapName)
 
     server_loading         = qtrue;
     server_loading_waiting = qfalse;
+    server_loading_continue_armed = qfalse;
     strcpy(server_mapname, pszMapName);
+    /* Fixed in Omaha: block team/weapon dm_pause until Continue / finishloadingscreen. */
+    CL_UIR_NotifyMapLoadBegin();
 
     if (str::icmp(ui_sCurrentLoadingMenu, server_mapname)) {
         ui_sCurrentLoadingMenu = server_mapname;

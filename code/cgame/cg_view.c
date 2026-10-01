@@ -525,7 +525,40 @@ static int CG_CalcFov(void)
     cg.fRefFovXSin     = sin(fov_x / 114.0f);
     cg.fRefFovYCos     = cos(fov_y / 114.0f);
     cg.fRefFovYSin     = sin(fov_y / 114.0f);
-    cg.zoomSensitivity = cg.refdef.fov_y / 75.0;
+
+    /*
+     * Changed in Omaha: cg_zoomSensitivity mode for modern UI (ui_legacy 0):
+     *   off    -> 1.0 (no FOV scale)
+     *   legacy -> fov_y / 75 (retail Quake)
+     *   screen -> tan(zoom/2)/tan(hip/2) (screen-distance)
+     * Legacy UI always uses fov_y/75.
+     */
+    if (!ui_legacy || !ui_legacy->integer) {
+        const char *mode = (cg_zoomSensitivity && cg_zoomSensitivity->string[0])
+                               ? cg_zoomSensitivity->string
+                               : "screen";
+
+        if (!Q_stricmp(mode, "off")) {
+            cg.zoomSensitivity = 1.0f;
+        } else if (!Q_stricmp(mode, "legacy")) {
+            cg.zoomSensitivity = cg.refdef.fov_y / 75.0f;
+        } else {
+            /* screen (default) */
+            float hipFov = cg_fov ? cg_fov->value : 80.0f;
+            float zoomFov = cg.camera_fov;
+
+            if (hipFov < 1.0f) {
+                hipFov = 1.0f;
+            }
+            if (zoomFov < 1.0f) {
+                zoomFov = 1.0f;
+            }
+            cg.zoomSensitivity =
+                (float)(tan(DEG2RAD(zoomFov * 0.5)) / tan(DEG2RAD(hipFov * 0.5)));
+        }
+    } else {
+        cg.zoomSensitivity = cg.refdef.fov_y / 75.0f;
+    }
     return inwater;
 }
 

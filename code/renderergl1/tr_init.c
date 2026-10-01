@@ -1425,7 +1425,7 @@ void R_Register( void )
 	r_showImages = ri.Cvar_Get( "r_showImages", "0", CVAR_TEMP );
 	r_showlod = ri.Cvar_Get("r_showlod", "0", CVAR_TEMP);
 	r_showstaticlod = ri.Cvar_Get("r_showstaticlod", "0", CVAR_TEMP);
-	// Changed in OPM: CVAR_ARCHIVE so r_uselod 0/1 can be set and saved from the console.
+	// Changed in Omaha: CVAR_ARCHIVE so r_uselod 0/1 can be set and saved from the console.
 	r_uselod = ri.Cvar_Get("r_uselod", "1", CVAR_ARCHIVE);
 	ri.Cvar_CheckRange(r_uselod, 0, 1, qtrue);
 	lod_LOD = ri.Cvar_Get("lod_LOD", "0", CVAR_TEMP);
@@ -1508,7 +1508,7 @@ void R_Register( void )
 	r_lockpvs = ri.Cvar_Get ("r_lockpvs", "0", CVAR_CHEAT);
 	r_noportals = ri.Cvar_Get ("r_noportals", "0", CVAR_CHEAT);
 	r_entlightmap = ri.Cvar_Get("r_entlightmap", "0", CVAR_CHEAT);
-	r_fastentlight = ri.Cvar_Get("r_fastentlight", "0", CVAR_ARCHIVE);
+	r_fastentlight = ri.Cvar_Get("r_fastentlight", "1", CVAR_ARCHIVE); /* Changed in Omaha */
 	r_entlight_scale = ri.Cvar_Get("r_entlight_scale", "1.3", CVAR_CHEAT);
 	r_entlight_errbound = ri.Cvar_Get("r_entlight_errbound", "6", CVAR_ARCHIVE);
 	r_entlight_cubelevel = ri.Cvar_Get("r_entlight_cubelevel", "0", CVAR_ARCHIVE);
@@ -1998,6 +1998,8 @@ refexport_t *GetRefAPI ( int apiVersion, refimport_t *rimp ) {
 	re.UI2DBatchSupported = RE_UI2DBatchSupported;
 	re.UI2DCanBatchShader = RE_UI2DCanBatchShader;
 	re.DrawUI2D = RE_DrawUI2D;
+	re.UI2DBatchBegin = RE_UI2DBatchBegin;
+	re.UI2DBatchEnd = RE_UI2DBatchEnd;
 	re.UI2DTargetAvailable = RE_UI2DTargetAvailable;
 	re.BeginUI2DTarget = RE_BeginUI2DTarget;
 	re.EndUI2DTarget = RE_EndUI2DTarget;

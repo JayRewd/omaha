@@ -1,0 +1,6 @@
+<ui-library version="1">
+	<images>
+		<image id="panel" src="ui/modern/textures/panel.png"/>
+		<image id="logo" src="ui/modern/textures/logo.tga"/>
+	</images>
+</ui-library>

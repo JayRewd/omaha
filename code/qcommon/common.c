@@ -43,6 +43,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #ifndef DEDICATED
 #  include "../uilib/ui_public.h"
+void CL_UIR_SyncPointerMenus(void);
 #endif
 
 #include "../gamespy/q_gamespy.h"
@@ -2427,6 +2428,12 @@ void Com_Frame( void ) {
     } while (Com_TimeVal(minMsec));
 
     IN_Frame();
+
+#ifndef DEDICATED
+    if (!com_dedicated->integer) {
+        CL_UIR_SyncPointerMenus();
+    }
+#endif
 
     lastTime = com_frameTime;
     com_frameTime = Com_EventLoop();

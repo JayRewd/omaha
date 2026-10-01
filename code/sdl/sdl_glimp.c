@@ -337,7 +337,7 @@ static qboolean GLimp_GetProcAddresses( qboolean fixedFunction ) {
 			QGL_1_3_PROCS;
 		}
 
-		/* Added in OPM: optional UI FBO / separate alpha blend procs (non-fatal). */
+		/* Added in Omaha: optional UI FBO / separate alpha blend procs (non-fatal). */
 #undef GLE
 #ifdef __SDL_NOGETPROCADDR__
 #define GLE_OPT( ret, name, ... ) qgl##name = gl#name;
@@ -444,7 +444,7 @@ static void GLimp_ClearProcAddresses( void ) {
 ===============
 GLimp_SyncVidSizeFromDrawable
 
-Added in OPM: glConfig must match the real GL drawable so RenderScene Y-flip
+Added in Omaha: glConfig must match the real GL drawable so RenderScene Y-flip
 and modern UI (GetDrawableSize) agree after soft/failed exclusive fullscreen.
 ===============
 */
@@ -576,7 +576,7 @@ static int GLimp_SetMode(int mode, qboolean fullscreen, qboolean noborder, qbool
 	int x = SDL_WINDOWPOS_UNDEFINED, y = SDL_WINDOWPOS_UNDEFINED;
 	int requestedW = 0;
 	int requestedH = 0;
-	qboolean desktopFullscreen = qfalse; /* Added in OPM: borderless → FULLSCREEN_DESKTOP */
+	qboolean desktopFullscreen = qfalse; /* Added in Omaha: borderless → FULLSCREEN_DESKTOP */
 	qboolean exclusiveFullscreen = qfalse;
 	qboolean displayModeFailed = qfalse;
 
@@ -655,7 +655,7 @@ static int GLimp_SetMode(int mode, qboolean fullscreen, qboolean noborder, qbool
 	requestedW = glConfig.vidWidth;
 	requestedH = glConfig.vidHeight;
 
-	/* Added in OPM: borderless fullscreen uses desktop size, not the game mode. */
+	/* Added in Omaha: borderless fullscreen uses desktop size, not the game mode. */
 	desktopFullscreen = ( fullscreen && noborder ) ? qtrue : qfalse;
 	exclusiveFullscreen = ( fullscreen && !noborder ) ? qtrue : qfalse;
 	if ( desktopFullscreen && desktopMode.w > 0 && desktopMode.h > 0 ) {
@@ -691,7 +691,7 @@ static int GLimp_SetMode(int mode, qboolean fullscreen, qboolean noborder, qbool
 
 	if( desktopFullscreen )
 	{
-		/* Added in OPM: UI Borderless → desktop fullscreen (not exclusive mode). */
+		/* Added in Omaha: UI Borderless → desktop fullscreen (not exclusive mode). */
 		flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
 		glConfig.isFullscreen = qtrue;
 	}
@@ -977,7 +977,7 @@ static int GLimp_SetMode(int mode, qboolean fullscreen, qboolean noborder, qbool
 			if( SDL_SetWindowDisplayMode( SDL_window, &desiredMode ) < 0 )
 			{
 				ri.Printf( PRINT_ALL, "SDL_SetWindowDisplayMode failed: %s\n", SDL_GetError( ) );
-				/* Added in OPM: keep the window; fall back to desktop fullscreen after show. */
+				/* Added in Omaha: keep the window; fall back to desktop fullscreen after show. */
 				displayModeFailed = qtrue;
 			}
 		}
@@ -1017,7 +1017,7 @@ static int GLimp_SetMode(int mode, qboolean fullscreen, qboolean noborder, qbool
 	SDL_ShowWindow( SDL_window );
 
 	/*
-	 * Added in OPM: exclusive mode often fails softly on Wayland/compositors —
+	 * Added in Omaha: exclusive mode often fails softly on Wayland/compositors —
 	 * drawable stays desktop-sized or the window stays a small rect. Fall back
 	 * to desktop fullscreen and always sync glConfig from the real drawable.
 	 */
@@ -1429,7 +1429,7 @@ void GLimp_EndFrame( void )
 			prevW = glConfig.vidWidth;
 			prevH = glConfig.vidHeight;
 
-			/* Added in OPM: borderless uses desktop fullscreen; exclusive otherwise. */
+			/* Added in Omaha: borderless uses desktop fullscreen; exclusive otherwise. */
 			if ( !r_fullscreen->integer ) {
 				fsFlags = 0;
 			} else if ( ri.Cvar_VariableIntegerValue( "r_noborder" ) ) {

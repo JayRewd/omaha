@@ -24,9 +24,18 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "client.h"
 #include "cl_ui.h"
 #include "cl_uiradar.h"
+#include "cl_scoreboard_host.h"
+#include "cl_objectives_host.h"
+#include "cl_uimenu_dispatcher.h"
+#include "cl_uirender.h"
+#include "cl_uivars.h"
+#include "cl_killfeed.h"
 #include "../corepp/tiki.h"
 #include "../qcommon/localization.h"
 #include "../qcommon/bg_compat.h"
+
+#include <stdio.h>
+#include <string.h>
 
 extern qboolean loadCamera(const char *name);
 extern void startCamera(int time);
@@ -387,6 +396,12 @@ qboolean CL_ProcessServerCommand(const char* origString, const char* cmd, qboole
 		return qfalse;
 	}
 
+	/* Added in Omaha: structured kill-feed from TA printdeathmsg (cgame still handles Printf). */
+	if (!strcmp(cmd, "printdeathmsg")) {
+		CL_KillFeed_HandlePrintDeathMsg();
+		return qtrue;
+	}
+
     // we may want to put a "connect to other server" command here
 
     // cgame can now act on the command
@@ -561,6 +576,24 @@ static int	FloatAsInt( float f ) {
 
 /*
 ====================
+CL_CG_Cvar_Set
+
+Added in Omaha: cgame (and bg_voteoptions on the CGAME path) publishes UI state
+through cgi.Cvar_Set. Route store names into CL_UIVar so they never become
+console cvars.
+====================
+*/
+static void CL_CG_Cvar_Set(const char *var_name, const char *value)
+{
+	if (CL_UIVar_IsStoreName(var_name)) {
+		CL_UIVar_Set(var_name, value);
+		return;
+	}
+	Cvar_Set(var_name, value);
+}
+
+/*
+====================
 CL_RegisterSound
 ====================
 */
@@ -628,7 +661,8 @@ void CL_InitCGameDLL( clientGameImport_t *cgi, clientGameExport_t **cge ) {
 
 	cgi->Cvar_Get						= Cvar_Get;
 	cgi->Cvar_Find						= Cvar_FindVar;
-	cgi->Cvar_Set						= Cvar_Set;
+	/* Added in Omaha: route ui_om_* vote/HUD publishes into the UI store. */
+	cgi->Cvar_Set						= CL_CG_Cvar_Set;
 	cgi->Cvar_CheckRange				= Cvar_CheckRange;
 
 	cgi->Argc							= Cmd_Argc;
@@ -816,6 +850,18 @@ void CL_InitCGameDLL( clientGameImport_t *cgi, clientGameExport_t **cge ) {
 	cgi->UI_HideScoreBoard			= UI_HideScoreboard_f;
 	cgi->UI_SetScoreBoardItem		= UI_SetScoreBoardItem;
 	cgi->UI_DeleteScoreBoardItems	= UI_DeleteScoreBoardItems;
+	cgi->UIR_Scoreboard_Clear		= UIR_Scoreboard_Clear;
+	cgi->UIR_Scoreboard_SetMeta		= UIR_Scoreboard_SetMeta;
+	cgi->UIR_Scoreboard_AddRow		= UIR_Scoreboard_AddRow;
+	cgi->UIR_Scoreboard_SetRowCount	= UIR_Scoreboard_SetRowCount;
+	cgi->UIR_Scoreboard_NotifyChanged = UIR_Scoreboard_NotifyChanged;
+	cgi->UIR_Objectives_Clear		= UIR_Objectives_Clear;
+	cgi->UIR_Objectives_SetAlpha		= UIR_Objectives_SetAlpha;
+	cgi->UIR_Objectives_AddRow		= UIR_Objectives_AddRow;
+	cgi->UIR_Objectives_NotifyChanged	= UIR_Objectives_NotifyChanged;
+	cgi->CL_UIMenu_OpenHold			= CL_UIMenu_OpenHold;
+	cgi->CL_UIMenu_CloseHold		= CL_UIMenu_CloseHold;
+	cgi->CL_UIR_ScoreboardMenuId	= CL_UIR_ScoreboardMenuId;
 	cgi->UI_ToggleDMMessageConsole	= UI_ToggleDMConsole;
 	cgi->CL_InitRadar				= CL_InitRadar;
 

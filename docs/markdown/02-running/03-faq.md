@@ -142,7 +142,6 @@ As you see the default variable above, you can add multiple keys (between the qu
 > bind ` "toggleconsole" is not to be used anymore.
 </details>
 
-
 ---
 
 <details>
@@ -155,6 +154,7 @@ aiming feels closer to what you see. Modes are **Off**, **Safe** (default), and
 Full overview and accuracy numbers:
 [Player prediction](05-player-prediction.md).
 </details>
+
 
 ---
 

@@ -707,7 +707,10 @@ void	Cvar_CompleteCvarName(const char* args, int argNum);
 cvar_t  *Cvar_Unset(cvar_t *cv);
 
 extern	int			cvar_modifiedFlags;
+extern	int			cvar_globalModCount; /* Added in Omaha: UI cvar-epoch memo */
 extern	qboolean	cvar_global_force;
+/* Added in Omaha: monotonic epoch for UI binding expression memos. */
+int	Cvar_GlobalModCount(void);
 // whenever a cvar is modifed, its flags will be OR'd into this, so
 // a single check can determine if any CVAR_USERINFO, CVAR_SERVERINFO,
 // etc, variables have been modified since the last check.  The bit

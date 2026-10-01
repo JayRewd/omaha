@@ -525,6 +525,7 @@ extern "C" {
     // Added in OPM
     //
     extern cvar_t *cg_fov;
+    extern cvar_t *cg_zoomSensitivity;
     extern cvar_t *cg_cheats;
     extern cvar_t *cg_spectate_firstperson;
 
@@ -537,7 +538,6 @@ extern "C" {
         int      viewModelAnimChanged;
         int      animPrefixIndex;
     } cgVMAnimOverride_t;
-
 
     //
     // cg_main.c
@@ -674,6 +674,7 @@ extern "C" {
     void CG_InitializeObjectives();
     void CG_DrawObjectives();
     void CG_Draw2D(void);
+    void CG_SyncModernHudCvars(void);
     qboolean CG_UseModernHudPack(void);
 
     //
@@ -829,6 +830,7 @@ extern "C" {
     void     CG_PushMenuTeamSelect_f(void);
     void     CG_PushMenuWeaponSelect_f(void);
     void     CG_UseWeaponClass_f(void);
+    void     CG_UsePrimaryWeapon_f(void); /* Added in Omaha */
     void     CG_NextWeapon_f(void);
     void     CG_PrevWeapon_f(void);
     void     CG_UseLastWeapon_f(void);
@@ -950,6 +952,8 @@ qboolean CG_LightStyleColor(int style, int realtime, vec4_t color, qboolean clam
     void CG_PrepScoreBoardInfo();
     void CG_ParseScores();
     void CG_InitScoresAPI(clientGameExport_t *cge);
+    /* Added in Omaha: silent team-score refresh for modern HUD Allied/Axis strip. */
+    void CG_RequestHudTeamScoresSilent(void);
 
     //
     // cg_specialfx.cpp

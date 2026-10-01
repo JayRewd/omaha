@@ -23,6 +23,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include "client.h"
 #include "cl_ui.h"
+#include "cl_uirender.h"
 
 qboolean	scr_initialized;		// ready to draw
 stereoFrame_t	s_scr_stereoFrame;
@@ -485,7 +486,10 @@ void UpdateStereoSide( stereoFrame_t s ) {
 	if( clc.state == CA_CINEMATIC ) {
 		SCR_DrawCinematic();
 	}
+	/* Added in OPM: whole-frame UI sample (HUD sync lives inside View3D / overlay). */
+	CL_UIR_ProfileBeginSample("ui_total");
 	UI_Update();
+	CL_UIR_ProfileEndSample("ui_total");
 }
 
 /*
@@ -503,12 +507,8 @@ void SCR_SimpleUpdateScreen( void ) {
 		UpdateStereoSide( STEREO_CENTER );
 	}
 
-	if( com_speeds->integer ) {
-		re.EndFrame( &time_frontend, &time_backend );
-	}
-	else {
-		re.EndFrame( NULL, NULL );
-	}
+	/* Always capture frontend/backend ms for debug NDJSON; com_speeds only gates its printf. */
+	re.EndFrame( &time_frontend, &time_backend );
 }
 
 /*

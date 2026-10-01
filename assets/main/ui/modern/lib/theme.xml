@@ -1,0 +1,15 @@
+<ui-library version="1">
+		<import src="ui/modern/lib/menu_tokens.xml"/>
+		<defaults type="vertical" width="auto" height="auto"
+		          padding="0" margin="0" gap="0"
+		          overflow="none" fill="{var.fill-transparent}"
+		          shape="rectangle" font="body"
+		          font-size="{var.text-body}" font-weight="400"
+		          color="{var.color-primary}"
+		          visible="true" enabled="true"/>
+
+		<fonts>
+			<font id="body" src="fonts/Oswald-Medium.ttf" weight="500"/>
+			<font id="control" src="fonts/Oswald-SemiBold.ttf" weight="600"/>
+		</fonts>
+</ui-library>

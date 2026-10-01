@@ -84,9 +84,9 @@ static qboolean RE_UI2D_FboProcsReady(void)
 
 void RE_UI2D_FboShutdown(void)
 {
-	/* Added in OPM: tear down soft mask-image layer with the main UI FBO. */
+	/* Added in Omaha: tear down soft mask-image layer with the main UI FBO. */
 	RE_UiLayerShutdown();
-	/* Added in OPM: tear down chrome cache RT with the main UI FBO. */
+	/* Added in Omaha: tear down chrome cache RT with the main UI FBO. */
 	RE_UiChromeCacheShutdown();
 
 	if (s_uiFbo.msaaFbo) {
@@ -203,12 +203,12 @@ int RE_UI2DTargetSamples(void)
 
 void RE_UI2DTargetRebind(void)
 {
-	/* Added in OPM: soft mask-image layer is the top of the UI target stack. */
+	/* Added in Omaha: soft mask-image layer is the top of the UI target stack. */
 	if (RE_UiLayerIsActive()) {
 		RE_UiLayerRebind();
 		return;
 	}
-	/* Added in OPM: chrome cache capture sits under the soft-mask layer. */
+	/* Added in Omaha: chrome cache capture sits under the soft-mask layer. */
 	if (RE_UiChromeCacheIsActive()) {
 		RE_UiChromeCacheRebind();
 		return;
@@ -281,7 +281,7 @@ void RE_EndUI2DTarget(void)
 	);
 
 	qglBindFramebuffer(GL_FRAMEBUFFER, 0);
-	/* Fixed in OPM: clear active before Set2DWindow — its RE_UI2DTargetRebind must not re-bind MSAA FBO during composite. */
+	/* Fixed in Omaha: clear active before Set2DWindow — its RE_UI2DTargetRebind must not re-bind MSAA FBO during composite. */
 	s_uiFbo.active = qfalse;
 	Set2DWindow(
 		0,
@@ -298,13 +298,13 @@ void RE_EndUI2DTarget(void)
 	qglEnable(GL_SCISSOR_TEST);
 
 	/*
-	 * Fixed in OPM: FBO UI draws use straight-alpha blending into a transparent clear,
+	 * Fixed in Omaha: FBO UI draws use straight-alpha blending into a transparent clear,
 	 * so resolve RGB is premultiplied (rgb×α). Composite with ONE, ONE_MINUS_SRC_ALPHA.
 	 */
 	GL_State(GLS_DEPTHTEST_DISABLE | GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA);
 	qglEnable(GL_TEXTURE_2D);
 	qglBindTexture(GL_TEXTURE_2D, s_uiFbo.resolveTex);
-	/* Fixed in OPM: composite must not inherit stale backEnd.color2D from prior UI draws. */
+	/* Fixed in Omaha: composite must not inherit stale backEnd.color2D from prior UI draws. */
 	{
 		static const byte compositeWhite[4] = {255, 255, 255, 255};
 
