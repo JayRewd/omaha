@@ -1548,7 +1548,7 @@ static qboolean CG_RP_Coast(
 void CG_RP_RegisterCvars(void)
 {
     // Player-facing only. Blend/lead tuning is compile-time locked above.
-    // Obsolete archived knobs are force-removed in CL_PurgeObsoleteRemotePredictionCvars.
+    // Obsolete archived knobs are force-removed in CL_PurgeObsoleteCvars.
     cg_remotePrediction        = cgi.Cvar_Get("cg_remotePrediction", "1", CVAR_ARCHIVE);
     cg_remotePredictionMaxLead = cgi.Cvar_Get("cg_remotePredictionMaxLead", "120", CVAR_ARCHIVE);
 #if CG_RP_DEBUG_DRAW

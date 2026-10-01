@@ -3827,7 +3827,7 @@ void CL_Init( void ) {
 
 	// Added in Omaha: archived calibration knobs may still be seta'd in omahaconfig;
 	// drop them so only enable + MaxLead remain console-visible.
-	CL_PurgeObsoleteRemotePredictionCvars();
+	CL_PurgeObsoleteCvars();
 
 	Cvar_Set( "cl_running", "1" );
 
@@ -5042,15 +5042,16 @@ void CL_ApplyOriginalConfigTweaks()
 
 /*
 =================
-CL_PurgeObsoleteRemotePredictionCvars
+CL_PurgeObsoleteCvars
 
 Remote prediction locked soft-mix/schedule knobs to compile-time defines.
 Old CVAR_ARCHIVE names can linger from calibration configs and still tab-complete
-even though cgame no longer registers them. Remove everything except the two
-player-facing cvars.
+even though cgame no longer registers them. Also drop leftover internal UI
+state names that used to be registered as CVAR_TEMP / ARCHIVE, plus browser
+knobs that became constants.
 =================
 */
-void CL_PurgeObsoleteRemotePredictionCvars(void)
+void CL_PurgeObsoleteCvars(void)
 {
 	static const char *const obsolete[] = {
 		"cg_remotePredictionMinSpeed",
@@ -5077,12 +5078,34 @@ void CL_PurgeObsoleteRemotePredictionCvars(void)
 		"cg_remotePredictionCurveStabilityMin",
 		"cg_remotePredictionDecelTrendMin",
 		"cg_remotePredictionDebug",
+		"cl_browserMaxQueries",
+		"cl_browserTimeout",
+		"cl_browserRetryTimeout",
+		"g_spectatefollow_pitch",
 	};
-	int i;
+	int     i;
+	cvar_t *cv;
+	cvar_t *next;
 
 	for (i = 0; i < (int)ARRAY_LEN(obsolete); i++) {
-		cvar_t *cv = Cvar_FindVar(obsolete[i]);
+		cv = Cvar_FindVar(obsolete[i]);
 		if (cv) {
+			Cvar_Unset(cv);
+		}
+	}
+
+	/* Only purge client-created sv_runspeed when no local server owns it. */
+	if (!com_sv_running || !com_sv_running->integer) {
+		cv = Cvar_FindVar("sv_runspeed");
+		if (cv) {
+			Cvar_Unset(cv);
+		}
+	}
+
+	/* Drop any leftover console registration of UI store names. */
+	for (cv = Cvar_Next(NULL); cv; cv = next) {
+		next = Cvar_Next(cv);
+		if (cv->name && CL_UIVar_IsStoreName(cv->name)) {
 			Cvar_Unset(cv);
 		}
 	}

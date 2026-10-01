@@ -573,7 +573,7 @@ qboolean CL_CheckPaused(void);
 int CL_GetRefSequence(void);
 qboolean CL_IsRendererLoaded(void);
 void CL_ApplyOriginalConfigTweaks();
-void CL_PurgeObsoleteRemotePredictionCvars(void); // Added in Omaha
+void CL_PurgeObsoleteCvars(void); // Added in Omaha: drop leftover internal / calibration cvars
 
 //
 // cl_input
