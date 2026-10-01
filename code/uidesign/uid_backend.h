@@ -36,7 +36,7 @@ extern "C" {
 #include <stdint.h>
 #endif
 
-/* Added in OPM: dynamic collection items for foreach / composable lists. */
+/* Added in Omaha: dynamic collection items for foreach / composable lists. */
 typedef struct uid_collection_item_s {
 	const char *key;
 	const char *value;
@@ -47,15 +47,32 @@ typedef struct uid_collection_item_s {
 	uint32_t    flags;
 } uid_collection_item_t;
 
+/* Added in Omaha: Phase 4.4 — interned host source ids (peek skips Q_stricmp). */
+enum {
+	UID_COLHOST_NONE = 0,
+	UID_COLHOST_SCOREBOARD = 1,
+	UID_COLHOST_HUD_GAME_MESSAGES = 2,
+	UID_COLHOST_HUD_CHAT = 3,
+	UID_COLHOST_HUD_KILL_FEED = 4,
+	UID_COLHOST_HUD_MESSAGES = 5,
+	UID_COLHOST_HUD_OBJECTIVES = 6,
+	UID_COLHOST_VOTE_OPTIONS = 7,
+	UID_COLHOST_SERVERS = 8,
+	UID_COLHOST_HUD_PACKS = 9,
+	UID_COLHOST_HITMARKER_SOUNDS = 10,
+	UID_COLHOST_OTHER = 11
+};
+
 typedef struct uid_collection_query_s {
 	const char *source;
+	int         hostId;
 	int         offset;
 	int         limit;
 	int        *outTotal;
 	uint64_t   *outRevision;
 } uid_collection_query_t;
 
-/* Added in OPM: descriptor for compositor model previews (modern <model> tag). */
+/* Added in Omaha: descriptor for compositor model previews (modern <model> tag). */
 typedef struct uid_model_preview_desc_s {
 	float       x, y, w, h;
 	const char *model;
@@ -98,10 +115,17 @@ typedef struct uid_backend_s {
 
 	/* cvar */
 	bool (*cvarDescribe)(const char *name, int *flags, char *valueBuf, size_t valueBufSize);
+	/* Added in Omaha: numeric read (cvar_t::value) without string copy / parse. */
+	bool (*cvarNumber)(const char *name, double *outValue, unsigned *outModCount);
 	bool (*cvarWrite)(const char *name, const char *value);
 	bool (*cvarReset)(const char *name);
-	/* Added in OPM: monotonic epoch bumped when any cvar value changes. */
+	/* Added in Omaha: monotonic epoch bumped when any cvar value changes. */
 	unsigned (*cvarEpoch)(void);
+	/* Added in Omaha: Phase 4.4 — per-cvar modificationCount without formatting. */
+	unsigned (*cvarModCount)(const char *name);
+	/* Added in Omaha: Phase 4.4 — cached cvar handle so mark skips Cvar_FindVar. */
+	void *(*cvarFind)(const char *name);
+	unsigned (*cvarModCountHandle)(void *handle);
 
 	/* keybind */
 	bool (*keyNameToNum)(const char *name, int *key);
@@ -124,6 +148,21 @@ typedef struct uid_backend_s {
 	float (*fontMeasure)(void *font, const char *text);
 	float (*fontAscent)(void *font); /* typographic ascent (px); used for cap-optical valign */
 	void (*fontDraw)(void *font, float x, float y, const char *text, const float *rgba, float tracking);
+	/*
+	 * Added in Omaha Stage 3b: one glyph walk with drop-shadow quads.
+	 * shadows is an array of {dx, dy, a}; when null/count 0, same as fontDraw.
+	 * When this hook is null, hosts fall back to multiple fontDraw calls.
+	 */
+	void (*fontDrawWithShadows)(
+		void *font,
+		float x,
+		float y,
+		const char *text,
+		const float *rgba,
+		float tracking,
+		const float *shadowDxDyA, /* count * 3 floats: dx, dy, a */
+		int shadowCount
+	);
 	/*
 	 * Optional CSS skewX-style shear. skewTan = tan(degrees); originY is the
 	 * transform origin in draw space (typically content vertical center).
@@ -174,7 +213,7 @@ typedef struct uid_backend_s {
 		const float *strokeRgba,
 		float strokeWidthPx,
 		float rotationDeg,
-		int crisp /* Added in OPM: binary coverage / no soft AA */
+		int crisp /* Added in Omaha: binary coverage / no soft AA */
 	);
 	/*
 	 * Bitmap background from the image registry (.png / .tga).
@@ -197,12 +236,12 @@ typedef struct uid_backend_s {
 		const float *tintRgba
 	);
 	/*
-	 * Added in OPM: texel size for leaf <image> intrinsic / aspect layout.
+	 * Added in Omaha: texel size for leaf <image> intrinsic / aspect layout.
 	 * outW/outH are native shader texels (aspect = outW/outH). Optional.
 	 */
 	bool (*imageMeasure)(const char *vfsPath, float *outW, float *outH);
 	/*
-	 * Added in OPM: atlas-baked gradient fill (linear/radial brush string).
+	 * Added in Omaha: atlas-baked gradient fill (linear/radial brush string).
 	 * clipPathD semantics match drawImage; tintRgba applies opacity/modulate.
 	 */
 	void (*drawGradient)(
@@ -222,7 +261,7 @@ typedef struct uid_backend_s {
 	void (*popClip)(void);
 
 	/*
-	 * Added in OPM: clip subsequent draws to SVG shape path(s) (stencil when available).
+	 * Added in Omaha: clip subsequent draws to SVG shape path(s) (stencil when available).
 	 * beginShapeClip returns true if a clip was activated (pair with endShapeClip).
 	 * Nested clips are rejected (returns false) — outer clip remains active.
 	 */
@@ -240,7 +279,7 @@ typedef struct uid_backend_s {
 	void (*endShapeClip)(void);
 
 	/*
-	 * Added in OPM: soft mask coverage for subsequent draws (UI layer RT).
+	 * Added in Omaha: soft mask coverage for subsequent draws (UI layer RT).
 	 * beginImageMask returns true if activated (pair with endImageMask). Nested masks fail.
 	 * vfsPathOrBrush is a VFS image path or linear(...)/radial(...) gradient brush.
 	 * fit matches uid_image_fit_t / uir_image_fit_t (stretch/contain/cover; gradients force stretch).
@@ -249,20 +288,20 @@ typedef struct uid_backend_s {
 	void (*endImageMask)(void);
 
 	/*
-	 * Added in OPM: queue a 3D model preview for the chrome→preview compositor phase.
+	 * Added in Omaha: queue a 3D model preview for the chrome→preview compositor phase.
 	 * Rect is in logical draw units; the client converts to FB pixels if needed.
 	 */
 	void (*queueModelPreview)(const uid_model_preview_desc_t *desc);
 
-	/* Added in OPM: host-owned region paint (e.g. server-list). Rect is logical. */
+	/* Added in Omaha: host-owned region paint (e.g. server-list). Rect is logical. */
 	void (*drawHostRegion)(const char *role, float x, float y, float w, float h, void *userdata);
 
-	/* Added in OPM: hi-res UI scale and framebuffer size for crosshair preview parity. */
+	/* Added in Omaha: hi-res UI scale and framebuffer size for crosshair preview parity. */
 	bool (*getHiResScale)(float *scaleX, float *scaleY);
 	bool (*getFramebufferSize)(int *width, int *height);
 
 	/*
-	 * Added in OPM: pointer routed into a host region. localX/Y are relative to the
+	 * Added in Omaha: pointer routed into a host region. localX/Y are relative to the
 	 * region border box. Returns true if the event was consumed.
 	 */
 	bool (*hostRegionPointer)(
@@ -276,6 +315,12 @@ typedef struct uid_backend_s {
 
 	/* diagnostics */
 	void (*diag)(int severity, const char *path, int line, const char *msg, void *userdata);
+
+	/* Added in Omaha: optional ui_perf_hud hooks (NULL-checked). */
+	void (*perfNoteReplay)(int hit);
+	void (*perfNoteLayout)(int mode);
+	/* Added in Omaha: Phase 4.1 — last chrome paint region dirty/total. */
+	void (*perfNoteRegions)(int dirty, int total);
 
 	void *userdata;
 } uid_backend_t;

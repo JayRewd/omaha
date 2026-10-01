@@ -49,6 +49,7 @@ void CL_UIR_ProfileSyncFromCvar(void);
 #include "../uidesign/uid_backend.h"
 #include "../uidesign/uid_document.h"
 #include "../uirender/uir_compositor.h"
+#include "../uirender/uir_batch.h"
 
 #include <algorithm>
 #include <cstring>
@@ -764,7 +765,9 @@ qboolean CL_UIMenu_HasPointerMenuOpen(void)
 
 static void PaintChromeFiltered(int maxDrawOrder)
 {
+	CL_UIR_ProfileSyncFromCvar();
 	std::vector<int> indices;
+
 	indices.reserve(g_openMenus.size());
 	for (int i = 0; i < static_cast<int>(g_openMenus.size()); ++i) {
 		if (g_openMenus[static_cast<size_t>(i)].drawOrder <= maxDrawOrder) {
@@ -773,9 +776,29 @@ static void PaintChromeFiltered(int maxDrawOrder)
 	}
 	SortOpenIndicesByDrawOrder(&indices, qtrue);
 
+	/*
+	 * Phase 4.6: partial redraw is only sound when exactly one document owns the
+	 * retained UI target. Stacked chrome documents fall back to a full frame.
+	 */
+	if (indices.size() != 1) {
+		UIR_BatchTargetDropRetained();
+	}
+
 	for (int idx : indices) {
 		OpenMenuEntry &entry = g_openMenus[static_cast<size_t>(idx)];
 		if (entry.runtime && UID_HasDocument(entry.runtime)) {
+			/*
+			 * Fixed in Omaha: clip stack is global across chrome menus. Scoreboard
+			 * nested clips must not constrain the HUD (left shift / flashing msgs).
+			 */
+			UIR_InvalidateAppliedClip();
+			UIR_ResetClipStack();
+			/*
+			 * Fixed in Omaha: close the GPU batch session between menus so the next
+			 * BatchBegin re-asserts FBO BlendFuncSeparate. Do not add renderer exports
+			 * mid-refexport_t (ABI shift flashes UI when client/renderer disagree).
+			 */
+			UIR_BatchCloseDrawSession();
 			UID_DrawChrome(entry.runtime);
 		}
 	}

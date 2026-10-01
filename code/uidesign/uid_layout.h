@@ -32,6 +32,25 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include <vector>
 
 /*
+ * Added in Omaha: Stage 2 scoped layout. When enabled, UID_Update re-lays out from
+ * nearest fixed-size boundaries instead of the full document tree.
+ */
+void UID_SetLayoutScoped(int enabled);
+int  UID_LayoutScopedEnabled(void);
+
+/*
+ * Added in Omaha: re-layout dirtyLayoutNodes from nearest layout boundaries using
+ * cached LayoutNode inputs. Returns UID_OK on success, or an error to force a
+ * full UID_LayoutDocument fallback.
+ */
+uid_result_t UID_LayoutScoped(
+	uid_document_t *doc,
+	float fbScale,
+	const uid_backend_t *backend,
+	uid_diag_list_t *diags
+);
+
+/*
  * Measure and place the expanded document tree in logical pixels.
  * Does not paint. Writes margin/border/content boxes, effectiveClip,
  * scroll clamps, and content extents onto uid_node_state_t.
@@ -47,8 +66,18 @@ uid_result_t UID_LayoutDocument(
 	uid_diag_list_t *diags
 );
 
-/* Added in OPM: authored px × lastUiPxScale (reference-resolution scale). */
+/* Added in Omaha: authored px × lastUiPxScale (reference-resolution scale). */
 float UID_ScaleAuthoredPx(const uid_document_t *doc, float px);
+
+/*
+ * Added in Omaha: translate-x/y paint-only fast path — offset boxes and re-intersect clips
+ * without a full measure/place pass. Used when LAYOUT is clean and pendingTranslateDeltas
+ * are queued from binding updates.
+ */
+void UID_ShiftSubtreeBoxes(uid_document_t *doc, uid_node_id_t id, float dx, float dy, const uid_rect_t &parentClip);
+void UID_ApplyPendingTranslateDeltas(uid_document_t *doc);
+/* Added in Omaha: Phase 4.1 — node → parent; rebuilt on STRUCTURE. */
+void UID_RebuildParentMap(uid_document_t *doc);
 
 /*
  * Topmost interactive node under (x,y) in logical space.
@@ -59,10 +88,10 @@ uid_node_id_t UID_HitTest(const uid_document_t *doc, float x, float y, bool over
 /* True when the point lies inside rect and inside effectiveClip. */
 bool UID_PointInClippedRect(const uid_rect_t &rect, const uid_rect_t &clip, float x, float y);
 
-/* Added in OPM: paint/hit clip for scrollbar chrome (content vs border edge). */
+/* Added in Omaha: paint/hit clip for scrollbar chrome (content vs border edge). */
 uid_rect_t UID_ScrollbarChromeClip(const uid_node_def_t *container, const uid_node_state_t *st);
 
-/* Added in OPM: multiline label measurement/paint helpers. */
+/* Added in Omaha: multiline label measurement/paint helpers. */
 typedef enum {
 	UID_TEXT_WRAP_NONE = 0,
 	UID_TEXT_WRAP_WORD
@@ -93,7 +122,7 @@ void UID_BuildTextLines(
 	uid_text_block_metrics_t *metrics
 );
 
-/* Added in OPM: viewport-clamped overlay placement (flip Y, clamp X/height). */
+/* Added in Omaha: viewport-clamped overlay placement (flip Y, clamp X/height). */
 struct uid_overlay_placement_t {
 	uid_rect_t panel;
 	float      contentH;
@@ -108,7 +137,7 @@ uid_overlay_placement_t UID_PlaceOverlayInViewport(
 	float contentH,
 	float currentScrollY,
 	float gapPx,
-	float maxPanelH /* Added in OPM: 0 = viewport-only; else also clamp panel height */
+	float maxPanelH /* Added in Omaha: 0 = viewport-only; else also clamp panel height */
 );
 
 #endif /* UID_LAYOUT_H */

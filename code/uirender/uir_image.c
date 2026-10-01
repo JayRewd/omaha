@@ -39,6 +39,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 static uir_image_backend_t g_imageBackend;
 static uir_color_t         g_imageTint = {1.0f, 1.0f, 1.0f, 1.0f};
 
+
 #define UIR_IMAGE_REGISTRY_MAX 128
 
 struct uir_image_s {
@@ -387,6 +388,7 @@ static void uir_emit_quad(
 	float pivotY,
 	float cosr,
 	float sinr,
+	float rotationDeg,
 	int rotated
 )
 {
@@ -400,8 +402,18 @@ static void uir_emit_quad(
 		return;
 	}
 
-	if (!rotated && UIR_BatchEnabled()) {
-		if (UIR_BatchQuad(image->shader, qx, qy, qw, qh, s1, t1, s2, t2, &g_imageTint) == UIR_OK) {
+	/*
+	 * Fixed in Omaha: rotated images go through the UI batch like rotated shapes.
+	 * The legacy Draw_TrianglePic host path cannot be recorded into paint lists,
+	 * taints the retained target and forces a full-screen MSAA resolve every frame,
+	 * so a rotating HUD image (classic compassface) cost the whole retain pipeline.
+	 */
+	if (UIR_BatchEnabled()) {
+		const uir_status_t bst = rotated
+			? UIR_BatchQuadRotated(image->shader, qx, qy, qw, qh, s1, t1, s2, t2, &g_imageTint,
+				rotationDeg, pivotX, pivotY)
+			: UIR_BatchQuad(image->shader, qx, qy, qw, qh, s1, t1, s2, t2, &g_imageTint);
+		if (bst == UIR_OK) {
 			return;
 		}
 	}
@@ -527,7 +539,7 @@ static uir_status_t uir_image_draw_resolved(
 				&drawX, &drawY, &drawW, &drawH, &s1, &t1, &s2, &t2
 			);
 			uir_emit_quad(image, drawX, drawY, drawW, drawH, s1, t1, s2, t2,
-				pivotX, pivotY, cosr, sinr, rotated);
+				pivotX, pivotY, cosr, sinr, rotationDeg, rotated);
 		} else if (!rotated) {
 			/*
 			 * Retail parity: authored layout px are DIP-scaled (uiPxScale) while
@@ -538,7 +550,7 @@ static uir_status_t uir_image_draw_resolved(
 			t1 = 0.0f;
 			s2 = w / (dipScale * imgW * backgroundScale);
 			t2 = h / (dipScale * imgH * backgroundScale);
-			uir_emit_quad(image, x, y, w, h, s1, t1, s2, t2, pivotX, pivotY, cosr, sinr, 0);
+			uir_emit_quad(image, x, y, w, h, s1, t1, s2, t2, pivotX, pivotY, cosr, sinr, 0.0f, 0);
 		} else {
 			const float tileW = imgW * dipScale * backgroundScale;
 			const float tileH = imgH * dipScale * backgroundScale;
@@ -584,6 +596,7 @@ static uir_status_t uir_image_draw_resolved(
 						pivotY,
 						cosr,
 						sinr,
+						rotationDeg,
 						rotated
 					);
 				}
@@ -601,7 +614,7 @@ static uir_status_t uir_image_draw_resolved(
 			drawY = cy - drawH * 0.5f;
 		}
 		uir_emit_quad(image, drawX, drawY, drawW, drawH, s1, t1, s2, t2,
-			pivotX, pivotY, cosr, sinr, rotated);
+			pivotX, pivotY, cosr, sinr, rotationDeg, rotated);
 	}
 
 	g_imageBackend.setColor(NULL);
@@ -657,6 +670,7 @@ uir_status_t UIR_ImageDrawClipped(
 		clipPathCount = UIR_IMAGE_MAX_CLIP_PATHS;
 	}
 
+
 	for (i = 0; i < clipPathCount; i++) {
 		builtPaths[i] = NULL;
 		st = uir_image_build_clip_path(clipPathD[i], x, y, w, h, viewW, viewH, rotationDeg, &builtPaths[i]);
@@ -703,7 +717,8 @@ uir_status_t UIR_ImageDrawClipped(
 	} else if (useAxisScissor) {
 		UIR_PushClipRect(clipAabb.x, clipAabb.y, clipAabb.w, clipAabb.h);
 		pushedClip = 1;
-	} else {
+	} else if (builtCount == 0 && (rotationDeg != 0.0f || backgroundScale > 1.0f)) {
+		/* Scaled/rotated draws can extend past dest; unclipped quads do not. */
 		UIR_PushClipRect(x, y, w, h);
 		pushedClip = 1;
 	}

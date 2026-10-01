@@ -28,6 +28,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "uir_viewport.h"
 #include "uir_batch.h"
 #include "uir_compositor.h"
+#include "uir_draw2d.h"
 
 #include <math.h>
 #include <string.h>
@@ -139,6 +140,8 @@ uir_status_t UIR_BeginImageMask(
 	UIR_BatchFlush();
 	/* Added in Omaha: layer RT begin changes GL scissor / target. */
 	UIR_InvalidateAppliedClip();
+	/* Added in Omaha: Phase 1 — soft mask changes 2D / scissor state. */
+	UIR_Draw2DInvalidate();
 
 	if (UIR_GradientIsBrush(maskSpec)) {
 		/* Added in Omaha: gradient brush → atlas; coverage is stretch over dest. */
@@ -233,6 +236,8 @@ void UIR_EndImageMask(void)
 
 	/* Added in Omaha: leaving layer RT may reset GL scissor. */
 	UIR_InvalidateAppliedClip();
+	/* Added in Omaha: Phase 1 — soft mask end restores scissor. */
+	UIR_Draw2DInvalidate();
 	g_layerDepth = 0;
 	g_maskShader = 0;
 }

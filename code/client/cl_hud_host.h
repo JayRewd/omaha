@@ -27,6 +27,8 @@ extern "C" {
 #endif
 
 void UIR_Hud_Sync(void);
+/* Added in Omaha: Phase 4.4 — raw eye heading (not 0.5-deg quantized cvar). */
+float UIR_Hud_CompassHeadingDeg(void);
 /* Added in Omaha: yellow "Picked Up <name>" print carries unequipped gun identity. */
 void UIR_Hud_NotifyPickedUpWeapon(const char *message);
 

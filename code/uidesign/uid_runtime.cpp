@@ -30,6 +30,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "uid_expr_bool.h"
 #include "uid_input.h"
 #include "uid_layout.h"
+#include "uid_paint.h"
 #include "uid_profile.h"
 #include "uid_template.h"
 #include "uid_widget.h"
@@ -38,7 +39,6 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include <cstring>
 #include <new>
 #include <string>
-#include <cstdio>
 
 struct uid_runtime_s {
 	uid_backend_t     backend;
@@ -56,7 +56,7 @@ struct uid_runtime_s {
 	int               framebufferW;
 	int               framebufferH;
 	float             fbScale;
-	float             uiPxScale; /* Added in OPM: authored px × refScale × ui_scale */
+	float             uiPxScale; /* Added in Omaha: authored px × refScale × ui_scale */
 };
 
 namespace {
@@ -188,8 +188,13 @@ uid_result_t AdoptExpandedDocument(uid_runtime_t *runtime, uid_document_t *fresh
 	if (sourceName && sourceName[0]) {
 		runtime->doc->sourceName = sourceName;
 	}
-	runtime->doc->dirty = static_cast<uid_dirty_flags_t>(
-		UID_DIRTY_STRUCTURE | UID_DIRTY_LAYOUT | UID_DIRTY_PAINT | UID_DIRTY_BINDING
+	UID_MarkDirty(
+		runtime->doc,
+		static_cast<uid_dirty_flags_t>(
+			UID_DIRTY_STRUCTURE | UID_DIRTY_LAYOUT | UID_DIRTY_PAINT | UID_DIRTY_BINDING
+		),
+		UID_INVALID_NODE_ID,
+		"load_adopt"
 	);
 	UID_DestroyDocument(old);
 	UID_ProfileEnd(UID_PROF_LOAD_ADOPT);
@@ -333,7 +338,7 @@ uid_result_t UID_LoadFile(uid_runtime_t *runtime, const char *vfsPath)
 		return UID_ERR_NOT_READY;
 	}
 
-	/* Added in OPM: phase timings for ui_profile (read → parse → expand → compile). */
+	/* Added in Omaha: phase timings for ui_profile (read → parse → expand → compile). */
 	UID_ProfileResetLoad();
 	UID_ProfileSetLoadLabel(vfsPath);
 
@@ -430,8 +435,13 @@ void UID_SetSurface(uid_runtime_t *runtime, int logicalW, int logicalH, int fram
 	runtime->fbScale = ComputeFbScale(logicalW, logicalH, framebufferW, framebufferH);
 
 	if (changed && runtime->doc) {
-		runtime->doc->dirty = static_cast<uid_dirty_flags_t>(
-			runtime->doc->dirty | UID_DIRTY_LAYOUT | UID_DIRTY_PAINT
+		/* Fixed in Omaha: drop scoped dirty nodes so the next update must full-layout. */
+		runtime->doc->dirtyLayoutNodes.clear();
+		UID_MarkDirty(
+			runtime->doc,
+			static_cast<uid_dirty_flags_t>(UID_DIRTY_LAYOUT | UID_DIRTY_PAINT),
+			UID_INVALID_NODE_ID,
+			"surface_resize"
 		);
 	}
 }
@@ -457,8 +467,13 @@ void UID_SetUiPxScale(uid_runtime_t *runtime, float uiPxScale)
 	runtime->uiPxScale = s;
 	if (runtime->doc) {
 		runtime->doc->lastUiPxScale = s;
-		runtime->doc->dirty = static_cast<uid_dirty_flags_t>(
-			runtime->doc->dirty | UID_DIRTY_LAYOUT | UID_DIRTY_PAINT
+		/* Fixed in Omaha: scale change affects all px layout; scoped boundaries are stale. */
+		runtime->doc->dirtyLayoutNodes.clear();
+		UID_MarkDirty(
+			runtime->doc,
+			static_cast<uid_dirty_flags_t>(UID_DIRTY_LAYOUT | UID_DIRTY_PAINT),
+			UID_INVALID_NODE_ID,
+			"ui_px_scale"
 		);
 	}
 }
@@ -479,7 +494,7 @@ void UID_Update(uid_runtime_t *runtime, int realtime, const uid_pointer_state_t 
 
 	uid_document_t *doc = runtime->doc;
 	int             layoutRan = 0;
-	/* Added in OPM: drive foreach lifetime / fade from update clock. */
+	/* Added in Omaha: drive foreach lifetime / fade from update clock. */
 	doc->updateTimeMs = realtime;
 	UID_ProfileBegin(UID_PROF_FRAME_BIND);
 	UID_SyncBindings(doc, &runtime->backend);
@@ -488,20 +503,58 @@ void UID_Update(uid_runtime_t *runtime, int realtime, const uid_pointer_state_t 
 	if (doc->dirty & (UID_DIRTY_STRUCTURE | UID_DIRTY_LAYOUT)) {
 		uid_diag_list_t diags(runtime->limits.maxDiagnostics);
 		UID_ProfileBegin(UID_PROF_FRAME_LAYOUT);
-		UID_LayoutDocument(
-			doc,
-			runtime->logicalW,
-			runtime->logicalH,
-			runtime->fbScale,
-			runtime->uiPxScale > 0.0f ? runtime->uiPxScale : 1.0f,
-			&runtime->backend,
-			&diags
-		);
+		/*
+		 * Added in Omaha: Stage 2 — try scoped layout even when STRUCTURE is set
+		 * (foreach/collection rebuilds still have a fixed-size host boundary).
+		 * layoutRan: 0=none 1=full 2=scoped non-root.
+		 */
+		int layoutMode = 0;
+		uid_result_t layoutRc = UID_ERR_NOT_READY;
+		const int scopedOn = UID_LayoutScopedEnabled();
+		const int dirtyN = static_cast<int>(doc->dirtyLayoutNodes.size());
+		/*
+		 * Fixed in Omaha: surface/uiPxScale resize marks LAYOUT with no node ids.
+		 * SyncBindings can then fill dirtyLayoutNodes; scoped layout succeeds using
+		 * stale boundary boxes and never refreshes lastLogicalW/root — UI stays at
+		 * the pre-vid_restart size until a full UID_LoadFile (ui_menu_reload).
+		 */
+		const int viewportStale =
+			(runtime->logicalW != doc->lastLogicalW) ||
+			(runtime->logicalH != doc->lastLogicalH);
+		if (scopedOn && dirtyN > 0 && !viewportStale) {
+			layoutRc = UID_LayoutScoped(doc, runtime->fbScale, &runtime->backend, &diags);
+			if (layoutRc == UID_OK) {
+				layoutMode = 2;
+			}
+		}
+		if (layoutRc != UID_OK) {
+			UID_LayoutDocument(
+				doc,
+				runtime->logicalW,
+				runtime->logicalH,
+				runtime->fbScale,
+				runtime->uiPxScale > 0.0f ? runtime->uiPxScale : 1.0f,
+				&runtime->backend,
+				&diags
+			);
+			layoutMode = 1;
+		}
 		UID_ProfileEnd(UID_PROF_FRAME_LAYOUT);
-		layoutRan = 1;
+		layoutRan = layoutMode;
 		doc->dirty = static_cast<uid_dirty_flags_t>(doc->dirty & ~UID_DIRTY_STRUCTURE);
+		if (doc->regionsStale) {
+			UID_RebuildParentMap(doc);
+			UID_RebuildPaintRegions(doc);
+		}
+		if (layoutMode == 1) {
+			UID_PaintRegionsInvalidateAll(doc);
+		}
 		ReportDiags(&runtime->backend, diags, doc->sourceName.c_str());
+	} else if (!doc->pendingTranslateDeltas.empty()) {
+		/* Added in Omaha: translate-only shifts — not a full layout (layoutRan stays 0). */
+		UID_ApplyPendingTranslateDeltas(doc);
 	}
+
 
 	if (pointer) {
 		UID_ProfileBegin(UID_PROF_FRAME_POINTER);
@@ -514,6 +567,9 @@ void UID_Update(uid_runtime_t *runtime, int realtime, const uid_pointer_state_t 
 		if (!doc->sourceName.empty()) {
 			UID_ProfileSetFrameLabel(doc->sourceName.c_str());
 		}
+	}
+	if (runtime->backend.perfNoteLayout) {
+		runtime->backend.perfNoteLayout(layoutRan);
 	}
 }
 

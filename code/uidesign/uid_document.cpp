@@ -23,6 +23,8 @@ source tree, or write to the Free Software Foundation, Inc.,
 */
 
 #include "uid_document.h"
+#include "uid_paint.h"
+#include "uid_profile.h"
 #include "uid_value.h"
 
 #include <cstring>
@@ -92,6 +94,8 @@ void UID_InitNodeDef(uid_node_def_t *node)
 	node->hasModelColor = false;
 	node->role.clear();
 	node->collectionSource.clear();
+	node->collectionSourceClass = 0;
+	node->collectionHostId = 0;
 	node->collectionDisplay.clear();
 	node->collectionDefaultIndex = -1;
 	node->hasCollectionDefaultIndex = false;
@@ -145,6 +149,7 @@ void UID_InitNodeState(uid_node_state_t *state)
 	state->effectivelyEnabled = true;
 	state->runtimeValue.hasValue = false;
 	state->runtimeValue.stringValue.clear();
+	state->applyUserEdited = false;
 	state->editBuffer.clear();
 	state->preEditValue.clear();
 	state->caretCodepoint = 0;
@@ -168,8 +173,15 @@ void UID_InitNodeState(uid_node_state_t *state)
 	state->collectionScrollOffset = 0;
 	state->collectionRefreshFrame = 0;
 	state->foreachExpandSig = 0;
+	state->foreachStamped = false;
+	state->foreachStampRev = 0;
+	state->foreachStampCount = 0;
+	state->foreachStampSize = 0;
+	state->foreachStampSel = -1;
+	state->foreachStampScroll = 0;
 	state->foreachAppearAtMs.clear();
 	state->lifetimeOpacityMul = 1.0f;
+	state->liveOpacityCached = false;
 	std::memset(&state->scrollbarTrackRect, 0, sizeof(state->scrollbarTrackRect));
 	std::memset(&state->scrollbarThumbRect, 0, sizeof(state->scrollbarThumbRect));
 	state->scrollbarDragging = false;
@@ -187,9 +199,32 @@ void UID_InitNodeState(uid_node_state_t *state)
 	state->enabledCachedValue = true;
 	state->styleExprEpoch = 0;
 	state->styleExprCached = false;
+	state->bindSyncEpoch = 0;
+	state->bindSyncCached = false;
+	state->bindPrimaryModCount = 0;
+	state->labelCvarModCount = 0;
+	state->cvarPropsModStamp = 0;
+	state->itemBindRevision = 0;
+	state->itemBindItemIndex = -1;
+	state->bindDepsSeenCollectionRev = 0;
+	state->bindDepsSeenCollectionSel = -1;
+	state->collectionRefreshUnchanged = false;
 	state->cachedShapePaths.clear();
 	state->cachedShapeKey = 0;
 	state->cachedShapeValid = false;
+	state->layoutMarginX = 0.0f;
+	state->layoutMarginY = 0.0f;
+	state->layoutMarginW = 0.0f;
+	state->layoutMarginH = 0.0f;
+	state->layoutPercentBaseW = 0.0f;
+	state->layoutPercentBaseH = 0.0f;
+	std::memset(&state->layoutParentClip, 0, sizeof(state->layoutParentClip));
+	state->layoutAncestorVisible = false;
+	state->layoutAncestorEnabled = false;
+	state->layoutInputsValid = false;
+	state->layoutSizedW = false;
+	state->layoutSizedH = false;
+	state->computedStyle = uid_computed_style_t{};
 }
 
 uid_document_t *UID_CreateDocument(void)
@@ -209,6 +244,91 @@ void UID_DestroyDocument(uid_document_t *doc)
 	}
 	UID_ClearDocument(doc);
 	delete doc;
+}
+
+const char *UID_NodeKindName(uid_node_kind_t kind)
+{
+	switch (kind) {
+	case UID_NODE_CONTAINER:
+		return "container";
+	case UID_NODE_LABEL:
+		return "label";
+	case UID_NODE_BUTTON:
+		return "button";
+	case UID_NODE_INPUT:
+		return "input";
+	case UID_NODE_TOGGLE:
+		return "toggle";
+	case UID_NODE_SLIDER:
+		return "slider";
+	case UID_NODE_SLIDER_TRACK:
+		return "slider_track";
+	case UID_NODE_SLIDER_RANGE:
+		return "slider_range";
+	case UID_NODE_SLIDER_THUMB:
+		return "slider_thumb";
+	case UID_NODE_SCROLLBAR:
+		return "scrollbar";
+	case UID_NODE_SCROLLBAR_TRACK:
+		return "scrollbar_track";
+	case UID_NODE_SCROLLBAR_THUMB:
+		return "scrollbar_thumb";
+	case UID_NODE_SELECT:
+		return "select";
+	case UID_NODE_OPTION:
+		return "option";
+	case UID_NODE_KEYBIND:
+		return "keybind";
+	case UID_NODE_SHAPE_INSTANCE:
+		return "shape";
+	case UID_NODE_IMAGE:
+		return "image";
+	case UID_NODE_MODEL:
+		return "model";
+	case UID_NODE_SERVER_LIST:
+		return "server_list";
+	case UID_NODE_FOREACH:
+		return "foreach";
+	case UID_NODE_USE:
+		return "use";
+	case UID_NODE_CANVAS:
+		return "canvas";
+	default:
+		return "other";
+	}
+}
+
+void UID_MarkDirty(uid_document_t *doc, uid_dirty_flags_t flags, uid_node_id_t nodeId, const char *reason)
+{
+	const char *kindName = nullptr;
+
+	if (!doc) {
+		return;
+	}
+	if ((flags & UID_DIRTY_LAYOUT) && !(doc->dirty & UID_DIRTY_LAYOUT)) {
+		if (nodeId >= 0 && static_cast<size_t>(nodeId) < doc->nodes.size()) {
+			kindName = UID_NodeKindName(doc->nodes[static_cast<size_t>(nodeId)].kind);
+		}
+		UID_ProfileNoteLayoutDirty(static_cast<int>(nodeId), kindName, reason);
+	}
+	if ((flags & UID_DIRTY_LAYOUT) && nodeId >= 0 &&
+		static_cast<size_t>(nodeId) < doc->nodes.size()) {
+		doc->dirtyLayoutNodes.push_back(nodeId);
+	}
+	doc->dirty = static_cast<uid_dirty_flags_t>(doc->dirty | flags);
+	/* Stage 4 / Phase 4.1: structure always drops the whole list; paint/layout is per-region. */
+	if (flags & UID_DIRTY_STRUCTURE) {
+		doc->regionsStale = true;
+		doc->bindDepsStale = true;
+		UID_PaintListInvalidate(doc);
+		UID_PaintRegionsInvalidateAll(doc);
+	} else if (flags & (UID_DIRTY_PAINT | UID_DIRTY_LAYOUT)) {
+		if (UID_PaintRegionsEnabled()) {
+			UID_PaintRegionsInvalidateNode(doc, nodeId);
+		} else {
+			UID_PaintListInvalidate(doc);
+		}
+	}
 }
 
 void UID_ClearDocument(uid_document_t *doc)
@@ -259,6 +379,22 @@ void UID_ClearDocument(uid_document_t *doc)
 	doc->keybindPending.slot = 0;
 	doc->keybindPending.newKey = -1;
 	doc->keybindPending.command.clear();
+	doc->pendingTranslateDeltas.clear();
+	doc->dirtyLayoutNodes.clear();
+	doc->parentOf.clear();
+	doc->regionOf.clear();
+	doc->regionsStale = true;
+	doc->depCvars.clear();
+	doc->depNodes.clear();
+	doc->depLastMod.clear();
+	doc->depCvarPtrs.clear();
+	doc->depAffectsVisible.clear();
+	doc->depTranslateOnly.clear();
+	doc->impureNodes.clear();
+	doc->bindDepsStale = true;
+	doc->bindDepsWarm = false;
+	doc->bindDepsNodeCount = 0;
+	UID_PaintListFree(doc);
 }
 
 uid_node_def_t *UID_GetNodeById(uid_document_t *doc, const char *id)
@@ -381,7 +517,7 @@ bool UID_SyncSliderBounds(uid_node_def_t *node)
 	return true;
 }
 
-/* Added in OPM: optional number-input min/max/step from properties (after template expand). */
+/* Added in Omaha: optional number-input min/max/step from properties (after template expand). */
 bool UID_SyncInputBounds(uid_node_def_t *node)
 {
 	std::string dm;

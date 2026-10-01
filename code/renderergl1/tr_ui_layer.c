@@ -77,6 +77,10 @@ void RE_UiLayerShutdown(void)
 	if (s_uiLayer.colorTex) {
 		qglDeleteTextures(1, &s_uiLayer.colorTex);
 	}
+	/* Changed in Omaha: deleted FBOs unbind implicitly — invalidate tracked binding. */
+	if (s_uiLayer.fbo) {
+		GL_InvalidateFramebufferBinding();
+	}
 	memset(&s_uiLayer, 0, sizeof(s_uiLayer));
 }
 
@@ -104,14 +108,14 @@ static qboolean RE_UiLayer_Ensure(int width, int height)
 	qglTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
 	qglGenFramebuffers(1, &s_uiLayer.fbo);
-	qglBindFramebuffer(GL_FRAMEBUFFER, s_uiLayer.fbo);
+	GL_BindFramebuffer(GL_FRAMEBUFFER, s_uiLayer.fbo);
 	qglFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_uiLayer.colorTex, 0);
 	if (qglCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
 		RE_UiLayerShutdown();
 		return qfalse;
 	}
 
-	qglBindFramebuffer(GL_FRAMEBUFFER, 0);
+	GL_BindFramebuffer(GL_FRAMEBUFFER, 0);
 	return qtrue;
 }
 
@@ -122,10 +126,13 @@ qboolean RE_UiLayerIsActive(void)
 
 void RE_UiLayerRebind(void)
 {
-	if (!s_uiLayer.active || !s_uiLayer.fbo) {
+	if (!s_uiLayer.active) {
 		return;
 	}
-	qglBindFramebuffer(GL_FRAMEBUFFER, s_uiLayer.fbo);
+	if (!s_uiLayer.fbo) {
+		return;
+	}
+	GL_BindFramebuffer(GL_FRAMEBUFFER, s_uiLayer.fbo);
 	qglViewport(0, 0, s_uiLayer.width, s_uiLayer.height);
 }
 
@@ -154,12 +161,18 @@ qboolean RE_BeginUiLayer(int fbX, int fbY, int fbW, int fbH, float uiX, float ui
 
 	R_IssuePendingRenderCommands();
 
-	if (!RE_UiLayer_Ensure(glConfig.vidWidth, glConfig.vidHeight)) {
-		return qfalse;
-	}
+	re_uiScissorSite = RE_UI_SCISSOR_LAYER;
 
-	s_uiLayer.savedScissorEnabled = qglIsEnabled(GL_SCISSOR_TEST);
-	qglGetIntegerv(GL_SCISSOR_BOX, s_uiLayer.savedScissor);
+	/* Changed in Omaha: use glState for scissor save; r_uiSyncQueries restores old glGet. */
+	if (r_uiSyncQueries && r_uiSyncQueries->integer) {
+		s_uiLayer.savedScissorEnabled = qglIsEnabled(GL_SCISSOR_TEST);
+		tr_uiStats.glQueries++;
+		qglGetIntegerv(GL_SCISSOR_BOX, s_uiLayer.savedScissor);
+		tr_uiStats.glQueries++;
+	} else {
+		s_uiLayer.savedScissorEnabled = glState.scissorEnabled ? GL_TRUE : GL_FALSE;
+		memcpy(s_uiLayer.savedScissor, glState.scissorBox, sizeof(s_uiLayer.savedScissor));
+	}
 
 	s_uiLayer.scissorX = fbX;
 	s_uiLayer.scissorY = fbY;
@@ -170,10 +183,17 @@ qboolean RE_BeginUiLayer(int fbX, int fbY, int fbW, int fbH, float uiX, float ui
 	s_uiLayer.uiW = uiW;
 	s_uiLayer.uiH = uiH;
 
-	qglBindFramebuffer(GL_FRAMEBUFFER, s_uiLayer.fbo);
+
+	if (!RE_UiLayer_Ensure(glConfig.vidWidth, glConfig.vidHeight)) {
+		re_uiScissorSite = RE_UI_SCISSOR_OTHER;
+		return qfalse;
+	}
+
+	GL_BindFramebuffer(GL_FRAMEBUFFER, s_uiLayer.fbo);
+	RE_InvalidateSet2DWindow();
 	qglViewport(0, 0, s_uiLayer.width, s_uiLayer.height);
-	qglEnable(GL_SCISSOR_TEST);
-	qglScissor(fbX, fbY, fbW, fbH);
+	GL_ScissorEnable(qtrue);
+	GL_Scissor(fbX, fbY, fbW, fbH);
 	qglClearColor(0.0f, 0.0f, 0.0f, 0.0f);
 	qglClear(GL_COLOR_BUFFER_BIT);
 	qglBlendFuncSeparate(
@@ -184,6 +204,10 @@ qboolean RE_BeginUiLayer(int fbX, int fbY, int fbW, int fbH, float uiX, float ui
 	);
 
 	s_uiLayer.active = qtrue;
+	tr_uiStats.layerBegins++;
+	/* Added in Omaha: GPU layer span (ends ui query while active). */
+	RE_UiGpuBeginLayer();
+	re_uiScissorSite = RE_UI_SCISSOR_OTHER;
 	return qtrue;
 }
 
@@ -209,8 +233,8 @@ void RE_UiLayerApplyMask(qhandle_t hShader, float x, float y, float w, float h, 
 	}
 	image = shader->unfoggedStages[0]->bundle[0].image[0];
 
-	qglEnable(GL_SCISSOR_TEST);
-	qglScissor(s_uiLayer.scissorX, s_uiLayer.scissorY, s_uiLayer.scissorW, s_uiLayer.scissorH);
+	GL_ScissorEnable(qtrue);
+	GL_Scissor(s_uiLayer.scissorX, s_uiLayer.scissorY, s_uiLayer.scissorW, s_uiLayer.scissorH);
 	qglEnable(GL_BLEND);
 	qglBlendFuncSeparate(GL_ZERO, GL_SRC_ALPHA, GL_ZERO, GL_SRC_ALPHA);
 	qglDisable(GL_DEPTH_TEST);
@@ -226,6 +250,7 @@ void RE_UiLayerApplyMask(qhandle_t hShader, float x, float y, float w, float h, 
 	 * Premultiplied layer content scales coverage for soft mask edges.
 	 */
 	qglBegin(GL_QUADS);
+	tr_uiStats.immediateQuads++;
 	qglTexCoord2f(s1, t1);
 	qglVertex2f(x, y);
 	qglTexCoord2f(s2, t1);
@@ -263,6 +288,8 @@ void RE_EndUiLayer(void)
 
 	R_IssuePendingRenderCommands();
 
+	re_uiScissorSite = RE_UI_SCISSOR_LAYER;
+
 	x = s_uiLayer.uiX;
 	y = s_uiLayer.uiY;
 	w = s_uiLayer.uiW;
@@ -282,17 +309,22 @@ void RE_EndUiLayer(void)
 		RE_UI2DTargetRebind();
 	}
 
-	qglEnable(GL_SCISSOR_TEST);
-	qglScissor(s_uiLayer.scissorX, s_uiLayer.scissorY, s_uiLayer.scissorW, s_uiLayer.scissorH);
+	/* Added in Omaha: Phase 2 — dirty rect for layer composite quad. */
+	RE_UI2D_AccumRectDraw(x, y, x + w, y + h);
+
+	GL_ScissorEnable(qtrue);
+	GL_Scissor(s_uiLayer.scissorX, s_uiLayer.scissorY, s_uiLayer.scissorW, s_uiLayer.scissorH);
 	GL_State(GLS_DEPTHTEST_DISABLE | GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA);
 	qglEnable(GL_TEXTURE_2D);
 	qglBindTexture(GL_TEXTURE_2D, s_uiLayer.colorTex);
+	glState.currenttextures[glState.currenttmu] = (int)s_uiLayer.colorTex;
 	{
 		static const byte compositeWhite[4] = {255, 255, 255, 255};
 		qglColor4ubv(compositeWhite);
 	}
 
 	qglBegin(GL_QUADS);
+	tr_uiStats.immediateQuads++;
 	qglTexCoord2f(u0, tTop);
 	qglVertex2f(x, y);
 	qglTexCoord2f(u1, tTop);
@@ -303,12 +335,8 @@ void RE_EndUiLayer(void)
 	qglVertex2f(x, y + h);
 	qglEnd();
 
-	if (s_uiLayer.savedScissorEnabled) {
-		qglEnable(GL_SCISSOR_TEST);
-	} else {
-		qglDisable(GL_SCISSOR_TEST);
-	}
-	qglScissor(
+	GL_ScissorEnable(s_uiLayer.savedScissorEnabled ? qtrue : qfalse);
+	GL_Scissor(
 		s_uiLayer.savedScissor[0],
 		s_uiLayer.savedScissor[1],
 		s_uiLayer.savedScissor[2],
@@ -326,6 +354,8 @@ void RE_EndUiLayer(void)
 		GL_ONE,
 		GL_ONE_MINUS_SRC_ALPHA
 	);
+	RE_UiGpuEndLayer();
+	re_uiScissorSite = RE_UI_SCISSOR_OTHER;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -351,6 +381,8 @@ void RE_UiChromeCacheShutdown(void)
 {
 	if (s_uiChromeCache.fbo) {
 		qglDeleteFramebuffers(1, &s_uiChromeCache.fbo);
+		/* Changed in Omaha: deleted FBOs unbind implicitly — invalidate tracked binding. */
+		GL_InvalidateFramebufferBinding();
 	}
 	if (s_uiChromeCache.colorTex) {
 		qglDeleteTextures(1, &s_uiChromeCache.colorTex);
@@ -380,13 +412,13 @@ static qboolean RE_UiChromeCache_Ensure(int width, int height)
 	qglTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
 	qglGenFramebuffers(1, &s_uiChromeCache.fbo);
-	qglBindFramebuffer(GL_FRAMEBUFFER, s_uiChromeCache.fbo);
+	GL_BindFramebuffer(GL_FRAMEBUFFER, s_uiChromeCache.fbo);
 	qglFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_uiChromeCache.colorTex, 0);
 	if (qglCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
 		RE_UiChromeCacheShutdown();
 		return qfalse;
 	}
-	qglBindFramebuffer(GL_FRAMEBUFFER, 0);
+	GL_BindFramebuffer(GL_FRAMEBUFFER, 0);
 	return qtrue;
 }
 
@@ -400,7 +432,7 @@ void RE_UiChromeCacheRebind(void)
 	if (!s_uiChromeCache.active || !s_uiChromeCache.fbo) {
 		return;
 	}
-	qglBindFramebuffer(GL_FRAMEBUFFER, s_uiChromeCache.fbo);
+	GL_BindFramebuffer(GL_FRAMEBUFFER, s_uiChromeCache.fbo);
 	qglViewport(0, 0, s_uiChromeCache.width, s_uiChromeCache.height);
 }
 
@@ -444,9 +476,9 @@ qboolean RE_BeginUiChromeCacheCapture(float uiX, float uiY, float uiW, float uiH
 	s_uiChromeCache.uiH = uiH;
 	s_uiChromeCache.valid = qfalse;
 
-	qglBindFramebuffer(GL_FRAMEBUFFER, s_uiChromeCache.fbo);
+	GL_BindFramebuffer(GL_FRAMEBUFFER, s_uiChromeCache.fbo);
 	qglViewport(0, 0, s_uiChromeCache.width, s_uiChromeCache.height);
-	qglDisable(GL_SCISSOR_TEST);
+	GL_ScissorEnable(qfalse);
 	qglClearColor(0.0f, 0.0f, 0.0f, 0.0f);
 	qglClear(GL_COLOR_BUFFER_BIT);
 	qglBlendFuncSeparate(
@@ -492,6 +524,8 @@ void RE_BlitUiChromeCache(void)
 
 	if (RE_UI2DTargetIsActive()) {
 		RE_UI2DTargetRebind();
+		/* Added in Omaha: Phase 2 — chrome cache blit is unbounded → full resolve. */
+		RE_UI2D_MarkFullResolve();
 	}
 
 	x = s_uiChromeCache.uiX;
@@ -514,6 +548,7 @@ void RE_BlitUiChromeCache(void)
 	}
 
 	qglBegin(GL_QUADS);
+	tr_uiStats.immediateQuads++;
 	qglTexCoord2f(u0, tTop);
 	qglVertex2f(x, y);
 	qglTexCoord2f(u1, tTop);

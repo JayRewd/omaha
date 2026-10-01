@@ -30,9 +30,15 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "uid_modal.h"
 #include "uid_layout.h"
 #include "uid_opt.h"
+#include "uid_paint.h"
+#include "uid_profile.h"
 #include "uid_scrollbar.h"
 #include "uid_shape.h"
+#include "uid_style.h"
 #include "uid_value.h"
+
+#include "../uirender/uir_batch.h"
+#include "../uirender/uir_compositor.h"
 
 #include <algorithm>
 #include <cmath>
@@ -67,7 +73,7 @@ bool IsPaintKind(uid_node_kind_t kind)
 	case UID_NODE_SELECT:
 	case UID_NODE_KEYBIND:
 	case UID_NODE_SHAPE_INSTANCE:
-	case UID_NODE_IMAGE: /* Added in OPM: leaf bitmap */
+	case UID_NODE_IMAGE: /* Added in Omaha: leaf bitmap */
 	case UID_NODE_MODEL:
 	case UID_NODE_SERVER_LIST:
 	case UID_NODE_FOREACH:
@@ -75,6 +81,50 @@ bool IsPaintKind(uid_node_kind_t kind)
 	default:
 		return false;
 	}
+}
+
+/* Bound translate-x/y that can change after load — any HUD XML element, not element-specific. */
+bool TranslateExprIsRuntime(const std::string &expr)
+{
+	return expr.find("cvar.") != std::string::npos || expr.find("item.") != std::string::npos ||
+	       expr.find("collection.") != std::string::npos || expr.find("foreach.") != std::string::npos;
+}
+
+bool NodeHasLiveTranslateBinding(const uid_node_def_t &node)
+{
+	if (node.cvarBoundProps.find("translate-x") != node.cvarBoundProps.end() ||
+	    node.cvarBoundProps.find("translate-y") != node.cvarBoundProps.end() ||
+	    node.exprBoundProps.find("translate-x") != node.exprBoundProps.end() ||
+	    node.exprBoundProps.find("translate-y") != node.exprBoundProps.end()) {
+		return true;
+	}
+	for (const char *prop : {"translate-x", "translate-y"}) {
+		auto it = node.styleExprs.find(prop);
+		if (it != node.styleExprs.end() && TranslateExprIsRuntime(it->second)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+bool NodeIsLiveOpacityRow(const uid_document_t *doc, uid_node_id_t id)
+{
+	if (!doc || id < 0 || static_cast<size_t>(id) >= doc->nodes.size()) {
+		return false;
+	}
+	const uid_node_def_t &node = doc->nodes[static_cast<size_t>(id)];
+	if (!node.foreachGenerated) {
+		return false;
+	}
+	if (static_cast<size_t>(id) >= doc->parentOf.size()) {
+		return false;
+	}
+	const uid_node_id_t parent = doc->parentOf[static_cast<size_t>(id)];
+	if (parent < 0 || static_cast<size_t>(parent) >= doc->nodes.size()) {
+		return false;
+	}
+	const uid_node_def_t &pn = doc->nodes[static_cast<size_t>(parent)];
+	return pn.kind == UID_NODE_FOREACH && pn.hasForeachLifetime;
 }
 
 const char *PropCStr(const uid_node_def_t &node, const char *name, const char *fallback)
@@ -266,7 +316,7 @@ float FontLogicalPx(const uid_document_t *doc, const uid_node_def_t &node)
 }
 
 /*
- * Fixed in OPM: leaf text used contentBox origin + an extra font-size Y offset,
+ * Fixed in Omaha: leaf text used contentBox origin + an extra font-size Y offset,
  * so button/label glyphs sat low-left instead of respecting halign/valign.
  * fontDraw's Y is the top of the typographic box (ascent applied inside UIR).
  */
@@ -352,7 +402,7 @@ uint64_t HashTextCacheKey(
 	return h;
 }
 
-/* Added in OPM: FNV-1a key for per-node resolved shape cache. */
+/* Added in Omaha: FNV-1a key for per-node resolved shape cache. */
 unsigned long long HashShapeKey(
 	const char *shapeName,
 	float parentW,
@@ -398,7 +448,7 @@ unsigned long long HashShapeKey(
 }
 
 /*
- * Added in OPM: resolve shape paths with optional per-node cache (UID_OPT_SHAPE_CACHE).
+ * Added in Omaha: resolve shape paths with optional per-node cache (UID_OPT_SHAPE_CACHE).
  * outPaths points at st->cachedShapePaths on hit/miss with cache on, else a thread_local scratch.
  */
 bool ResolveShapeCached(
@@ -467,7 +517,8 @@ void ComputeTextDrawOrigin(
 	void *font,
 	const uid_backend_t *backend,
 	float *outX,
-	float *outY
+	float *outY,
+	float *outTextW /* Added in Omaha Stage 3b: optional; avoids re-measure in paint */
 )
 {
 	uid_align_t halign;
@@ -492,29 +543,70 @@ void ComputeTextDrawOrigin(
 		const float fontPx = FontLogicalPx(doc, node);
 		const float fbScale = (doc && doc->lastFbScale > 0.0f) ? doc->lastFbScale : 1.0f;
 		const float uiPxScale = (doc && doc->lastUiPxScale > 0.0f) ? doc->lastUiPxScale : 1.0f;
-		const uint64_t measureKey = HashTextCacheKey(text, fontId, weight, fontPx, uiPxScale, fbScale);
-		if (UID_OptEnabled(UID_OPT_TEXT_CACHE) && mst->cachedTextWidth >= 0.0f
-			&& mst->cachedMeasureKey == measureKey) {
-			textW = mst->cachedTextWidth;
-		} else {
-			textW = backend->fontMeasure(font, text);
-			const char *trackProp = node.properties.GetCStr("letter-spacing", nullptr);
-			if (trackProp && trackProp[0] && text[0]) {
-				uid_length_t len;
-				len.unit = UID_LENGTH_PX;
-				len.value = 0.0f;
-				if (node.properties.GetLengthCached("letter-spacing", &len) || UID_ParseLength(trackProp, &len, nullptr)) {
-					if (len.unit == UID_LENGTH_PX && len.value != 0.0f) {
-						const int n = static_cast<int>(std::strlen(text));
-						if (n > 1) {
-							textW += UID_ScaleAuthoredPx(doc, len.value) * static_cast<float>(n - 1);
-						}
+		/*
+		 * Stage 3b: measure key is font identity only. Width is summed from the
+		 * baked glyph advance table (O(chars)) so changing health/ammo/timer
+		 * strings do not thrash a text-hashed cache entry.
+		 */
+		const uint64_t fontKey = HashTextCacheKey("", fontId, weight, fontPx, uiPxScale, fbScale);
+		float trackingExtra = 0.0f;
+		const char *trackProp = node.properties.GetCStr("letter-spacing", nullptr);
+		if (trackProp && trackProp[0] && text[0]) {
+			uid_length_t len;
+			len.unit = UID_LENGTH_PX;
+			len.value = 0.0f;
+			if (node.properties.GetLengthCached("letter-spacing", &len) || UID_ParseLength(trackProp, &len, nullptr)) {
+				if (len.unit == UID_LENGTH_PX && len.value != 0.0f) {
+					const int n = static_cast<int>(std::strlen(text));
+					if (n > 1) {
+						trackingExtra = UID_ScaleAuthoredPx(doc, len.value) * static_cast<float>(n - 1);
 					}
 				}
 			}
-			if (UID_OptEnabled(UID_OPT_TEXT_CACHE)) {
-				mst->cachedMeasureKey = measureKey;
-				mst->cachedTextWidth = textW;
+		}
+		/*
+		 * Stage 3b: HUD numbers (health/ammo/timer) change every frame. Summing
+		 * baked glyph advances is cheap; skip the text-keyed width cache for
+		 * short numeric-ish strings so we don't thrash insert/lookup.
+		 */
+		bool volatileNumeric = false;
+		{
+			size_t n = 0;
+			volatileNumeric = text[0] != '\0';
+			for (const char *p = text; *p; ++p, ++n) {
+				const unsigned char c = static_cast<unsigned char>(*p);
+				if (n > 12) {
+					volatileNumeric = false;
+					break;
+				}
+				if (!((c >= '0' && c <= '9') || c == ':' || c == '.' || c == '-' || c == '/' || c == ' ' ||
+					  c == '%')) {
+					volatileNumeric = false;
+					break;
+				}
+			}
+		}
+		if (volatileNumeric) {
+			textW = backend->fontMeasure(font, text) + trackingExtra;
+			(void)fontKey;
+		} else {
+			uint64_t contentKey = fontKey;
+			{
+				const char *p = text;
+				while (*p) {
+					contentKey ^= static_cast<unsigned char>(*p++);
+					contentKey *= 1099511628211ull;
+				}
+			}
+			if (UID_OptEnabled(UID_OPT_TEXT_CACHE) && mst->cachedTextWidth >= 0.0f
+				&& mst->cachedMeasureKey == contentKey) {
+				textW = mst->cachedTextWidth;
+			} else {
+				textW = backend->fontMeasure(font, text) + trackingExtra;
+				if (UID_OptEnabled(UID_OPT_TEXT_CACHE)) {
+					mst->cachedMeasureKey = contentKey;
+					mst->cachedTextWidth = textW;
+				}
 			}
 		}
 	} else if (text) {
@@ -581,6 +673,9 @@ void ComputeTextDrawOrigin(
 	}
 	if (outY) {
 		*outY = y;
+	}
+	if (outTextW) {
+		*outTextW = textW;
 	}
 }
 
@@ -699,6 +794,23 @@ void PaintTextGlyphs(
 	};
 
 	if (WantsDropShadow(node)) {
+		/*
+		 * Stage 3b: axis-aligned path uses one glyph walk for all shadow offsets
+		 * plus the main fill. Skew/rotate keep multi-pass (rare for drop-shadow).
+		 */
+		const bool singleWalk = !rotate && skewTan == 0.0f && backend->fontDrawWithShadows;
+		if (singleWalk) {
+			float shadowFlat[15];
+			int n = 0;
+			for (const auto &pass : kShadowPasses) {
+				shadowFlat[n * 3 + 0] = UID_ScaleAuthoredPx(doc, pass.dx);
+				shadowFlat[n * 3 + 1] = UID_ScaleAuthoredPx(doc, pass.dy);
+				shadowFlat[n * 3 + 2] = pass.a * opacityMul * opacityMul;
+				++n;
+			}
+			backend->fontDrawWithShadows(font, x, y, text, rgba, tracking, shadowFlat, n);
+			return;
+		}
 		float shadowRgba[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 		for (const auto &pass : kShadowPasses) {
 			float dx = UID_ScaleAuthoredPx(doc, pass.dx);
@@ -744,7 +856,7 @@ size_t Utf8ByteOffsetForCodepoint(const std::string &s, size_t codepoint)
 }
 
 /*
- * Fixed in OPM: caret used a hardcoded 8px/codepoint advance while glyphs use
+ * Fixed in Omaha: caret used a hardcoded 8px/codepoint advance while glyphs use
  * fontMeasure (+ letter-spacing). Measure the prefix up to the caret instead.
  */
 float MeasureCaretAdvance(
@@ -838,7 +950,7 @@ bool IsDefaultRectShape(const uid_node_def_t &node)
 }
 
 /*
- * Added in OPM: resolve non-rect owner shape paths for descendant stencil clipping.
+ * Added in Omaha: resolve non-rect owner shape paths for descendant stencil clipping.
  * Layout ignores shape; paint clips children to this geometry. Returns false when
  * no clip should be applied (default rectangle, edge-clip, missing shape, etc.).
  */
@@ -987,7 +1099,7 @@ void DrawSolid(const uid_backend_t *backend, const uid_rect_t &box, const uid_co
 }
 
 /*
- * Added in OPM: resolve mask-image to a VFS path or linear(...)/radial(...) brush.
+ * Added in Omaha: resolve mask-image to a VFS path or linear(...)/radial(...) brush.
  * Returns false when missing or invalid.
  */
 bool ResolveMaskImageSpec(
@@ -1043,7 +1155,7 @@ static void PaintBackgroundImage(
 )
 {
 	std::string imageId;
-	/* Added in OPM: leaf <image> prefers src; containers keep background-image. */
+	/* Added in Omaha: leaf <image> prefers src; containers keep background-image. */
 	if (node.kind == UID_NODE_IMAGE) {
 		if (!node.properties.Get("src", &imageId) || imageId.empty()) {
 			(void)node.properties.Get("background-image", &imageId);
@@ -1223,7 +1335,7 @@ static void PaintBackgroundImage(
 					params.parentHeight = geom.h;
 				}
 				/*
-				 * Fixed in OPM: intrinsic viewbox props must not also take uiPxScale —
+			 * Fixed in Omaha: intrinsic viewbox props must not also take uiPxScale —
 				 * layout already sized geom and SvgMap stretches view→dest.
 				 */
 				if (sit->second.hasIntrinsicSize && (viewW != geom.w || viewH != geom.h)) {
@@ -1266,7 +1378,7 @@ static void PaintBackgroundImage(
 				params.parentWidth = geom.w;
 				params.parentHeight = geom.h;
 			}
-			/* Fixed in OPM: intrinsic stretch already applies DIP; avoid uiPxScale². */
+			/* Fixed in Omaha: intrinsic stretch already applies DIP; avoid uiPxScale². */
 			if (sit->second.hasIntrinsicSize && (viewW != geom.w || viewH != geom.h)) {
 				params.uiPxScale = 1.0f;
 			} else {
@@ -1312,7 +1424,7 @@ static void PaintBackgroundImage(
 	);
 }
 
-/* Added in OPM: atlas gradient fill, clipped like background-image. */
+/* Added in Omaha: atlas gradient fill, clipped like background-image. */
 static void PaintGradientFill(
 	uid_document_t           *doc,
 	uid_node_id_t             nodeId,
@@ -1409,7 +1521,7 @@ bool IsDropdownSelect(const uid_node_def_t &node)
 	return node.kind == UID_NODE_SELECT && node.appearance != "cyclic";
 }
 
-/* Added in OPM: closed dropdown field = value label + trailing caret. */
+/* Added in Omaha: closed dropdown field = value label + trailing caret. */
 void PaintDropdownSelect(uid_document_t *doc, uid_node_id_t id, const uid_backend_t *backend, float opacityMul)
 {
 	uid_node_def_t *node = UID_GetNode(doc, id);
@@ -1440,7 +1552,7 @@ void PaintDropdownSelect(uid_document_t *doc, uid_node_id_t id, const uid_backen
 		labelSt.contentBox = {box.x + padX * 0.25f, box.y, labelW, box.h};
 		float x = labelSt.contentBox.x;
 		float y = labelSt.contentBox.y;
-		ComputeTextDrawOrigin(doc, *node, labelSt, text.c_str(), font, backend, &x, &y);
+		ComputeTextDrawOrigin(doc, *node, labelSt, text.c_str(), font, backend, &x, &y, nullptr);
 
 		float tracking = 0.0f;
 		const char *trackProp = node->properties.GetCStr("letter-spacing", nullptr);
@@ -1479,7 +1591,7 @@ void PaintDropdownSelect(uid_document_t *doc, uid_node_id_t id, const uid_backen
 		/* Still try caret shape below. */
 	}
 
-	/* Added in OPM: fonts are ASCII-only — UTF-8 ▾ becomes "???"; draw a triangle path. */
+	/* Added in Omaha: fonts are ASCII-only — UTF-8 ▾ becomes "???"; draw a triangle path. */
 	if (backend->drawPath) {
 		const float tw = UID_ScaleAuthoredPx(doc, 10.0f);
 		const float th = UID_ScaleAuthoredPx(doc, 6.0f);
@@ -1536,7 +1648,7 @@ int CyclicOptionIndex(const uid_node_def_t &node, const uid_node_state_t &st)
 	return 0;
 }
 
-/* Added in OPM: HTML-parity cyclic select (chevrons + centered value + ticks). */
+/* Added in Omaha: HTML-parity cyclic select (chevrons + centered value + ticks). */
 void PaintCyclicSelect(uid_document_t *doc, uid_node_id_t id, const uid_backend_t *backend)
 {
 	uid_node_def_t *node = UID_GetNode(doc, id);
@@ -1692,7 +1804,8 @@ void PaintChromeNode(
 	uid_node_id_t         id,
 	const uid_backend_t *backend,
 	bool                  ancestorVisible,
-	float                 parentOpacity = 1.0f
+	float                 parentOpacity = 1.0f,
+	bool                  paintChildren = true
 )
 {
 	uid_node_def_t *node = UID_GetNode(doc, id);
@@ -1706,28 +1819,51 @@ void PaintChromeNode(
 		return;
 	}
 
+	const bool liveTranslate =
+		UID_PaintListIsActivelyRecording() != 0 && NodeHasLiveTranslateBinding(*node);
+	const bool liveOpacityRow = !liveTranslate && UID_PaintListIsActivelyRecording() != 0 &&
+		UID_LiveOpacityCacheEnabled() != 0 && NodeIsLiveOpacityRow(doc, id);
+
+	const float savedLifetimeMul = st->lifetimeOpacityMul;
+	if (liveOpacityRow) {
+		st->lifetimeOpacityMul = 1.0f;
+	}
+	struct RestoreLifetimeMul {
+		uid_node_state_t *st;
+		float             saved;
+		bool              active;
+		~RestoreLifetimeMul()
+		{
+			if (active && st) {
+				st->lifetimeOpacityMul = saved;
+			}
+		}
+	} mulGuard{st, savedLifetimeMul, liveOpacityRow};
+
 	const float effectiveOpacity = parentOpacity * NodeOpacity(*node) * st->lifetimeOpacityMul;
 	if (effectiveOpacity <= 0.001f) {
 		return;
 	}
 
-	/* Added in OPM: descendant clips are intersections of this clip, so an empty
-	   clip means the whole subtree is invisible. */
-	if (UID_OptEnabled(UID_OPT_PAINT_CULL)) {
+	/* Added in Omaha: descendant clips are intersections of this clip, so an empty
+	   clip means the whole subtree is invisible. Phase 4.2 live-translate capture
+	   disables cull so off-window compass ticks are recorded. */
+	const bool paintCull = UID_OptEnabled(UID_OPT_PAINT_CULL) && UID_PaintLiveCaptureNoCull() == 0;
+	if (paintCull) {
 		if (st->effectiveClip.w <= 0.0f || st->effectiveClip.h <= 0.0f) {
 			return;
 		}
 	}
 
 	/*
-	 * Fixed in OPM: windowed-foreach overscan rows sit below overflow=scroll
+	 * Fixed in Omaha: windowed-foreach overscan rows sit below overflow=scroll
 	 * viewports with overflow=none, so effectiveClip stays the full viewport
 	 * (non-empty). They used to keep recursing and paint 1px row dividers past
 	 * the list (and past the parent panel). Skip the whole subtree when the
 	 * border box misses the clip; in-flow children cannot be visible then.
 	 */
 	bool skipSelfDraw = false;
-	if (UID_OptEnabled(UID_OPT_PAINT_CULL)) {
+	if (paintCull) {
 		const float pad = 4.0f;
 		const float bx0 = st->borderBox.x - pad;
 		const float by0 = st->borderBox.y - pad;
@@ -1747,31 +1883,91 @@ void PaintChromeNode(
 		}
 	}
 
+	/*
+	 * Bound translate-x/y nodes are retained as LIVE_SUBTREE: pause recording so
+	 * verts aren't baked, then on replay re-paint with current boxes. Applies to
+	 * any XML element with style/cvar/expr translate bindings — not element-specific.
+	 */
+	bool liveCapturing = false;
+	if (liveTranslate) {
+		UID_PaintListRecordLiveSubtree(id);
+		UID_PaintListPauseRecord();
+		if (UID_LiveTranslateCacheEnabled()) {
+			liveCapturing = UID_PaintListBeginLiveCapture(
+								id,
+								st->borderBox.x,
+								st->borderBox.y,
+								st->effectiveClip.x,
+								st->effectiveClip.y,
+								st->effectiveClip.w,
+								st->effectiveClip.h
+							) != 0;
+		}
+	} else if (liveOpacityRow) {
+		UID_PaintListRecordLiveOpacity(id);
+		UID_PaintListPauseRecord();
+		liveCapturing = UID_PaintListBeginLiveOpacityCapture(
+							doc,
+							id,
+							st->borderBox.x,
+							st->borderBox.y,
+							st->effectiveClip.x,
+							st->effectiveClip.y,
+							st->effectiveClip.w,
+							st->effectiveClip.h
+						) != 0;
+	}
+	struct LiveTranslateRecordGuard {
+		uid_node_state_t *st;
+		float             savedMul;
+		bool              opacity;
+		bool              active;
+		bool              capturing;
+		~LiveTranslateRecordGuard()
+		{
+			/* Restore fade mul before EndLiveCapture so the skip-submit recapture
+			 * replays at the current alpha instead of flashing 1.0. */
+			if (opacity && st) {
+				st->lifetimeOpacityMul = savedMul;
+			}
+			if (capturing) {
+				UID_PaintListEndLiveCapture();
+			}
+			if (active) {
+				UID_PaintListResumeRecord();
+			}
+		}
+	} liveGuard{st, savedLifetimeMul, liveOpacityRow, liveTranslate || liveOpacityRow, liveCapturing};
+
 	PushClip(backend, st->effectiveClip);
+
 
 	bool imageMaskActive = false;
 	if (!skipSelfDraw && backend->beginImageMask && backend->endImageMask &&
 	    (node->kind == UID_NODE_CONTAINER || node->kind == UID_NODE_BUTTON || node->kind == UID_NODE_FOREACH)) {
 		std::string maskSpec;
 		if (ResolveMaskImageSpec(doc, *node, backend, &maskSpec)) {
-			uid_image_fit_t maskFit = UID_IMAGE_FIT_STRETCH;
-			std::string fitStr;
-			if (node->properties.Get("mask-fit", &fitStr) && !fitStr.empty()) {
-				(void)UID_ParseImageFit(fitStr.c_str(), &maskFit, nullptr);
-				if (maskFit == UID_IMAGE_FIT_REPEAT) {
-					maskFit = UID_IMAGE_FIT_STRETCH;
+			/* Skip soft-mask FBO when the brush is fully opaque white (no fade). */
+			if (!UID_MaskBrushIsOpaqueWhite(maskSpec.c_str())) {
+				uid_image_fit_t maskFit = UID_IMAGE_FIT_STRETCH;
+				std::string fitStr;
+				if (node->properties.Get("mask-fit", &fitStr) && !fitStr.empty()) {
+					(void)UID_ParseImageFit(fitStr.c_str(), &maskFit, nullptr);
+					if (maskFit == UID_IMAGE_FIT_REPEAT) {
+						maskFit = UID_IMAGE_FIT_STRETCH;
+					}
 				}
-			}
-			const uid_rect_t &box = st->borderBox;
-			if (box.w > 0.0f && box.h > 0.0f) {
-				imageMaskActive = backend->beginImageMask(
-					box.x,
-					box.y,
-					box.w,
-					box.h,
-					maskSpec.c_str(),
-					static_cast<int>(maskFit)
-				);
+				const uid_rect_t &box = st->borderBox;
+				if (box.w > 0.0f && box.h > 0.0f) {
+					imageMaskActive = backend->beginImageMask(
+						box.x,
+						box.y,
+						box.w,
+						box.h,
+						maskSpec.c_str(),
+						static_cast<int>(maskFit)
+					);
+				}
 			}
 		}
 	}
@@ -1782,45 +1978,54 @@ void PaintChromeNode(
 	}
 
 	bool shapeChildClip = false;
-	uid_rect_t clipGeom{};
-	float clipViewW = 0.0f;
-	float clipViewH = 0.0f;
-	float clipRot = 0.0f;
-	std::vector<std::string> clipPaths;
-	std::vector<const char *> pathPtrs;
-	auto beginChildShapeClip = [&]() -> bool {
-		if (!backend->beginShapeClip || clipPaths.empty()) {
-			return false;
-		}
-		pathPtrs.clear();
-		pathPtrs.reserve(clipPaths.size());
-		for (const std::string &d : clipPaths) {
-			pathPtrs.push_back(d.c_str());
-		}
-		return backend->beginShapeClip(
-			clipGeom.x,
-			clipGeom.y,
-			clipGeom.w,
-			clipGeom.h,
-			pathPtrs.data(),
-			static_cast<int>(pathPtrs.size()),
-			clipViewW,
-			clipViewH,
-			clipRot
-		);
-	};
-	if (backend->beginShapeClip && backend->endShapeClip &&
-	    (node->kind == UID_NODE_CONTAINER || node->kind == UID_NODE_BUTTON || node->kind == UID_NODE_FOREACH)) {
-		if (ResolveShapeChildClip(doc, id, backend, &clipGeom, &clipViewW, &clipViewH, &clipRot, &clipPaths)) {
-			shapeChildClip = beginChildShapeClip();
+	if (paintChildren && backend->beginShapeClip && backend->endShapeClip &&
+	    (node->kind == UID_NODE_CONTAINER || node->kind == UID_NODE_BUTTON || node->kind == UID_NODE_FOREACH) &&
+	    !node->children.empty()) {
+		/* Changed in Omaha: allocate clip path vectors only when shape-clip is attempted. */
+		uid_rect_t clipGeom{};
+		float clipViewW = 0.0f;
+		float clipViewH = 0.0f;
+		float clipRot = 0.0f;
+		std::vector<std::string> clipPaths;
+		std::vector<const char *> pathPtrs;
+		if (ResolveShapeChildClip(doc, id, backend, &clipGeom, &clipViewW, &clipViewH, &clipRot, &clipPaths)
+			&& !clipPaths.empty() && backend->beginShapeClip) {
+			pathPtrs.reserve(clipPaths.size());
+			for (const std::string &d : clipPaths) {
+				pathPtrs.push_back(d.c_str());
+			}
+			shapeChildClip = backend->beginShapeClip(
+				clipGeom.x,
+				clipGeom.y,
+				clipGeom.w,
+				clipGeom.h,
+				pathPtrs.data(),
+				static_cast<int>(pathPtrs.size()),
+				clipViewW,
+				clipViewH,
+				clipRot
+			);
 		}
 	}
 
-	std::vector<uid_node_id_t> scrollbarChildren;
+
+	/* Changed in Omaha: allocate scrollbar child list only when a scrollbar is present. */
+	std::vector<uid_node_id_t> scrollbarStorage;
+	std::vector<uid_node_id_t> *scrollbarChildren = nullptr;
+	if (!paintChildren) {
+		if (imageMaskActive && backend->endImageMask) {
+			backend->endImageMask();
+		}
+		PopClip(backend);
+		return;
+	}
 	for (uid_node_id_t c : node->children) {
 		const uid_node_def_t *child = UID_GetNode(doc, c);
 		if (child && child->kind == UID_NODE_SCROLLBAR) {
-			scrollbarChildren.push_back(c);
+			if (!scrollbarChildren) {
+				scrollbarChildren = &scrollbarStorage;
+			}
+			scrollbarChildren->push_back(c);
 		} else {
 			PaintChromeNode(doc, c, backend, true, effectiveOpacity);
 		}
@@ -1834,12 +2039,14 @@ void PaintChromeNode(
 		imageMaskActive = false;
 	}
 
-	for (uid_node_id_t c : scrollbarChildren) {
-		PopClip(backend);
-		PushClip(backend, UID_ScrollbarChromeClip(node, st));
-		PaintChromeNode(doc, c, backend, true, effectiveOpacity);
-		PopClip(backend);
-		PushClip(backend, st->effectiveClip);
+	if (scrollbarChildren) {
+		for (uid_node_id_t c : *scrollbarChildren) {
+			PopClip(backend);
+			PushClip(backend, UID_ScrollbarChromeClip(node, st));
+			PaintChromeNode(doc, c, backend, true, effectiveOpacity);
+			PopClip(backend);
+			PushClip(backend, st->effectiveClip);
+		}
 	}
 
 	if (node->kind == UID_NODE_CONTAINER) {
@@ -1897,7 +2104,8 @@ bool UID_ResolveFillPaint(
 	uid_node_id_t id,
 	const uid_backend_t *backend,
 	uid_color_t *outSolid,
-	std::string *outGradient
+	std::string *outGradient,
+	const char *fillBaseOverride
 )
 {
 	if (!doc) {
@@ -1933,7 +2141,7 @@ bool UID_ResolveFillPaint(
 		have = TryFillPropString(*node, "focus-fill", &fillStr);
 	}
 	if (!have) {
-		const char *fill = PropCStr(*node, "fill", "#00000000");
+		const char *fill = fillBaseOverride ? fillBaseOverride : PropCStr(*node, "fill", "#00000000");
 		if (fill && fill[0]) {
 			fillStr = fill;
 			have = true;
@@ -2042,6 +2250,14 @@ std::string UID_NodeDisplayText(const uid_document_t *doc, uid_node_id_t id)
 		return UID_KeybindEmptyLabel(*node);
 	}
 	if (node->kind == UID_NODE_BUTTON) {
+		/*
+		 * Bound toggle buttons store the cvar in runtimeValue; keep authored label.
+		 * Foreach rows keep live {item.*} in text and resolve via runtimeValue.
+		 */
+		if (node->foreachGenerated && node->text.find("{item.") != std::string::npos && st &&
+			st->runtimeValue.hasValue) {
+			return st->runtimeValue.stringValue;
+		}
 		return node->text;
 	}
 	if (st && st->runtimeValue.hasValue && !st->runtimeValue.stringValue.empty()) {
@@ -2140,108 +2356,102 @@ void UID_PaintNodeBackground(uid_document_t *doc, uid_node_id_t id, const uid_ba
 		return;
 	}
 
-	/*
-	 * Fixed in OPM: if fill is still an unresolved style ternary, evaluate it
-	 * before shape resolve. skew-rect paths use fill="{parent.fill}" which must
-	 * ParseColor or ResolveShape fails and stroke is dropped.
-	 */
-	{
-		const char *fillCur = PropCStr(*node, "fill", nullptr);
-		uid_color_t probe{};
-		const bool knownPaint = fillCur && (UID_ParseColor(fillCur, &probe, nullptr) || UID_IsGradientBrush(fillCur) ||
-			std::strncmp(fillCur, "cvar-rgba:", 10) == 0);
-		if (!knownPaint && !node->styleExprs.empty()) {
-			auto sit = node->styleExprs.find("fill");
-			if (sit != node->styleExprs.end() && !sit->second.empty()) {
-				uid_bool_lookup_ctx_t bctx{};
-				bctx.backend = backend;
-				bctx.doc = doc;
-				bctx.nodeId = id;
-				bctx.item = nullptr;
-				bctx.itemIndex = -1;
-				bctx.itemCount = 0;
-				bctx.selectedIndex = -1;
-				if (node->foreachGenerated && node->foreachScopeId >= 0 &&
-				    static_cast<size_t>(node->foreachScopeId) < doc->states.size()) {
-					const uid_node_state_t &scopeSt = doc->states[static_cast<size_t>(node->foreachScopeId)];
-					const int idx = node->foreachItemIndex;
-					bctx.itemIndex = idx;
-					bctx.itemCount = scopeSt.collectionItemCount;
-					bctx.selectedIndex = scopeSt.collectionSelectedIndex;
-					if (idx >= 0 && static_cast<size_t>(idx) < scopeSt.collectionItems.size()) {
-						bctx.item = &scopeSt.collectionItems[static_cast<size_t>(idx)];
-					}
-				}
-				std::string resolved;
-				std::string diag;
-				std::string expr = sit->second;
-				if (expr.size() >= 2 && expr.front() == '{' && expr.back() == '}') {
-					expr = expr.substr(1, expr.size() - 2);
-				}
-				if (UID_EvalStyleTernary(expr.c_str(), &bctx, nullptr, &resolved, &diag)) {
-					node->properties.Set("fill", resolved.c_str());
-				}
-			}
-		}
-	}
-
 	uid_color_t fill{};
 	std::string gradientBrush;
-	const bool resolvedPaint = UID_ResolveFillPaint(doc, id, backend, &fill, &gradientBrush);
-	const bool hasGradient = resolvedPaint && !gradientBrush.empty();
-	const bool hasFill = resolvedPaint && !hasGradient && fill.a > 0.0f;
-
-	/* Added in OPM: element-owned stroke drilled into shape path draw. */
+	bool hasGradient = false;
+	bool hasFill = false;
 	uid_color_t stroke{};
 	float strokeWidthPx = 0.0f;
 	bool hasStroke = false;
-	{
-		const char *strokeStr = PropCStr(*node, "stroke", nullptr);
-		if (strokeStr && strokeStr[0]) {
-			std::string dm;
-			if (UID_ParseColor(strokeStr, &stroke, &dm) && stroke.a > 0.0f) {
-				std::string widthStr = PropCStr(*node, "stroke-width", "1px");
-				if (backend) {
-					std::string resolved;
-					if (UID_ResolvePropString(backend, widthStr, &resolved)) {
-						widthStr = resolved;
+	const char *shapeName = "rectangle";
+	bool isEdgeClip = false;
+	bool rectShape = true;
+	float pathRotationDeg = 0.0f;
+	float bgRotationDeg = 0.0f;
+
+	if (UID_StyleCacheEnabled()) {
+		const uid_computed_style_t *cs = UID_EnsureComputedStyle(doc, id, backend);
+		if (!cs) {
+			return;
+		}
+		fill = cs->fill;
+		gradientBrush = cs->gradientBrush;
+		hasGradient = cs->hasGradient;
+		hasFill = cs->hasFill;
+		stroke = cs->stroke;
+		strokeWidthPx = cs->strokeWidthPx;
+		hasStroke = cs->hasStroke;
+		shapeName = cs->shapeName;
+		isEdgeClip = cs->isEdgeClip;
+		rectShape = cs->rectShape;
+		pathRotationDeg = cs->pathRotationDeg;
+		bgRotationDeg = cs->bgRotationDeg;
+	} else {
+		/*
+	 * Fixed in Omaha: if fill is still an unresolved style ternary, evaluate it
+		 * without writing properties (Version bumps defeat shape cache).
+		 */
+		std::string fillOverride;
+		(void)UID_ResolveFillStyleTernary(doc, id, backend, &fillOverride);
+
+		const bool resolvedPaint = UID_ResolveFillPaint(
+			doc,
+			id,
+			backend,
+			&fill,
+			&gradientBrush,
+			fillOverride.empty() ? nullptr : fillOverride.c_str()
+		);
+		hasGradient = resolvedPaint && !gradientBrush.empty();
+		hasFill = resolvedPaint && !hasGradient && fill.a > 0.0f;
+
+	/* Added in Omaha: element-owned stroke drilled into shape path draw. */
+		{
+			const char *strokeStr = PropCStr(*node, "stroke", nullptr);
+			if (strokeStr && strokeStr[0]) {
+				std::string dm;
+				if (UID_ParseColor(strokeStr, &stroke, &dm) && stroke.a > 0.0f) {
+					std::string widthStr = PropCStr(*node, "stroke-width", "1px");
+					if (backend) {
+						std::string resolved;
+						if (UID_ResolvePropString(backend, widthStr, &resolved)) {
+							widthStr = resolved;
+						}
+					}
+					uid_length_t wLen{};
+					if (UID_ParseLength(widthStr.c_str(), &wLen, &dm) && wLen.unit == UID_LENGTH_PX && wLen.value > 0.0f) {
+						strokeWidthPx = UID_ScaleAuthoredPx(doc, wLen.value);
+						hasStroke = strokeWidthPx > 0.0f;
 					}
 				}
-				uid_length_t wLen{};
-				if (UID_ParseLength(widthStr.c_str(), &wLen, &dm) && wLen.unit == UID_LENGTH_PX && wLen.value > 0.0f) {
-					strokeWidthPx = UID_ScaleAuthoredPx(doc, wLen.value);
-					hasStroke = strokeWidthPx > 0.0f;
-				}
+			}
+		}
+
+		shapeName = PropCStr(*node, "shape", "rectangle");
+		isEdgeClip = shapeName && std::strcmp(shapeName, "edge-clip") == 0;
+		rectShape = IsDefaultRectShape(*node) || !shapeName || !shapeName[0] ||
+			doc->definitions.shapes.find(shapeName) == doc->definitions.shapes.end();
+
+		{
+			const char *rotStr = PropCStr(*node, "shape-rotation", nullptr);
+			if (!rotStr || !rotStr[0]) {
+				rotStr = PropCStr(*node, "rotation", nullptr);
+			}
+			if (rotStr && rotStr[0]) {
+				(void)UID_ParseRotationDeg(rotStr, &pathRotationDeg, nullptr);
+			}
+		}
+		{
+			const char *rotStr = PropCStr(*node, "rotation", nullptr);
+			if (!rotStr || !rotStr[0]) {
+				rotStr = PropCStr(*node, "shape-rotation", nullptr);
+			}
+			if (rotStr && rotStr[0]) {
+				(void)UID_ParseRotationDeg(rotStr, &bgRotationDeg, nullptr);
 			}
 		}
 	}
 
-	const char *shapeName = PropCStr(*node, "shape", "rectangle");
-	const bool isEdgeClip = shapeName && std::strcmp(shapeName, "edge-clip") == 0;
-	const bool rectShape = IsDefaultRectShape(*node) || !shapeName || !shapeName[0] ||
-		doc->definitions.shapes.find(shapeName) == doc->definitions.shapes.end();
-
-	float pathRotationDeg = 0.0f;
-	{
-		/* Added in Omaha: rotation spins SVG fills too (shape-rotation preferred when set). */
-		const char *rotStr = PropCStr(*node, "shape-rotation", nullptr);
-		if (!rotStr || !rotStr[0]) {
-			rotStr = PropCStr(*node, "rotation", nullptr);
-		}
-		if (rotStr && rotStr[0]) {
-			(void)UID_ParseRotationDeg(rotStr, &pathRotationDeg, nullptr);
-		}
-	}
-	float bgRotationDeg = 0.0f;
-	{
-		const char *rotStr = PropCStr(*node, "rotation", nullptr);
-		if (!rotStr || !rotStr[0]) {
-			rotStr = PropCStr(*node, "shape-rotation", nullptr);
-		}
-		if (rotStr && rotStr[0]) {
-			(void)UID_ParseRotationDeg(rotStr, &bgRotationDeg, nullptr);
-		}
-	}
 	const bool rotateShape = std::fabs(pathRotationDeg) > 1e-6f;
 	const bool usePathPaint = !rectShape || rotateShape || isEdgeClip;
 
@@ -2265,7 +2475,7 @@ void UID_PaintNodeBackground(uid_document_t *doc, uid_node_id_t id, const uid_ba
 	}
 
 	/*
-	 * Changed in OPM: authored size (incl. width=100%) is the outer box that
+	 * Changed in Omaha: authored size (incl. width=100%) is the outer box that
 	 * includes stroke. Fill/shape geometry is inset by stroke-width; outside-
 	 * aligned stroke then sits in that margin and is not clipped.
 	 */
@@ -2366,7 +2576,7 @@ void UID_PaintNodeBackground(uid_document_t *doc, uid_node_id_t id, const uid_ba
 				params.parentHeight = geom.h;
 			}
 			/*
-			 * Fixed in OPM: intrinsic viewbox props must not also take uiPxScale —
+			 * Fixed in Omaha: intrinsic viewbox props must not also take uiPxScale —
 			 * layout already sized geom and SvgMap stretches view→dest (else uiPxScale²).
 			 * Owner-sized shapes (view == geom) still scale props via uiPxScale.
 			 */
@@ -2383,10 +2593,10 @@ void UID_PaintNodeBackground(uid_document_t *doc, uid_node_id_t id, const uid_ba
 			params.parentProps = &node->properties;
 
 			/*
-			 * Fixed in OPM: parent.fill must always be a parseable color for shape
+			 * Fixed in Omaha: parent.fill must always be a parseable color for shape
 			 * paths (fill="{parent.fill}"). Unresolved ternaries used to make
 			 * ResolveShape fail and drop stroke entirely.
-			 * Added in OPM: overrides avoid cloning the full property map.
+			 * Added in Omaha: overrides avoid cloning the full property map.
 			 */
 			char fillBuf[32];
 			char strokeBuf[32];
@@ -2395,7 +2605,7 @@ void UID_PaintNodeBackground(uid_document_t *doc, uid_node_id_t id, const uid_ba
 				uid_color_t parentFillColor{};
 				const char *fp = node->properties.GetCStr("fill", "#00000000");
 				if (hasGradient) {
-					/* Added in OPM: gradient is drawn via atlas; shape fill stays transparent. */
+					/* Added in Omaha: gradient is drawn via atlas; shape fill stays transparent. */
 					std::snprintf(fillBuf, sizeof(fillBuf), "#00000000");
 				} else if (hasFill) {
 					formatColor(fill, fillBuf, sizeof(fillBuf));
@@ -2444,7 +2654,7 @@ void UID_PaintNodeBackground(uid_document_t *doc, uid_node_id_t id, const uid_ba
 					if (!fillPtr && !strokePtr) {
 						continue;
 					}
-					/* Added in OPM: crisp disables soft path AA (crosshair pixel marks). */
+					/* Added in Omaha: crisp disables soft path AA (crosshair pixel marks). */
 					const int crisp = PropBool(*node, "crisp", false) ? 1 : 0;
 					backend->drawPath(
 						p.d.c_str(),
@@ -2491,7 +2701,7 @@ void UID_PaintNodeContent(uid_document_t *doc, uid_node_id_t id, const uid_backe
 		return;
 	}
 
-	/* Added in OPM: model preview queues into compositor via host hook */
+	/* Added in Omaha: model preview queues into compositor via host hook */
 	if (node->kind == UID_NODE_MODEL) {
 		if (!backend->queueModelPreview) {
 			return;
@@ -2575,7 +2785,7 @@ void UID_PaintNodeContent(uid_document_t *doc, uid_node_id_t id, const uid_backe
 		return;
 	}
 
-	/* Added in OPM: host draws server-list header+body */
+	/* Added in Omaha: host draws server-list header+body */
 	if (node->kind == UID_NODE_SERVER_LIST) {
 		if (backend->drawHostRegion) {
 			const char *role = node->role.empty() ? "server-list" : node->role.c_str();
@@ -2592,7 +2802,16 @@ void UID_PaintNodeContent(uid_document_t *doc, uid_node_id_t id, const uid_backe
 	}
 
 	uid_color_t color;
-	UID_ResolveTextColor(doc, id, &color);
+	if (UID_StyleCacheEnabled()) {
+		const uid_computed_style_t *cs = UID_EnsureComputedStyle(doc, id, backend);
+		if (cs) {
+			color = cs->textColor;
+		} else {
+			UID_ResolveTextColor(doc, id, &color);
+		}
+	} else {
+		UID_ResolveTextColor(doc, id, &color);
+	}
 	float rgba[4];
 	ColorToRgba(color, rgba, opacityMul);
 
@@ -2661,12 +2880,12 @@ void UID_PaintNodeContent(uid_document_t *doc, uid_node_id_t id, const uid_backe
 		return;
 	}
 
-	/* Added in OPM: cyclic select paints its own chrome (not dropdown field text). */
+	/* Added in Omaha: cyclic select paints its own chrome (not dropdown field text). */
 	if (IsCyclicSelect(*node)) {
 		PaintCyclicSelect(doc, id, backend);
 		return;
 	}
-	/* Added in OPM: dropdown select paints value + trailing caret. */
+	/* Added in Omaha: dropdown select paints value + trailing caret. */
 	if (IsDropdownSelect(*node)) {
 		PaintDropdownSelect(doc, id, backend, opacityMul);
 		return;
@@ -2711,7 +2930,7 @@ void UID_PaintNodeContent(uid_document_t *doc, uid_node_id_t id, const uid_backe
 				}
 			}
 
-			/* Added in OPM: paint-time marquee (parent overflow=hidden clips). */
+			/* Added in Omaha: paint-time marquee (parent overflow=hidden clips). */
 			enum { kMarqueeNone = 0, kMarqueeH = 1, kMarqueeV = 2 };
 			int marqueeAxis = kMarqueeNone;
 			const char *marqueeProp = node->properties.GetCStr("marquee", "none");
@@ -2734,16 +2953,10 @@ void UID_PaintNodeContent(uid_document_t *doc, uid_node_id_t id, const uid_backe
 
 			float x = st->contentBox.x;
 			float y = st->contentBox.y;
-			ComputeTextDrawOrigin(doc, *node, *st, drawText.c_str(), font, backend, &x, &y);
-
 			float textW = 0.0f;
+			ComputeTextDrawOrigin(doc, *node, *st, drawText.c_str(), font, backend, &x, &y, &textW);
+
 			float textH = FontLogicalPx(doc, *node);
-			if (backend->fontMeasure) {
-				textW = backend->fontMeasure(font, drawText.c_str());
-				if (tracking > 0.0f && drawText.size() > 1) {
-					textW += tracking * static_cast<float>(drawText.size() - 1);
-				}
-			}
 			if (backend->fontAscent) {
 				const float asc = backend->fontAscent(font);
 				if (asc > 0.0f) {
@@ -2925,7 +3138,7 @@ void UID_PaintNodeContent(uid_document_t *doc, uid_node_id_t id, const uid_backe
 		/* Fallback glyph bar when fonts are unavailable. */
 		float x = st->contentBox.x;
 		float y = st->contentBox.y;
-		ComputeTextDrawOrigin(doc, *node, *st, text.c_str(), nullptr, backend, &x, &y);
+		ComputeTextDrawOrigin(doc, *node, *st, text.c_str(), nullptr, backend, &x, &y, nullptr);
 		DrawSolid(
 			backend,
 			{x, y + FontLogicalPx(doc, *node) * 0.3f, std::min(st->contentBox.w, static_cast<float>(text.size()) * 8.0f), 2.0f},
@@ -2936,7 +3149,7 @@ void UID_PaintNodeContent(uid_document_t *doc, uid_node_id_t id, const uid_backe
 	if (paintCaret) {
 		float x = st->contentBox.x;
 		float y = st->contentBox.y;
-		ComputeTextDrawOrigin(doc, *node, *st, text.c_str(), font, backend, &x, &y);
+		ComputeTextDrawOrigin(doc, *node, *st, text.c_str(), font, backend, &x, &y, nullptr);
 		const float caretX = x + MeasureCaretAdvance(doc, *node, text, st->caretCodepoint, font, backend);
 		const float caretH = st->contentBox.h * 0.65f;
 		const float caretY = st->contentBox.y + (st->contentBox.h - caretH) * 0.5f;
@@ -2949,25 +3162,132 @@ void UID_PaintChrome(uid_document_t *doc, const uid_backend_t *backend)
 	if (!doc || !backend) {
 		return;
 	}
+
 	if (doc->states.size() != doc->nodes.size()) {
-		doc->states.resize(doc->nodes.size());
-		for (uid_node_state_t &st : doc->states) {
-			UID_InitNodeState(&st);
+		const size_t n = doc->nodes.size();
+		const size_t old = doc->states.size();
+		if (old > n) {
+			doc->states.resize(n);
+		} else {
+			doc->states.resize(n);
+			for (size_t i = old; i < n; ++i) {
+				UID_InitNodeState(&doc->states[i]);
+			}
 		}
 	}
-	if (doc->rootNode != UID_INVALID_NODE_ID) {
-		uid_node_id_t chromeRoot = doc->rootNode;
-		auto mit = doc->idIndex.find("menu_root");
-		if (mit != doc->idIndex.end()) {
-			chromeRoot = mit->second;
+
+	/* Added in Omaha: Phase 4.1 — record/replay per chrome child region. */
+	if (UID_PaintRegionsPrepare(doc)) {
+		const uid_node_id_t chromeRoot = UID_PaintChromeRootId(doc);
+		const uid_node_def_t *rootNode = UID_GetNode(doc, chromeRoot);
+		const uid_node_state_t *rootSt = StateC(doc, chromeRoot);
+		const int nreg = UID_PaintRegionsCount(doc);
+		int dirtyN = 0;
+		bool painted = false;
+		if (rootNode && rootSt && PropBool(*rootNode, "visible", true)) {
+			const float rootOpacity = NodeOpacity(*rootNode) * rootSt->lifetimeOpacityMul;
+			if (rootOpacity > 0.001f) {
+				painted = true;
+				UIR_BatchFlush();
+				PushClip(backend, rootSt->effectiveClip);
+				/* Added in Omaha: Phase 4.6 — keep last frame's target; repaint only dirty regions. */
+				const int partial = UID_PaintRegionsRetainPlan(
+					doc,
+					backend,
+					rootSt->effectiveClip.x,
+					rootSt->effectiveClip.y,
+					rootSt->effectiveClip.w,
+					rootSt->effectiveClip.h
+				);
+				for (int i = 0; i < nreg; ++i) {
+					if (partial && UID_PaintRegionRetainSkip(doc, i)) {
+						continue;
+					}
+					if (i > 0) {
+						UIR_ApplyClipRect(
+							rootSt->effectiveClip.x,
+							rootSt->effectiveClip.y,
+							rootSt->effectiveClip.w,
+							rootSt->effectiveClip.h
+						);
+					}
+					int hit = 0;
+					UIR_BatchRegionScopeBegin();
+					if (UID_PaintRegionCanReplay(doc, i)) {
+						if (partial && UID_PaintRegionRetainLiveOnly(doc, i)) {
+							if (UID_PaintRegionReplayLives(doc, i, backend)) {
+								hit = 1;
+							}
+						} else if (UID_PaintRegionReplay(doc, i, backend)) {
+							hit = 1;
+						}
+					}
+					if (!hit) {
+						dirtyN++;
+						UID_PaintRegionBeginRecord(doc, i);
+						if (i == 0) {
+							PaintChromeNode(doc, chromeRoot, backend, true, 1.0f, false);
+						} else {
+							const uid_node_id_t rid = UID_PaintRegionRootId(doc, i);
+							PaintChromeNode(doc, rid, backend, true, rootOpacity);
+						}
+						UID_PaintRegionEndRecord(doc, i);
+					}
+					UIR_BatchRegionScopeEnd();
+					UID_PaintRegionNoteDrawn(doc, i);
+					if (backend->perfNoteReplay) {
+						backend->perfNoteReplay(hit);
+					}
+				}
+				PopClip(backend);
+				UID_PaintRegionsRetainEnd(doc);
+			}
 		}
+		if (!painted) {
+			/* Root hidden/transparent: nothing owns the kept pixels — clear next frame. */
+			UID_PaintRegionsRetainDrop(doc);
+		}
+		if (backend->perfNoteRegions) {
+			backend->perfNoteRegions(dirtyN, nreg);
+		}
+		doc->dirty = static_cast<uid_dirty_flags_t>(doc->dirty & ~UID_DIRTY_PAINT);
+		return;
+	}
+
+	/* Added in Omaha: Phase 4.6 — non-region paths cannot keep the previous target. */
+	UID_PaintRegionsRetainDrop(doc);
+
+	/* Stage 4: replay retained batch list when chrome is clean. */
+	if (UID_PaintListEnabled() && UID_PaintListTryReplay(doc, backend)) {
+		if (backend->perfNoteReplay) {
+			backend->perfNoteReplay(1);
+		}
+		return;
+	}
+	if (backend->perfNoteReplay) {
+		backend->perfNoteReplay(0);
+	}
+
+	/*
+	 * Only record when the doc is already clean: dirty HUD/menu frames skip
+	 * the memcpy cost; the first subsequent clean frame builds the list.
+	 */
+	const unsigned chromeDirt =
+		static_cast<unsigned>(doc->dirty) &
+		static_cast<unsigned>(UID_DIRTY_PAINT | UID_DIRTY_LAYOUT | UID_DIRTY_STRUCTURE);
+	const bool recording = UID_PaintListEnabled() != 0 && chromeDirt == 0u;
+	if (recording) {
+		UID_PaintListBeginRecord(doc);
+	}
+
+	if (doc->rootNode != UID_INVALID_NODE_ID) {
+		const uid_node_id_t chromeRoot = UID_PaintChromeRootId(doc);
 		PaintChromeNode(doc, chromeRoot, backend, true);
 	}
-	/*
-	 * Fixed in OPM: modals paint in UID_PaintOverlay (after 3D model previews).
-	 * Chrome still queues <model> previews; drawing the modal here put dropdowns
-	 * under the player previews on the Profile panel.
-	 */
+
+	if (recording) {
+		UID_PaintListEndRecord(doc);
+	}
 	doc->dirty = static_cast<uid_dirty_flags_t>(doc->dirty & ~UID_DIRTY_PAINT);
 }
 
@@ -2977,9 +3297,15 @@ void UID_PaintChromeSubtree(uid_document_t *doc, uid_node_id_t rootId, const uid
 		return;
 	}
 	if (doc->states.size() != doc->nodes.size()) {
-		doc->states.resize(doc->nodes.size());
-		for (uid_node_state_t &st : doc->states) {
-			UID_InitNodeState(&st);
+		const size_t n = doc->nodes.size();
+		const size_t old = doc->states.size();
+		if (old > n) {
+			doc->states.resize(n);
+		} else {
+			doc->states.resize(n);
+			for (size_t i = old; i < n; ++i) {
+				UID_InitNodeState(&doc->states[i]);
+			}
 		}
 	}
 	PaintChromeNode(doc, rootId, backend, true);
@@ -2991,12 +3317,18 @@ void UID_PaintOverlay(uid_document_t *doc, const uid_backend_t *backend)
 		return;
 	}
 	if (doc->states.size() != doc->nodes.size()) {
-		doc->states.resize(doc->nodes.size());
-		for (uid_node_state_t &st : doc->states) {
-			UID_InitNodeState(&st);
+		const size_t n = doc->nodes.size();
+		const size_t old = doc->states.size();
+		if (old > n) {
+			doc->states.resize(n);
+		} else {
+			doc->states.resize(n);
+			for (size_t i = old; i < n; ++i) {
+				UID_InitNodeState(&doc->states[i]);
+			}
 		}
 	}
-	/* Added in OPM: modals (incl. type=relative dropdowns) draw above model previews. */
+	/* Added in Omaha: modals (incl. type=relative dropdowns) draw above model previews. */
 	if (UID_IsModalActive(doc)) {
 		const uid_node_id_t modalRoot = UID_GetModalRoot(doc);
 		if (modalRoot != UID_INVALID_NODE_ID) {

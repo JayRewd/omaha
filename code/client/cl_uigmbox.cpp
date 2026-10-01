@@ -484,6 +484,24 @@ void UIGMBox::Draw(void)
     }
 }
 
+void UIGMBox::Display(const UIRect2D& drawframe, float parent_alpha)
+{
+    /* Added in Omaha: Phase 1 — modern path only feeds hud collections; Set2DWindow is wasted. */
+    if (CL_UIR_UseModernHudPack()) {
+        if (!isEnabled()) {
+            lastShowTime = -1;
+            return;
+        }
+        if (!m_enabledCvar.length() && !IsVisible()) {
+            return;
+        }
+        m_local_alpha = m_alpha * parent_alpha;
+        Draw();
+        return;
+    }
+    UIWidget::Display(drawframe, parent_alpha);
+}
+
 void UIGMBox::setRealShow(bool b)
 {
     this->m_reallyshown = b;

@@ -44,9 +44,9 @@ static void CG_Hud_SetTeamScoreCvar(int team, const char *scoreField)
     }
     Com_sprintf(buf, sizeof(buf), "%d", atoi(scoreField));
     if (team == TEAM_ALLIES) {
-        cgi.Cvar_Set("ui_om_hud_allied_score", buf);
+        CG_HudSetCached("ui_om_hud_allied_score", buf);
     } else if (team == TEAM_AXIS) {
-        cgi.Cvar_Set("ui_om_hud_axis_score", buf);
+        CG_HudSetCached("ui_om_hud_axis_score", buf);
     }
 }
 

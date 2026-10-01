@@ -30,12 +30,24 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "uir_meshcache.h"
 #include "uir_tess.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
 static uir_draw2d_backend_t g_d2d;
 static uir_vert_t           g_d2dVerts[UIR_BATCH_MAX_VERTS];
 static unsigned short       g_d2dIdx[UIR_BATCH_MAX_INDEXES];
+/* Added in Omaha: Phase 1 — Set2DWindow/scissor dedup (ui_d2d_dedup). */
+static uir_viewport_t       g_d2dApplied;
+static int                  g_d2dAppliedValid;
+static int                  g_d2dDedup = 1;
+
+static int uir_d2d_viewport_equal(const uir_viewport_t *a, const uir_viewport_t *b)
+{
+	return a->vpX == b->vpX && a->vpY == b->vpY && a->vpW == b->vpW && a->vpH == b->vpH
+		&& fabsf(a->orthoL - b->orthoL) < 0.01f && fabsf(a->orthoT - b->orthoT) < 0.01f
+		&& fabsf(a->orthoR - b->orthoR) < 0.01f && fabsf(a->orthoB - b->orthoB) < 0.01f;
+}
 
 static void uir_draw2d_warn_fallback(const char *op, uir_status_t st, const uir_path_t *path, uir_stats_t *stats)
 {
@@ -73,9 +85,31 @@ void UIR_Draw2D_SetBackend(const uir_draw2d_backend_t *backend)
 	}
 }
 
+void UIR_Draw2DInvalidate(void)
+{
+	g_d2dAppliedValid = 0;
+}
+
+void UIR_Draw2DSetDedup(int enable)
+{
+	g_d2dDedup = enable ? 1 : 0;
+	if (!g_d2dDedup) {
+		g_d2dAppliedValid = 0;
+	}
+}
+
+int UIR_Draw2DDedupEnabled(void)
+{
+	return g_d2dDedup;
+}
+
 void UIR_Draw2D_Begin(const uir_viewport_t *vp)
 {
 	if (!vp || !g_d2d.set2DWindow) {
+		return;
+	}
+	/* Added in Omaha: skip redundant Set2DWindow/scissor when viewport unchanged. */
+	if (g_d2dDedup && g_d2dAppliedValid && uir_d2d_viewport_equal(vp, &g_d2dApplied)) {
 		return;
 	}
 	UIR_BatchFlush();
@@ -97,6 +131,8 @@ void UIR_Draw2D_Begin(const uir_viewport_t *vp)
 	if (g_d2d.scissor) {
 		g_d2d.scissor(vp->vpX, vp->vpY, vp->vpW, vp->vpH);
 	}
+	g_d2dApplied = *vp;
+	g_d2dAppliedValid = 1;
 }
 
 void UIR_Draw2D_Scissor(int x, int y, int w, int h)

@@ -27,6 +27,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "uid_types.h"
 
 #include <string>
+#include <vector>
 
 /*
  * Lookup callback for dotted property paths such as "parent.width".
@@ -67,5 +68,11 @@ bool UID_InterpolateString(
 	std::string *out,
 	std::string *diagMessage
 );
+
+/*
+ * Added in Omaha: Phase 4.4 — collect `cvar.name` / `cvar:name` tokens from an
+ * expression or interpolating label (for the bind dependency index).
+ */
+void UID_ExprCollectCvarNames(const std::string &expr, std::vector<std::string> *out);
 
 #endif /* UID_EXPR_H */

@@ -314,7 +314,8 @@ public:
     class UIPoint2D    getGlobalPoint(const UIPoint2D& pos);
     virtual void       setBackgroundAlpha(float f);
     float              getBackgroundAlpha(void);
-    void               Display(const UIRect2D& drawframe, float parent_alpha);
+    /* Changed in Omaha: virtual so View3D / modern message boxes can skip wasted Set2D. */
+    virtual void       Display(const UIRect2D& drawframe, float parent_alpha);
     virtual qboolean   KeyEvent(int key, unsigned int time);
     virtual void       CharEvent(int ch);
     virtual void       UpdateData(void);

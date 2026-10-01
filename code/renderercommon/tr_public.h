@@ -190,6 +190,8 @@ typedef struct {
 	void (*BeginUiStencilMask)(int x, int y, int width, int height);
 	void (*BeginUiStencilDraw)(void);
 	void (*EndUiStencil)(void);
+	/* Added in Omaha: stencil mask tris — color-inert, bypasses UI2D batch. */
+	void (*DrawUiStencilMaskTris)(const float *xy, int strideBytes, int nv, const unsigned short *idx, int ni);
 
 	/* Modern UI: menu world replacement (single world slot). */
 	void (*ClearWorld)(void);
@@ -218,6 +220,8 @@ typedef struct {
 	qboolean (*UI2DTargetIsActive)(void);
 	int      (*UI2DTargetSamples)(void);
 	void     (*UI2DTargetRebind)(void);
+	/* Added in Omaha: copy last-frame UI GL event counters (ui_perf_hud). */
+	void     (*UiStatsGet)(uiGlStats_t *out);
 
 	/* Added in Omaha: soft mask-image layer RT (GL1 UI FBO). */
 	qboolean (*UiLayerAvailable)(void);
@@ -231,6 +235,11 @@ typedef struct {
 	void     (*EndUiChromeCacheCapture)(void);
 	void     (*BlitUiChromeCache)(void);
 	void     (*InvalidateUiChromeCache)(void);
+
+	/* Added in Omaha: Phase 4.6 — retained UI target (append-only: keep ABI order). */
+	int      (*BeginUI2DTargetKeep)(int keep); /* 0 fail, 1 began cleared, 2 began kept */
+	void     (*UI2DClearRectFb)(int x, int y, int w, int h); /* GL window rect; w/h<=0 = whole target */
+
 } refexport_t;
 
 //

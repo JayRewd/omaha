@@ -41,6 +41,7 @@ set(CLIENT_SOURCES
     ${SOURCE_DIR}/client/cl_uiradar.cpp
     ${SOURCE_DIR}/client/cl_uirender.cpp
     ${SOURCE_DIR}/client/cl_uivars.cpp
+    ${SOURCE_DIR}/client/cl_uiperf.cpp
     ${SOURCE_DIR}/client/cl_uimenu_dispatcher.cpp
     ${SOURCE_DIR}/client/cl_hud_registry.cpp
     ${SOURCE_DIR}/client/cl_hud_host.cpp
@@ -114,6 +115,8 @@ set(UIDESIGN_SOURCES
     ${SOURCE_DIR}/uidesign/uid_shape.cpp
     ${SOURCE_DIR}/uidesign/uid_layout.cpp
     ${SOURCE_DIR}/uidesign/uid_widget.cpp
+    ${SOURCE_DIR}/uidesign/uid_style.cpp
+    ${SOURCE_DIR}/uidesign/uid_paint.cpp
     ${SOURCE_DIR}/uidesign/uid_input.cpp
     ${SOURCE_DIR}/uidesign/uid_action.cpp
     ${SOURCE_DIR}/uidesign/uid_invoke.cpp

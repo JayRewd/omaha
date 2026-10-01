@@ -26,6 +26,57 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "cl_uimenu_dispatcher.h"
 #include "cl_ui.h"
 
+/* Fixed in Omaha: suppress dm_pause click-through after open / panel switch. */
+static qboolean g_uirDmPauseGateClicks = qfalse;
+
+static int      g_uirDmPauseGateUntil  = 0;
+/* Fixed in Omaha: defer pushmenu_teamselect while Continue/loading owns the screen. */
+static char     g_uirPendingDmPausePanel[32];
+/*
+ * Fixed in Omaha: false between UI_BeginLoad and finishloadingscreen so
+ * pushmenu_weaponselect cannot open over the Continue plaque.
+ */
+static qboolean g_uirMapUiReady = qtrue;
+
+void CL_UIR_NotifyMapLoadBegin(void)
+{
+	g_uirMapUiReady = qfalse;
+	g_uirPendingDmPausePanel[0] = '\0';
+	if (CL_UIR_IsDmPauseOpen()) {
+		CL_UIR_CloseDmPause();
+	}
+}
+
+void CL_UIR_NotifyMapLoadFinished(void)
+{
+	g_uirMapUiReady = qtrue;
+}
+
+static void CL_UIR_ArmDmPauseClickGate(void)
+{
+	g_uirDmPauseGateClicks = qtrue;
+	g_uirDmPauseGateUntil  = cls.realtime + 150;
+}
+
+static int CL_UIR_ApplyDmPauseClickGate(int buttons)
+{
+	if (!g_uirDmPauseGateClicks || !CL_UIR_IsDmPauseOpen()) {
+		if (!CL_UIR_IsDmPauseOpen()) {
+			g_uirDmPauseGateClicks = qfalse;
+		}
+		return buttons;
+	}
+	if ((buttons & 1) != 0) {
+		g_uirDmPauseGateUntil = cls.realtime + 50;
+		return 0;
+	}
+	if (cls.realtime < g_uirDmPauseGateUntil) {
+		return 0;
+	}
+	g_uirDmPauseGateClicks = qfalse;
+	return buttons;
+}
+
 #ifdef USE_INTERNAL_SDL_HEADERS
 #	include "SDL.h"
 #else
@@ -40,6 +91,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "cl_messages_host.h"
 #include "cl_hud_registry.h"
 #include "cl_hud_host.h"
+#include "cl_uiperf.h"
 
 #include "../uirender/uir_backend.h"
 #include "../uirender/uir_batch.h"
@@ -71,16 +123,17 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "../uidesign/uid_menu_map_view.h"
 #include "../uidesign/uid_profile.h"
 
-#include <cstdio>
-#include <ctime>
 #include "../uidesign/uid_opt.h"
+#include "../uidesign/uid_layout.h"
+#include "../uidesign/uid_paint.h"
+#include "../uidesign/uid_style.h"
 #include "../uidesign/uid_widget.h"
 #include "../uilib/ui_public.h"
 
 #include <cmath>
-#include <cstdio>
 #include <cstring>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 static cvar_t *ui_legacy;
@@ -91,19 +144,34 @@ static cvar_t *ui_render_stats;
 static cvar_t *ui_gpu_draw;
 static cvar_t *ui_debug_render;
 static cvar_t *ui_om_menu_map_view;
-static cvar_t *ui_profile; /* Added in OPM: 0=off 1=periodic 2=every frame */
+static cvar_t *ui_profile; /* Added in Omaha: 0=off 1=periodic 2=every frame */
 static cvar_t *ui_profile_interval;
-static cvar_t *ui_opt; /* Added in OPM: bitmask of UID_OPT_* (-1 = all on) */
-static cvar_t *ui_clip_dedup; /* Added in OPM: skip unchanged clip/scissor applies */
-static cvar_t *ui_mesh_cache; /* Added in OPM: tessellated mesh cache for GPU fills/strokes */
-static cvar_t *ui_chrome_cache; /* Added in OPM: retained chrome RT (gl1; default off) */
+static cvar_t *ui_opt; /* Added in Omaha: bitmask of UID_OPT_* (-1 = all on) */
+static cvar_t *ui_layout_scoped; /* Added in Omaha: Stage 2 scoped subtree layout */
+static cvar_t *ui_style_cache;   /* Added in Omaha: Stage 3 computed style cache */
+static cvar_t *ui_paint_list;    /* Added in Omaha: Stage 4 retained paint command list */
+
+static cvar_t *ui_shape_clip;    /* Added in Omaha: real stencil shape clips (default AABB) */
+static cvar_t *ui_batch_tile;    /* Added in Omaha: Stage 5 64px translucent quad tiling */
+static cvar_t *ui_bind_cache;    /* Added in Omaha: Stage 6 cvar_t*+modCount describe cache */
+static cvar_t *ui_clip_dedup; /* Added in Omaha: skip unchanged clip/scissor applies */
+static cvar_t *ui_mesh_cache; /* Added in Omaha: tessellated mesh cache for GPU fills/strokes */
+static cvar_t *ui_chrome_cache; /* Added in Omaha: retained chrome RT (gl1; default off) */
+static cvar_t *ui_d2d_dedup; /* Added in Omaha: Phase 1 — skip redundant Set2DWindow/scissor */
+static cvar_t *ui_replay_clip_dedup; /* Added in Omaha: Phase 3 — replay CLIP dedup */
+static cvar_t *ui_paint_regions; /* Added in Omaha: Phase 4.1 — per-region paint list */
+static cvar_t *ui_live_translate_cache; /* Added in Omaha: Phase 4.2 — live translate cache */
+static cvar_t *ui_live_opacity_cache; /* Added in Omaha: Phase 4.3 — foreach fade cache */
+static cvar_t *ui_paint_retain;       /* Added in Omaha: Phase 4.6 — retained UI target */
+static cvar_t *ui_bind_deps; /* Added in Omaha: Phase 4.4 — cvar bind dependency index */
+static cvar_t *ui_bind_deps_verify; /* Added in Omaha: Phase 4.4 — full-walk compare */
 static int     g_uiProfileFrameCounter;
 static int     g_uiProfileSampleDepth;
 static qboolean g_useLegacyMain = qfalse;
 static qboolean g_legacyCached  = qfalse;
 static int       g_compareKeepConsolesClosedUntil = 0; /* cls.realtime deadline */
 static qboolean g_uirStarted = qfalse;
-static float     g_lastUiPxScale = 1.0f; /* Added in OPM */
+static float     g_lastUiPxScale = 1.0f; /* Added in Omaha */
 
 static void CL_UIR_ProfilePrint(const char *kind, const uid_prof_timings_t *t)
 {
@@ -125,6 +193,26 @@ static void CL_UIR_ProfilePrint(const char *kind, const uid_prof_timings_t *t)
 		t->counts[UID_PROF_CNT_STRTOD],
 		t->counts[UID_PROF_CNT_SNPRINTF]
 	);
+	/* layout=0 none, 1 full document, 2 scoped non-root boundary */
+	if (t->layoutDirtyHits > 0) {
+		Com_Printf(
+			"  layout_dirty           hits=%d node=%d kind=%s reason=%s\n",
+			t->layoutDirtyHits,
+			t->layoutDirtyNodeId,
+			t->layoutDirtyKind[0] ? t->layoutDirtyKind : "-",
+			t->layoutDirtyReason[0] ? t->layoutDirtyReason : "-"
+		);
+	}
+	if (t->batches || t->batchVerts || t->clipApplies || t->clipSkips) {
+		Com_Printf(
+			"  submit                 batches=%d batchVerts=%d batchTris=%d clipApplies=%d clipSkips=%d\n",
+			t->batches,
+			t->batchVerts,
+			t->batchTris,
+			t->clipApplies,
+			t->clipSkips
+		);
+	}
 	for (i = 0; i < UID_PROF_COUNT; ++i) {
 		if (t->us[i] <= 0) {
 			continue;
@@ -142,7 +230,7 @@ void CL_UIR_ProfileSyncFromCvar(void)
 	const int enabled = (ui_profile && ui_profile->integer) ? 1 : 0;
 	UID_ProfileSetEnabled(enabled);
 
-	/* Added in OPM: sync UI optimization bitmask from ui_opt (-1 = all on). */
+	/* Added in Omaha: sync UI optimization bitmask from ui_opt (-1 = all on). */
 	if (ui_opt) {
 		if (ui_opt->integer < 0) {
 			UID_SetOptFlags(UID_OPT_ALL);
@@ -150,17 +238,68 @@ void CL_UIR_ProfileSyncFromCvar(void)
 			UID_SetOptFlags((unsigned)ui_opt->integer);
 		}
 	}
-	/* Added in OPM: clip/scissor dedup for chrome paint. */
+	/* Added in Omaha: Stage 2 scoped layout (nearest fixed-size boundary). */
+	if (ui_layout_scoped) {
+		UID_SetLayoutScoped(ui_layout_scoped->integer != 0);
+	}
+	/* Added in Omaha: Stage 3 computed style cache for paint. */
+	if (ui_style_cache) {
+		UID_SetStyleCache(ui_style_cache->integer != 0);
+	}
+	/* Added in Omaha: Stage 4 retained chrome paint list. */
+	if (ui_paint_list) {
+		UID_SetPaintList(ui_paint_list->integer != 0);
+	}
+	/* Added in Omaha: real stencil shape-child clips (default off = AABB). */
+	if (ui_shape_clip) {
+		UIR_SetShapeClipStencil(ui_shape_clip->integer != 0);
+	}
+	/* Added in Omaha: Stage 5 translucent quad tiling (default off). */
+	if (ui_batch_tile) {
+		UIR_BatchSetTile(ui_batch_tile->integer != 0);
+	}
+	/* Added in Omaha: clip/scissor dedup for chrome paint. */
 	if (ui_clip_dedup) {
 		UIR_SetClipDedup(ui_clip_dedup->integer != 0);
 	}
-	/* Added in OPM: tessellated mesh cache for GPU fills/strokes. */
+	/* Added in Omaha: tessellated mesh cache for GPU fills/strokes. */
 	if (ui_mesh_cache) {
 		UIR_MeshCacheSetEnabled(ui_mesh_cache->integer != 0);
 	}
-	/* Added in OPM: retained chrome RT (idle blit); default off — enable only when idle. */
+	/* Added in Omaha: retained chrome RT (idle blit); default off — enable only when idle. */
 	if (ui_chrome_cache) {
 		UIR_SetChromeCache(ui_chrome_cache->integer != 0);
+	}
+	/* Added in Omaha: Phase 1 — skip redundant Set2DWindow/scissor. */
+	if (ui_d2d_dedup) {
+		UIR_Draw2DSetDedup(ui_d2d_dedup->integer != 0);
+	}
+	/* Added in Omaha: Phase 3 — paint-list replay clip dedup. */
+	if (ui_replay_clip_dedup) {
+		UID_SetReplayClipDedup(ui_replay_clip_dedup->integer != 0);
+	}
+	/* Added in Omaha: Phase 4.1 — per-region retained paint. */
+	if (ui_paint_regions) {
+		UID_SetPaintRegions(ui_paint_regions->integer != 0);
+	}
+	/* Added in Omaha: Phase 4.2 — cached bound-translate subtrees. */
+	if (ui_live_translate_cache) {
+		UID_SetLiveTranslateCache(ui_live_translate_cache->integer != 0);
+	}
+	/* Added in Omaha: Phase 4.3 — foreach lifetime fade cache. */
+	if (ui_live_opacity_cache) {
+		UID_SetLiveOpacityCache(ui_live_opacity_cache->integer != 0);
+	}
+	/* Added in Omaha: Phase 4.6 — retained UI target (partial redraw). */
+	if (ui_paint_retain) {
+		UIR_BatchSetRetain(ui_paint_retain->integer != 0);
+	}
+	/* Added in Omaha: Phase 4.4 — targeted bind sync. */
+	if (ui_bind_deps) {
+		UID_SetBindDeps(ui_bind_deps->integer != 0);
+	}
+	if (ui_bind_deps_verify) {
+		UID_SetBindDepsVerify(ui_bind_deps_verify->integer != 0);
 	}
 }
 
@@ -193,6 +332,18 @@ void CL_UIR_ProfileEndSample(const char *kind)
 	if (g_uiProfileSampleDepth <= 0) {
 		return;
 	}
+	{
+		uir_stats_t *stats = UIR_CompositorStats();
+		if (stats) {
+			UID_ProfileSetSubmitStats(
+				stats->batches,
+				stats->batchVerts,
+				stats->batchTris,
+				stats->clipApplies,
+				stats->clipSkips
+			);
+		}
+	}
 	UID_ProfileCaptureFrame(&t);
 	if (t.totalUs <= 0 && t.us[UID_PROF_FRAME_PAINT_CHROME] <= 0 && t.us[UID_PROF_FRAME_BIND] <= 0
 		&& t.us[UID_PROF_LEGACY_URC] <= 0 && t.us[UID_PROF_LEGACY_EVENTS] <= 0
@@ -208,8 +359,9 @@ void CL_UIR_ProfileEndSample(const char *kind)
 
 	interval = (ui_profile_interval && ui_profile_interval->integer > 0) ? ui_profile_interval->integer : 60;
 	g_uiProfileFrameCounter++;
-	shouldPrint = (ui_profile && ui_profile->integer >= 2)
-		|| (g_uiProfileFrameCounter % interval) == 0;
+	/* ui_profile controls console printing; ui_perf_hud may keep timers without prints. */
+	shouldPrint = (ui_profile && ui_profile->integer)
+		&& ((ui_profile->integer >= 2) || (g_uiProfileFrameCounter % interval) == 0);
 
 	if (shouldPrint) {
 		CL_UIR_ProfilePrint(kind ? kind : "frame", &t);
@@ -253,7 +405,7 @@ static void CL_UIR_SyncGpuDrawBatch(void)
 		UIR_BatchTargetEnd();
 	}
 }
-/* Added in OPM: frame-driven ui_scale stress (slider thrash / font registry). */
+/* Added in Omaha: frame-driven ui_scale stress (slider thrash / font registry). */
 static int       g_uiScaleStressLeft = 0;
 static float     g_uiScaleStressValue = 1.0f;
 static int       g_uiScaleStressDir = 1;
@@ -262,7 +414,7 @@ static int       g_uiScaleStressPeakFonts = 0;
 
 static void CL_UIR_GetSurfaceSizes(int *logicalW, int *logicalH, int *fbW, int *fbH);
 static void CL_UIR_PushUiPxScale(void);
-/* Fixed in OPM: SDL mouse is window-client space; map into UID layout space. */
+/* Fixed in Omaha: SDL mouse is window-client space; map into UID layout space. */
 static void CL_UIR_MapMouseToLayout(float *x, float *y, int layoutW, int layoutH);
 static qboolean CL_UIR_SyncHudLayerMenus(unsigned int time, int *lw, int *lh, int *fw, int *fh);
 static void CL_UIR_SyncPauseVoteCvars(void);
@@ -272,7 +424,7 @@ static int            g_lastLogicalW = 0;
 static int            g_lastLogicalH = 0;
 static int            g_lastFbW = 0;
 static int            g_lastFbH = 0;
-/* Added in OPM: last raw window size dumped under uir_debug (pointer map). */
+/* Added in Omaha: last raw window size dumped under uir_debug (pointer map). */
 static int            g_lastPointerRawW = -1;
 static int            g_lastPointerRawH = -1;
 static int            g_lastPointerLayoutW = -1;
@@ -284,7 +436,7 @@ static uid_runtime_t *CL_UIR_MainRuntime(void)
 }
 /* Accumulated from K_MWHEEL* in KeyEvent; consumed in UpdateModern. */
 static int            g_pointerWheelDelta = 0;
-/* Added in OPM: mirror legacy UIFAKKServerList first-draw server refresh. */
+/* Added in Omaha: mirror legacy UIFAKKServerList first-draw server refresh. */
 static qboolean       g_browserDidFirstRefresh = qfalse;
 
 /* ------------------------------------------------------------------------- */
@@ -296,8 +448,13 @@ static void uir_set_color(const float *rgba)
 	re.SetColor(rgba);
 }
 
+
 static void uir_draw_box(float x, float y, float w, float h)
 {
+	/* Phase 4.6: immediate draws bypass region tracking — retained target must reset. */
+	UIR_BatchNoteExternalDraw();
+	/* Fixed in Omaha: host draws bypass the paint recorder — list/live replay would drop them. */
+	UID_PaintListMarkHostDraw();
 	re.DrawBox(x, y, w, h);
 }
 
@@ -339,6 +496,20 @@ static void uir_batch_draw(const uir_vert_t *v, int nv, const unsigned short *id
 	}
 }
 
+static void uir_batch_begin_draw(void)
+{
+	if (re.UI2DBatchBegin) {
+		re.UI2DBatchBegin();
+	}
+}
+
+static void uir_batch_end_draw(void)
+{
+	if (re.UI2DBatchEnd) {
+		re.UI2DBatchEnd();
+	}
+}
+
 static int uir_target_available(void)
 {
 	if (!CL_UIR_GpuDrawEnabled()) {
@@ -367,6 +538,22 @@ static void uir_end_target(void)
 	}
 }
 
+/* Added in Omaha: Phase 4.6 — retained UI target. */
+static int uir_begin_target_keep(int keep)
+{
+	if (!CL_UIR_GpuDrawEnabled() || !re.BeginUI2DTargetKeep) {
+		return 0;
+	}
+	return re.BeginUI2DTargetKeep(keep);
+}
+
+static void uir_clear_rect_fb(int x, int y, int w, int h)
+{
+	if (re.UI2DClearRectFb) {
+		re.UI2DClearRectFb(x, y, w, h);
+	}
+}
+
 static int uir_create_atlas(const char *name, const unsigned char *rgba, int width, int height)
 {
 	if (!re.CreateUIAtlas) {
@@ -385,11 +572,15 @@ static int uir_update_atlas(int h, const unsigned char *rgba, int width, int hei
 
 static void uir_draw_pic(float x, float y, float w, float h, float s1, float t1, float s2, float t2, int shader)
 {
+	UIR_BatchNoteExternalDraw();
+	UID_PaintListMarkHostDraw();
 	re.DrawStretchPic(x, y, w, h, s1, t1, s2, t2, (qhandle_t)shader);
 }
 
 static void uir_draw_tile_pic(float x, float y, float w, float h, int shader)
 {
+	UIR_BatchNoteExternalDraw();
+	UID_PaintListMarkHostDraw();
 	re.DrawTilePic(x, y, w, h, (qhandle_t)shader);
 }
 
@@ -405,6 +596,9 @@ static void uir_draw_triangle_pic(const float points[3][2], const float texCoord
 		t[i][0] = texCoords[i][0];
 		t[i][1] = texCoords[i][1];
 	}
+	UIR_BatchNoteExternalDraw();
+	/* Fixed in Omaha: rotated-image fallback draws outside the batch recorder. */
+	UID_PaintListMarkHostDraw();
 	re.DrawTrianglePic(p, t, (qhandle_t)shader);
 }
 
@@ -444,6 +638,14 @@ static void uir_begin_stencil_mask(int x, int y, int w, int h)
 static void uir_stencil_mask_box(float x, float y, float w, float h)
 {
 	re.DrawBox(x, y, w, h);
+}
+
+static void uir_stencil_mask_tris(const uir_vert_t *v, int nv, const unsigned short *idx, int ni)
+{
+	if (!re.DrawUiStencilMaskTris || !v || nv < 3 || !idx || ni < 3) {
+		return;
+	}
+	re.DrawUiStencilMaskTris(&v[0].x, (int)sizeof(*v), nv, idx, ni);
 }
 
 static void uir_begin_stencil_draw(void)
@@ -622,7 +824,7 @@ static int uir_file_exists(const char *path)
 	fileHandle_t f = 0;
 	int          len;
 
-	/* Fixed in OPM: close on any successful open (incl. zero-length files). */
+	/* Fixed in Omaha: close on any successful open (incl. zero-length files). */
 	len = FS_FOpenFileRead(path, &f, qfalse, qtrue);
 	if (len >= 0) {
 		FS_FCloseFile(f);
@@ -779,10 +981,16 @@ static void CL_UIR_WireBackends(void)
 	batch.supported = uir_batch_supported;
 	batch.canBatchShader = uir_batch_can_shader;
 	batch.draw = uir_batch_draw;
+	batch.beginDraw = uir_batch_begin_draw;
+	batch.endDraw = uir_batch_end_draw;
 	batch.targetAvailable = uir_target_available;
 	batch.targetSamples = uir_target_samples;
 	batch.beginTarget = uir_begin_target;
 	batch.endTarget = uir_end_target;
+	if (re.BeginUI2DTargetKeep && re.UI2DClearRectFb) {
+		batch.beginTargetKeep = uir_begin_target_keep;
+		batch.clearRectFb = uir_clear_rect_fb;
+	}
 	UIR_BatchSetBackend(&batch);
 	CL_UIR_SyncGpuDrawBatch();
 
@@ -819,6 +1027,7 @@ static void CL_UIR_WireBackends(void)
 	stencil.available = uir_stencil_available;
 	stencil.beginMask = uir_begin_stencil_mask;
 	stencil.maskBox = uir_stencil_mask_box;
+	stencil.maskTris = uir_stencil_mask_tris;
 	stencil.beginDraw = uir_begin_stencil_draw;
 	stencil.end = uir_end_stencil;
 	UIR_StencilSetBackend(&stencil);
@@ -912,6 +1121,13 @@ static void uid_free_file(void *buf)
 	FS_FreeFile(buf);
 }
 
+/* Stage 6: host-side cvar describe cache (pointer + modificationCount). */
+struct uid_cvar_cache_entry_t {
+	cvar_t      *var;
+	unsigned     modCount;
+	std::string  value;
+};
+
 static bool uid_cvar_describe(const char *name, int *flags, char *valueBuf, size_t valueBufSize)
 {
 	cvar_t     *var;
@@ -934,9 +1150,36 @@ static bool uid_cvar_describe(const char *name, int *flags, char *valueBuf, size
 		return true;
 	}
 
+	/*
+	 * Changed in Omaha: read path uses cached cvar_t* + modificationCount when
+	 * ui_bind_cache is on. Validates name pointer still matches before skipping FindVar.
+	 */
+	static std::unordered_map<std::string, uid_cvar_cache_entry_t> s_cvarCache;
+	const int cacheOn = (ui_bind_cache && ui_bind_cache->integer) ? 1 : 0;
+
+	if (cacheOn) {
+		const auto it = s_cvarCache.find(name);
+		if (it != s_cvarCache.end()) {
+			uid_cvar_cache_entry_t &e = it->second;
+			if (e.var && e.var->name && !strcmp(e.var->name, name)
+				&& static_cast<unsigned>(e.var->modificationCount) == e.modCount) {
+				if (flags) {
+					*flags = e.var->flags;
+				}
+				if (valueBuf && valueBufSize > 0) {
+					Q_strncpyz(valueBuf, e.value.c_str(), (int)valueBufSize);
+				}
+				return true;
+			}
+		}
+	}
+
 	UID_ProfileCountInc(UID_PROF_CNT_CVAR_DESCRIBE);
 	var = Cvar_FindVar(name);
 	if (!var) {
+		if (cacheOn) {
+			s_cvarCache.erase(name);
+		}
 		return false;
 	}
 	if (flags) {
@@ -945,13 +1188,98 @@ static bool uid_cvar_describe(const char *name, int *flags, char *valueBuf, size
 	if (valueBuf && valueBufSize > 0) {
 		Q_strncpyz(valueBuf, var->string ? var->string : "", (int)valueBufSize);
 	}
+	if (cacheOn) {
+		uid_cvar_cache_entry_t &e = s_cvarCache[name];
+		e.var = var;
+		e.modCount = static_cast<unsigned>(var->modificationCount);
+		e.value = var->string ? var->string : "";
+	}
+
 	return true;
 }
 
-/* Added in OPM: expose cvar_globalModCount + UI-store epoch to uidesign expression memos. */
+/* Added in Omaha: numeric cvar read without string copy / strtod. */
+static bool uid_cvar_number(const char *name, double *outValue, unsigned *outModCount)
+{
+	cvar_t     *var;
+	cl_uivar_t *uivar;
+
+	if (!name || !name[0]) {
+		return false;
+	}
+	uivar = CL_UIVar_Find(name);
+	if (uivar) {
+		if (outValue) {
+			*outValue = static_cast<double>(CL_UIVar_EntryValue(uivar));
+		}
+		if (outModCount) {
+			*outModCount = CL_UIVar_ModCountEntry(uivar);
+		}
+		return true;
+	}
+	var = Cvar_FindVar(name);
+	if (!var) {
+		return false;
+	}
+	if (outValue) {
+		*outValue = static_cast<double>(var->value);
+	}
+	if (outModCount) {
+		*outModCount = static_cast<unsigned>(var->modificationCount);
+	}
+	return true;
+}
+
+/* Added in Omaha: expose cvar + UI-store epochs to uidesign expression memos. */
 static unsigned uid_cvar_epoch(void)
 {
 	return (unsigned)Cvar_GlobalModCount() + CL_UIVar_Epoch();
+}
+
+/* Added in Omaha: Phase 4.4 — per-cvar modificationCount without string format. */
+static unsigned uid_cvar_mod_count(const char *name)
+{
+	cvar_t     *var;
+	cl_uivar_t *uivar;
+
+	if (!name || !name[0]) {
+		return 0u;
+	}
+	uivar = CL_UIVar_Find(name);
+	if (uivar) {
+		return CL_UIVar_ModCountEntry(uivar);
+	}
+	var = Cvar_FindVar(name);
+	if (!var) {
+		return 0u;
+	}
+	return (unsigned)var->modificationCount;
+}
+
+static void *uid_cvar_find(const char *name)
+{
+	cl_uivar_t *uivar;
+
+	if (!name || !name[0]) {
+		return NULL;
+	}
+	uivar = CL_UIVar_Find(name);
+	if (uivar) {
+		return uivar;
+	}
+	return Cvar_FindVar(name);
+}
+
+static unsigned uid_cvar_mod_count_handle(void *handle)
+{
+	if (!handle) {
+		return 0u;
+	}
+	if (CL_UIVar_IsEntry(handle)) {
+		return CL_UIVar_ModCountEntry(static_cast<const cl_uivar_t *>(handle));
+	}
+	const cvar_t *var = static_cast<const cvar_t *>(handle);
+	return (unsigned)var->modificationCount;
 }
 
 static bool uid_cvar_write(const char *name, const char *value)
@@ -1111,7 +1439,7 @@ static bool uid_get_keys_for_command(const char *command, int *key1, int *key2)
 }
 
 /*
- * Added in OPM: in-memory modern UI server browser backed by Gamespy queries.
+ * Added in Omaha: in-memory modern UI server browser backed by Gamespy queries.
  * Status strip lives in XML; host updates count cvars each Update.
  */
 typedef enum {
@@ -1437,7 +1765,7 @@ static void uir_browser_sync_sort_cvars(void)
 }
 
 /*
- * Fixed in OPM: modern list selection writes ui_selected_server via UID bind;
+ * Fixed in Omaha: modern list selection writes ui_selected_server via UID bind;
  * legacy g_browserSelected is only updated by the old mouse handler. Prefer the cvar
  * when it still matches a known row so JOIN uses the row the user clicked.
  */
@@ -1644,7 +1972,7 @@ static int uir_browser_col_at(float localX, float w)
 	return -1;
 }
 
-/* Removed in OPM: CL_UIR_ShouldPaintCrosshairMenu (crosshair is procedural in cgame). */
+/* Removed in Omaha: CL_UIR_ShouldPaintCrosshairMenu (crosshair is procedural in cgame). */
 
 static qboolean CL_UIR_ShouldPaintHudLayer(void)
 {
@@ -1661,7 +1989,7 @@ static qboolean CL_UIR_ShouldPaintHudLayer(void)
 		return qfalse;
 	}
 	/*
-	 * Fixed in OPM: intermission / no-hud / letterbox suppress play chrome via
+	 * Fixed in Omaha: intermission / no-hud / letterbox suppress play chrome via
 	 * ui_om_hud_show in XML, but messaging (chat / kill-feed / game msgs) and the
 	 * hold-TAB / end-of-match scoreboard must still paint. Check scoreboard first.
 	 */
@@ -1675,7 +2003,7 @@ static qboolean CL_UIR_ShouldPaintHudLayer(void)
 		const char *activeHud = CL_UIR_ActiveHudId();
 		if (activeHud && activeHud[0] && CL_UIMenu_IsOpen(activeHud)) {
 			/*
-			 * Added in OPM: keep the HUD pack painting during intermission so
+			 * Added in Omaha: keep the HUD pack painting during intermission so
 			 * messaging survives even before the scoreboard hold opens. Play
 			 * chrome is hidden by ui_om_hud_show, not by skipping this layer.
 			 */
@@ -1697,7 +2025,7 @@ static void CL_UIR_SyncScoreboardPointer(void)
 	const qboolean  legacyOwns = UI_LegacyOverlayOwnsInput();
 	const qboolean  overlayOpen = CL_UIR_IsConnectedOverlayOpen();
 	/*
-	 * Fixed in OPM: intermission scoreboard pointer must yield to the console and
+	 * Fixed in Omaha: intermission scoreboard pointer must yield to the console and
 	 * legacy loading/continue menus. Also drop a stale OpenHold scoreboard when
 	 * leaving CA_ACTIVE (cgame reload never sends -scores / CloseHold).
 	 */
@@ -1737,10 +2065,11 @@ static void CL_UIR_UpdateHudMenus(unsigned int time, qboolean applyWheel)
 
 	CL_UIR_SyncScoreboardPointer();
 	if (CL_UIR_UseModernHudPack() && clc.state == CA_ACTIVE) {
+		UiPerfScope hudCvarScope(UIPERF_HUD_CVAR);
 		UIR_Hud_Sync();
 	}
 	/*
-	 * Changed in OPM: hold-TAB scoreboard without a pointer still needs the
+	 * Changed in Omaha: hold-TAB scoreboard without a pointer still needs the
 	 * pointer update path when applyWheel is set so overflow=scroll lists move.
 	 */
 	const qboolean scoreboardWheel =
@@ -1761,7 +2090,7 @@ static void CL_UIR_UpdateHudMenus(unsigned int time, qboolean applyWheel)
 	y = (float)cl.mousey;
 	CL_UIR_MapMouseToUiVid(&x, &y);
 	/*
-	 * Added in OPM: hold-TAB without a cursor keeps relative look mouse coords off
+	 * Added in Omaha: hold-TAB without a cursor keeps relative look mouse coords off
 	 * the panel. Aim wheel hit-tests at the UI center so overflow=scroll lists still
 	 * receive the wheel (FFA / team panels are centered).
 	 */
@@ -1773,9 +2102,10 @@ static void CL_UIR_UpdateHudMenus(unsigned int time, qboolean applyWheel)
 	std::memset(&pointer, 0, sizeof(pointer));
 	pointer.x = x;
 	pointer.y = y;
-	pointer.buttons = (int)uid.mouseFlags;
+	/* Fixed in Omaha: same click-gate as UpdateModern (defense in depth). */
+	pointer.buttons = CL_UIR_ApplyDmPauseClickGate((int)cl.mouseButtons);
 	/*
-	 * Fixed in OPM: spectator / intermission scoreboard is a pointer HUD (not
+	 * Fixed in Omaha: spectator / intermission scoreboard is a pointer HUD (not
 	 * ShouldOwnInput). Pass mouse wheel so overflow=scroll lists scroll; layout-only
 	 * syncs leave applyWheel false so pause-menu wheel is not stolen.
 	 */
@@ -1862,7 +2192,7 @@ static void cl_uir_paint_crosshair_preview(float x, float y, float w, float h)
 	}
 }
 
-/* Added in OPM: black sniper arms from region edges inward to gap (no fixed length). */
+/* Added in Omaha: black sniper arms from region edges inward to gap (no fixed length). */
 static void cl_uir_paint_sniper_reticle(float x, float y, float w, float h, float scale)
 {
 	uir_color_t black = {0.0f, 0.0f, 0.0f, 1.0f};
@@ -1880,7 +2210,7 @@ static void cl_uir_paint_sniper_reticle(float x, float y, float w, float h, floa
 		return;
 	}
 
-	/* Changed in OPM: float thickness (no integer cvar/floor/min clamp). */
+	/* Changed in Omaha: float thickness (no integer cvar/floor/min clamp). */
 	th = Cvar_VariableValue("cg_crosshair_sniper_thickness") * scale;
 	if (!(th > 0.0f) || th != th) {
 		return;
@@ -1920,7 +2250,7 @@ static void cl_uir_paint_sniper_reticle(float x, float y, float w, float h, floa
 	}
 }
 
-/* Added in OPM: settings WYSIWYG for modern sniper scope (vignette + reticle). */
+/* Added in Omaha: settings WYSIWYG for modern sniper scope (vignette + reticle). */
 static void cl_uir_paint_sniper_preview(float x, float y, float w, float h)
 {
 	float side;
@@ -1957,6 +2287,7 @@ static void cl_uir_paint_sniper_preview(float x, float y, float w, float h)
 
 static void uid_draw_host_region(const char *role, float x, float y, float w, float h, void *userdata)
 {
+	UID_PaintListMarkHostDraw();
 	float       colX[7];
 	float       colW[7];
 	float       bodyY;
@@ -2146,7 +2477,7 @@ static bool uid_host_region_pointer(
 	return true;
 }
 
-/* Added in OPM: resolve display name / set name / path to a TIKI handle */
+/* Added in Omaha: resolve display name / set name / path to a TIKI handle */
 static qhandle_t uid_resolve_model_handle(const char *modelPathOrName)
 {
 	char        path[MAX_QPATH];
@@ -2160,7 +2491,7 @@ static qhandle_t uid_resolve_model_handle(const char *modelPathOrName)
 		return re.RegisterModel(modelPathOrName);
 	}
 	file = PM_DisplaynameToFilename(modelPathOrName);
-	/* Fixed in OPM: menu set names use german_waffen_*; on-disk TIKIs are german_waffenss_*. */
+	/* Fixed in Omaha: menu set names use german_waffen_*; on-disk TIKIs are german_waffenss_*. */
 	if (!Q_stricmpn(file, "german_waffen_", 14)) {
 		Com_sprintf(remapped, sizeof(remapped), "german_waffenss_%s", file + 14);
 		file = remapped;
@@ -2170,7 +2501,7 @@ static qhandle_t uid_resolve_model_handle(const char *modelPathOrName)
 }
 
 /*
- * Fixed in OPM: modern menu binds ui_dm_*_set, which legacy UI only creates via
+ * Fixed in Omaha: modern menu binds ui_dm_*_set, which legacy UI only creates via
  * ui_getplayermodel. Fall back through set / dm_ / stock defaults so previews
  * still resolve when those cvars were never written.
  */
@@ -2216,6 +2547,7 @@ static void uid_queue_model_preview(const uid_model_preview_desc_t *desc)
 		}
 		return;
 	}
+	UID_PaintListMarkHostDraw();
 	if (!modelName || !modelName[0]) {
 		modelName = uid_fallback_model_name(desc->team);
 	}
@@ -2341,6 +2673,7 @@ static const char *const g_uidSettingsDraftCvars[] = {
 	"r_textureMode",
 	"r_ext_compressed_textures",
 	"r_fastentlight",
+	"r_fastdlights",
 	"r_entlightmap",
 	"r_flares",
 	"r_drawstaticdecals",
@@ -2349,6 +2682,7 @@ static const char *const g_uidSettingsDraftCvars[] = {
 	"fps",
 	"s_volume",
 	"s_musicvolume",
+	"s_ambientvolume",
 	"s_speaker_type",
 	"s_khz",
 	"s_reverb",
@@ -2424,6 +2758,8 @@ static const char *const g_uidVideoRestartCvars[] = {
 	"r_swapInterval",
 	"r_colorbits",
 	"r_texturebits",
+	"r_textureMode", /* Applied at renderer init — needs restart to take effect. */
+	"r_fastdlights", /* LATCH — world dlight fast path */
 	NULL
 };
 
@@ -2442,7 +2778,7 @@ static const char *const g_uidSoundRestartCvars[] = {
  * table, so enumerate a fixed list matching retail r_mode indices.
  * Player model lists match ImprovedBrowser menu.html option values.
  */
-/* Added in OPM: catalog option sources for cyclic selects (value + label). */
+/* Added in Omaha: catalog option sources for cyclic selects (value + label). */
 static int uid_fill_option_pairs(
 	const char *const *pairs,
 	int pairCount,
@@ -2598,7 +2934,7 @@ static int uid_query_collection_options(
 	};
 	const int bufCount = (int)(sizeof(valueBuf) / sizeof(valueBuf[0]));
 
-	if (!source || !out || max <= 0) {
+	if (!source) {
 		return 0;
 	}
 
@@ -2624,16 +2960,20 @@ static int uid_query_collection_options(
 		return 0;
 	}
 
-	if (total <= 0) {
-		return 0;
-	}
-
+	/*
+	 * Fixed in Omaha: honor max=0 peeks like servers/scoreboard — write total/revision
+	 * before returning so empty scopes still load on the first full query.
+	 */
 	if (outTotal) {
 		*outTotal = total;
 	}
 	if (outRevision) {
 		*outRevision = 1;
 	}
+	if (!out || max <= 0 || total <= 0) {
+		return 0;
+	}
+
 	if (offset < 0) {
 		offset = 0;
 	}
@@ -2813,7 +3153,7 @@ static int uid_query_collection_scoreboard(
 		Q_strncpyz(slot->rowFill, row->rowFill, sizeof(slot->rowFill));
 		Q_strncpyz(slot->isHeader, row->isHeader ? "1" : "0", sizeof(slot->isHeader));
 		Q_strncpyz(slot->isSpectator, row->isSpectator ? "1" : "0", sizeof(slot->isSpectator));
-		/* Added in OPM: local player row for scoreboard bold styling. */
+		/* Added in Omaha: local player row for scoreboard bold styling. */
 		Q_strncpyz(
 			slot->isLocal,
 			(row->clientNum >= 0 && row->clientNum == cl.snap.ps.clientNum) ? "1" : "0",
@@ -3191,7 +3531,7 @@ static int uid_query_collection_hud_messages(
 		}
 
 		slot = &slots[written];
-		/* Changed in OPM: stable monotonic keys so foreach lifetime tracks rows. */
+		/* Changed in Omaha: stable monotonic keys so foreach lifetime tracks rows. */
 		Com_sprintf(slot->key, sizeof(slot->key), "msg_%llu", (unsigned long long)row.stableId);
 		Q_strncpyz(slot->text, row.text, sizeof(slot->text));
 		Q_strncpyz(slot->color, row.color, sizeof(slot->color));
@@ -3219,7 +3559,7 @@ static int uid_query_collection_hud_messages(
 	return written;
 }
 
-/* Added in OPM: structured kill-feed collection query. */
+/* Added in Omaha: structured kill-feed collection query. */
 typedef struct {
 	char key[32];
 	char killer[64];
@@ -3228,14 +3568,53 @@ typedef struct {
 	char killerTeam[16];
 	char victimTeam[16];
 	char iconTeam[16];
+	char weaponImage[64];
 	char killKind[16];
 	char text[512];
 	char color[16];
 	char headshot[8];
 	char friendly[8];
-	const char *fieldNames[11];
-	const char *fieldValues[11];
+	const char *fieldNames[12];
+	const char *fieldValues[12];
 } uid_hud_kill_feed_collection_slot_t;
+
+/* Added in Omaha: team-specific kf silhouette id (matches hud_messaging.xml sources). */
+static const char *uid_kill_feed_weapon_image(const char *weaponClass, const char *iconTeam)
+{
+	const qboolean axis = (iconTeam && !Q_stricmp(iconTeam, "axis")) ? qtrue : qfalse;
+
+	if (!weaponClass || !weaponClass[0]) {
+		weaponClass = "unknown";
+	}
+	if (!Q_stricmp(weaponClass, "pistol")) {
+		return axis ? "modernhud-p38-kf" : "modernhud-colt45-kf";
+	}
+	if (!Q_stricmp(weaponClass, "rifle")) {
+		return axis ? "modernhud-kar98-kf" : "modernhud-m1-garand-kf";
+	}
+	if (!Q_stricmp(weaponClass, "sniper")) {
+		return axis ? "modernhud-kar98sniper-kf" : "modernhud-springfield-kf";
+	}
+	if (!Q_stricmp(weaponClass, "smg")) {
+		return axis ? "modernhud-mp40-kf" : "modernhud-thompsonsmg-kf";
+	}
+	if (!Q_stricmp(weaponClass, "mg")) {
+		return axis ? "modernhud-mp44-kf" : "modernhud-bar-kf";
+	}
+	if (!Q_stricmp(weaponClass, "shotgun")) {
+		return "modernhud-shotgun-kf";
+	}
+	if (!Q_stricmp(weaponClass, "grenade")) {
+		return axis ? "modernhud-steilhandgranate-kf" : "modernhud-m2frag-grenade-kf";
+	}
+	if (!Q_stricmp(weaponClass, "rocket")) {
+		return axis ? "modernhud-panzerschreck-kf" : "modernhud-bazooka-kf";
+	}
+	if (!Q_stricmp(weaponClass, "bash")) {
+		return "modernhud-glove-50";
+	}
+	return axis ? "modernhud-kar98-kf" : "modernhud-m1-garand-kf";
+}
 
 static int uid_query_collection_hud_kill_feed(
 	int offset,
@@ -3254,6 +3633,7 @@ static int uid_query_collection_hud_kill_feed(
 		"killer_team",
 		"victim_team",
 		"icon_team",
+		"weapon_image",
 		"headshot",
 		"kill_kind",
 		"friendly",
@@ -3296,13 +3676,18 @@ static int uid_query_collection_hud_kill_feed(
 		Q_strncpyz(slot->killerTeam, row.killerTeam, sizeof(slot->killerTeam));
 		Q_strncpyz(slot->victimTeam, row.victimTeam, sizeof(slot->victimTeam));
 		Q_strncpyz(slot->iconTeam, row.iconTeam, sizeof(slot->iconTeam));
+		Q_strncpyz(
+			slot->weaponImage,
+			uid_kill_feed_weapon_image(row.weaponClass, row.iconTeam),
+			sizeof(slot->weaponImage)
+		);
 		Q_strncpyz(slot->killKind, row.killKind, sizeof(slot->killKind));
 		Q_strncpyz(slot->text, row.text, sizeof(slot->text));
 		Q_strncpyz(slot->color, row.color, sizeof(slot->color));
 		Com_sprintf(slot->headshot, sizeof(slot->headshot), "%d", row.headshot);
 		Com_sprintf(slot->friendly, sizeof(slot->friendly), "%d", row.friendly);
 
-		for (f = 0; f < 11; f++) {
+		for (f = 0; f < 12; f++) {
 			slot->fieldNames[f] = kFieldNames[f];
 		}
 		slot->fieldValues[0] = slot->killer;
@@ -3311,16 +3696,17 @@ static int uid_query_collection_hud_kill_feed(
 		slot->fieldValues[3] = slot->killerTeam;
 		slot->fieldValues[4] = slot->victimTeam;
 		slot->fieldValues[5] = slot->iconTeam;
-		slot->fieldValues[6] = slot->headshot;
-		slot->fieldValues[7] = slot->killKind;
-		slot->fieldValues[8] = slot->friendly;
-		slot->fieldValues[9] = slot->text;
-		slot->fieldValues[10] = slot->color;
+		slot->fieldValues[6] = slot->weaponImage;
+		slot->fieldValues[7] = slot->headshot;
+		slot->fieldValues[8] = slot->killKind;
+		slot->fieldValues[9] = slot->friendly;
+		slot->fieldValues[10] = slot->text;
+		slot->fieldValues[11] = slot->color;
 
 		out[written].key = slot->key;
 		out[written].value = slot->key;
 		out[written].label = slot->text;
-		out[written].nfields = 11;
+		out[written].nfields = 12;
 		out[written].fieldNames = slot->fieldNames;
 		out[written].fieldValues = slot->fieldValues;
 		out[written].flags = 0;
@@ -3329,7 +3715,7 @@ static int uid_query_collection_hud_kill_feed(
 	return written;
 }
 
-/* Added in OPM: vote option rows filled by cgame into ui_om_vote_* cvars. */
+/* Added in Omaha: vote option rows filled by cgame into ui_om_vote_* cvars. */
 typedef struct {
 	char        key[16];
 	char        label[128];
@@ -3415,7 +3801,54 @@ static int uid_query_collection_vote_options(
 
 static int uid_query_collection_items(const uid_collection_query_t *query, uid_collection_item_t *out, int max)
 {
-	if (!query || !query->source) {
+	if (!query) {
+		return 0;
+	}
+	switch (query->hostId) {
+	case UID_COLHOST_SCOREBOARD:
+		return uid_query_collection_scoreboard(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max
+		);
+	case UID_COLHOST_HUD_GAME_MESSAGES:
+		return uid_query_collection_hud_messages(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max, 1
+		);
+	case UID_COLHOST_HUD_CHAT:
+		return uid_query_collection_hud_messages(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max, 2
+		);
+	case UID_COLHOST_HUD_KILL_FEED:
+		return uid_query_collection_hud_kill_feed(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max
+		);
+	case UID_COLHOST_HUD_MESSAGES:
+		return uid_query_collection_hud_messages(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max, 0
+		);
+	case UID_COLHOST_HUD_OBJECTIVES:
+		return uid_query_collection_objectives(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max
+		);
+	case UID_COLHOST_VOTE_OPTIONS:
+		return uid_query_collection_vote_options(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max
+		);
+	case UID_COLHOST_SERVERS:
+		return uid_query_collection_servers(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max
+		);
+	case UID_COLHOST_HUD_PACKS:
+		return uid_query_collection_hud_packs(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max
+		);
+	case UID_COLHOST_HITMARKER_SOUNDS:
+		return uid_query_collection_hitmarker_sounds(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max
+		);
+	default:
+		break;
+	}
+	if (!query->source) {
 		return 0;
 	}
 	if (!Q_stricmp(query->source, "vote-options")) {
@@ -3458,7 +3891,7 @@ static int uid_query_collection_items(const uid_collection_query_t *query, uid_c
 			query->offset, query->limit, query->outTotal, query->outRevision, out, max, 1
 		);
 	}
-	/* Added in OPM: chat-only and structured kill-feed collections. */
+	/* Added in Omaha: chat-only and structured kill-feed collections. */
 	if (!Q_stricmp(query->source, "hud-chat")) {
 		return uid_query_collection_hud_messages(
 			query->offset, query->limit, query->outTotal, query->outRevision, out, max, 2
@@ -3573,6 +4006,28 @@ static void uid_write_all_doc_bindings(void)
 	}
 }
 
+/*
+ * Added in Omaha: light the settings Apply button only when a staged commit=apply
+ * edit differs from the live cvar and that cvar is in g_uidVideoRestartCvars.
+ */
+static void CL_UIR_SyncSettingsApplyPending(void)
+{
+	int want = 0;
+
+	uid_runtime_t *runtime = CL_UIR_MainRuntime();
+	if (runtime && UID_HasDocument(runtime)
+		&& !Q_stricmp(CL_UIVar_String("ui_om_main_panel"), "settings")) {
+		uid_document_t *doc = const_cast<uid_document_t *>(UID_GetDocument(runtime));
+		if (UID_HasPendingApplyBindings(doc, &g_uidBackend, g_uidVideoRestartCvars)) {
+			want = 1;
+		}
+	}
+
+	if (CL_UIVar_Integer("ui_om_settings_apply_pending") != want) {
+		CL_UIVar_Set("ui_om_settings_apply_pending", want ? "1" : "0");
+	}
+}
+
 static uid_node_id_t uir_browser_find_servers_scope(const uid_document_t *doc)
 {
 	if (!doc) {
@@ -3594,7 +4049,7 @@ static uid_node_id_t uir_browser_find_servers_scope(const uid_document_t *doc)
 }
 
 /*
- * Fixed in OPM: JOIN must use the design list's selected row (servers collection scope),
+ * Fixed in Omaha: JOIN must use the design list's selected row (servers collection scope),
  * not a stale ui_selected_server left at the default first row.
  */
 static const char *uir_browser_resolve_join_addr(void)
@@ -3936,6 +4391,24 @@ static bool invoke_cbuf(void *userdata)
 		return false;
 	}
 	/*
+	 * Fixed in Omaha: refuse join / panel-dismiss cbufs while the open click-gate
+	 * is armed — HUD SyncHudLayerMenus previously delivered ungated presses that
+	 * still reached invoke with gate=true.
+	 */
+	if (g_uirDmPauseGateClicks
+		&& (strstr(cmd, "join_team") || strstr(cmd, "auto_join_team")
+			|| strstr(cmd, "set ui_om_pause_panel root") || strstr(cmd, "ui_close menu dm_pause"))) {
+		return true;
+	}
+	/*
+	 * Fixed in Omaha: root "Select Team" / panel switches must not let the same
+	 * physical click land on Allies/weapon hits that appear under the cursor.
+	 */
+	if (strstr(cmd, "set ui_om_pause_panel team") || strstr(cmd, "set ui_om_pause_panel weapon")) {
+		CL_UIR_ArmDmPauseClickGate();
+	}
+
+	/*
 	 * Added in Omaha: apply set/seta/toggle of internal UI store names in-process
 	 * so pause-panel XML keeps working without registering those as console cvars.
 	 */
@@ -4025,7 +4498,7 @@ static bool invoke_menu_close(void *userdata)
 	return CL_UIMenu_Close(target) ? true : false;
 }
 
-/* Added in OPM: in-HUD chat compose (see CL_UIR_OpenHudChat). */
+/* Added in Omaha: in-HUD chat compose (see CL_UIR_OpenHudChat). */
 static qboolean g_hudChatOpen = qfalse;
 static int      g_hudChatMode = 100;
 
@@ -4239,9 +4712,9 @@ static void CL_UIR_RegisterInvokes(void)
 	UID_RegisterInvoke("legacy-pushmenu", invoke_legacy_pushmenu, NULL);
 	UID_RegisterInvoke("menu-open", invoke_menu_open, NULL);
 	UID_RegisterInvoke("menu-close", invoke_menu_close, NULL);
-	/* Added in OPM: modern pause console bridge (XML set-cvar ui_om_cbuf + invoke). */
+	/* Added in Omaha: modern pause console bridge (XML set-cvar ui_om_cbuf + invoke). */
 	UID_RegisterInvoke("cbuf", invoke_cbuf, NULL);
-	/* Added in OPM: in-HUD chat compose submit / Escape cancel. */
+	/* Added in Omaha: in-HUD chat compose submit / Escape cancel. */
 	UID_RegisterInvoke("hud-chat-submit", invoke_hud_chat_submit, NULL);
 	UID_RegisterInvoke("hud-chat-cancel", invoke_hud_chat_cancel, NULL);
 }
@@ -4272,7 +4745,7 @@ static void CL_UIR_ForceConsolesClosed(void)
 	g_compareKeepConsolesClosedUntil = cls.realtime + 2000;
 }
 
-/* Removed in OPM: uid_set_node_visible / uid_set_node_prop (compare path uses cvars). */
+/* Removed in Omaha: uid_set_node_visible / uid_set_node_prop (compare path uses cvars). */
 
 /*
 ============
@@ -4797,6 +5270,45 @@ static void uid_font_draw(void *font, float x, float y, const char *text, const 
 	UIR_FontDraw(vp, (uir_font_t *)font, x, y, text, &color, tracking);
 }
 
+/* Added in Omaha Stage 3b: single glyph walk for drop-shadow labels. */
+static void uid_font_draw_with_shadows(
+	void *font,
+	float x,
+	float y,
+	const char *text,
+	const float *rgba,
+	float tracking,
+	const float *shadowDxDyA,
+	int shadowCount
+)
+{
+	uir_color_t           color;
+	const uir_viewport_t *vp = UIR_CompositorViewport();
+	uir_font_shadow_t     shadows[8];
+	int                   n = 0;
+	int                   i;
+
+	if (!font || !text || !rgba || !vp) {
+		return;
+	}
+	color.r = rgba[0];
+	color.g = rgba[1];
+	color.b = rgba[2];
+	color.a = rgba[3];
+	if (shadowDxDyA && shadowCount > 0) {
+		if (shadowCount > 8) {
+			shadowCount = 8;
+		}
+		for (i = 0; i < shadowCount; i++) {
+			shadows[n].dx = shadowDxDyA[i * 3 + 0];
+			shadows[n].dy = shadowDxDyA[i * 3 + 1];
+			shadows[n].a = shadowDxDyA[i * 3 + 2];
+			n++;
+		}
+	}
+	UIR_FontDrawWithShadows(vp, (uir_font_t *)font, x, y, text, &color, tracking, n > 0 ? shadows : NULL, n);
+}
+
 static void uid_font_draw_skewed(
 	void *font,
 	float x,
@@ -4940,7 +5452,7 @@ static void uid_draw_image(
 		tint.a = tintRgba[3];
 		tintPtr = &tint;
 	}
-	(void)UIR_ImageDrawClipped(
+	UIR_ImageDrawClipped(
 		vfsPath,
 		x,
 		y,
@@ -4958,7 +5470,7 @@ static void uid_draw_image(
 	);
 }
 
-/* Added in OPM: texel size for leaf <image> auto / aspect layout. */
+/* Added in Omaha: texel size for leaf <image> auto / aspect layout. */
 static bool uid_image_measure(const char *vfsPath, float *outW, float *outH)
 {
 	uir_image_t *image;
@@ -4975,7 +5487,7 @@ static bool uid_image_measure(const char *vfsPath, float *outW, float *outH)
 	return (*outW > 0.0f && *outH > 0.0f) ? true : false;
 }
 
-/* Added in OPM: atlas-baked gradient fill brush. */
+/* Added in Omaha: atlas-baked gradient fill brush. */
 static void uid_draw_gradient(
 	const char *brush,
 	float x,
@@ -5028,7 +5540,7 @@ static void uid_pop_clip(void)
 	UIR_PopClipRect();
 }
 
-/* Added in OPM: stencil (or AABB fallback) clip for shaped-container children. */
+/* Added in Omaha: stencil (or AABB fallback) clip for shaped-container children. */
 static bool uid_begin_shape_clip(
 	float x,
 	float y,
@@ -5041,22 +5553,36 @@ static bool uid_begin_shape_clip(
 	float rotationDeg
 )
 {
-	return UIR_BeginSvgShapeClip(x, y, w, h, pathD, pathCount, viewW, viewH, rotationDeg) == UIR_OK;
+	/* Shape clips are retained in the paint list — do not poison replay. */
+	const qboolean ok =
+		UIR_BeginSvgShapeClip(x, y, w, h, pathD, pathCount, viewW, viewH, rotationDeg) == UIR_OK;
+	if (ok) {
+		UID_PaintListRecordShapeClipBegin(x, y, w, h, pathD, pathCount, viewW, viewH, rotationDeg);
+	}
+	return ok ? qtrue : qfalse;
 }
 
 static void uid_end_shape_clip(void)
 {
+	UID_PaintListRecordShapeClipEnd();
 	UIR_EndShapeClip();
 }
 
-/* Added in OPM: soft mask coverage for container + subtree (image path or gradient brush). */
+/* Added in Omaha: soft mask coverage for container + subtree (image path or gradient brush). */
 static bool uid_begin_image_mask(float x, float y, float w, float h, const char *vfsPathOrBrush, int fit)
 {
-	return UIR_BeginImageMask(x, y, w, h, vfsPathOrBrush, static_cast<uir_image_fit_t>(fit)) == UIR_OK;
+	const uir_status_t st =
+		UIR_BeginImageMask(x, y, w, h, vfsPathOrBrush, static_cast<uir_image_fit_t>(fit));
+	if (st == UIR_OK) {
+		/* Soft mask-image is retained via IMAGE_MASK_* paint-list cmds. */
+		UID_PaintListRecordImageMaskBegin(x, y, w, h, vfsPathOrBrush, fit);
+	}
+	return st == UIR_OK;
 }
 
 static void uid_end_image_mask(void)
 {
+	UID_PaintListRecordImageMaskEnd();
 	UIR_EndImageMask();
 }
 
@@ -5093,9 +5619,13 @@ static void CL_UIR_FillUidBackend(uid_backend_t *out)
 	out->readFile = uid_read_file;
 	out->freeFile = uid_free_file;
 	out->cvarDescribe = uid_cvar_describe;
+	out->cvarNumber = uid_cvar_number;
 	out->cvarWrite = uid_cvar_write;
 	out->cvarReset = uid_cvar_reset;
 	out->cvarEpoch = uid_cvar_epoch;
+	out->cvarModCount = uid_cvar_mod_count;
+	out->cvarFind = uid_cvar_find;
+	out->cvarModCountHandle = uid_cvar_mod_count_handle;
 	out->keyNameToNum = uid_key_name_to_num;
 	out->keyNumToName = uid_key_num_to_name;
 	out->getBinding = uid_get_binding;
@@ -5109,6 +5639,7 @@ static void CL_UIR_FillUidBackend(uid_backend_t *out)
 	out->fontMeasure = uid_font_measure;
 	out->fontAscent = uid_font_ascent;
 	out->fontDraw = uid_font_draw;
+	out->fontDrawWithShadows = uid_font_draw_with_shadows;
 	out->fontDrawSkewed = uid_font_draw_skewed;
 	out->fontDrawRotated = uid_font_draw_rotated;
 	out->drawSolidRect = uid_draw_solid_rect;
@@ -5128,6 +5659,9 @@ static void CL_UIR_FillUidBackend(uid_backend_t *out)
 	out->getHiResScale = uid_get_hi_res_scale;
 	out->getFramebufferSize = uid_get_framebuffer_size;
 	out->diag = uid_diag;
+	out->perfNoteReplay = CL_UIPerf_NoteReplay;
+	out->perfNoteLayout = CL_UIPerf_NoteLayoutRan;
+	out->perfNoteRegions = CL_UIPerf_NoteRegions;
 	out->userdata = NULL;
 }
 
@@ -5168,7 +5702,7 @@ static void CL_UIR_GetSurfaceSizes(int *logicalW, int *logicalH, int *fbW, int *
 	}
 
 	/*
-	 * Fixed in OPM: after vid_restart shrinks the window, SDL_GetWindowSize can
+	 * Fixed in Omaha: after vid_restart shrinks the window, SDL_GetWindowSize can
 	 * still report the pre-restart logical size — layout stays too wide.
 	 */
 	if (fw > 0 && fh > 0 && (lw > fw || lh > fh)) {
@@ -5176,7 +5710,7 @@ static void CL_UIR_GetSurfaceSizes(int *logicalW, int *logicalH, int *fbW, int *
 		lh = fh;
 	}
 	/*
-	 * Fixed in OPM: cls.glconfig can lag the recreated SDL window after
+	 * Fixed in Omaha: cls.glconfig can lag the recreated SDL window after
 	 * r_mode/vid_restart. A mismatched fw/lw ratio maps chrome off-screen and
 	 * produces black or striped frames. HiDPI (≈2× uniform scale) is preserved.
 	 */
@@ -5202,7 +5736,7 @@ static void CL_UIR_GetSurfaceSizes(int *logicalW, int *logicalH, int *fbW, int *
 }
 
 /*
- * Fixed in OPM: SDL_GetMouseState is in SDL window client space (same as
+ * Fixed in Omaha: SDL_GetMouseState is in SDL window client space (same as
  * SDL_GetWindowSize). Layout may be smaller when GetSurfaceSizes clamps a
  * stale/larger window down to the drawable — remap and clamp into layout.
  * Do not scale by framebuffer size; mouse is not in FB pixels.
@@ -5275,7 +5809,7 @@ static void CL_UIR_MapMouseToLayout(float *x, float *y, int layoutW, int layoutH
 }
 
 /*
- * Added in OPM: one UI coordinate space for modern chrome + legacy winman (console).
+ * Added in Omaha: one UI coordinate space for modern chrome + legacy winman (console).
  * Legacy launch keeps glconfig; modern uses surface logical size S.
  */
 void CL_UIR_GetUiVidSize(int *w, int *h)
@@ -5333,7 +5867,7 @@ static void CL_UIR_ApplySurface(void)
 }
 
 /*
- * Added in OPM: uiPxScale = UIR_RefPxScale(W,H) * clamp(ui_scale).
+ * Added in Omaha: uiPxScale = UIR_RefPxScale(W,H) * clamp(ui_scale).
  * Reference is 1920x1080 (uniform contain). Pushes when the product changes.
  */
 static void CL_UIR_PushUiPxScale(void)
@@ -5352,7 +5886,7 @@ static void CL_UIR_PushUiPxScale(void)
 	if (!(userScale == userScale)) {
 		userScale = 1.0f;
 	}
-	/* Changed in OPM: match settings slider range 0.25–2.0. */
+	/* Changed in Omaha: match settings slider range 0.25–2.0. */
 	if (userScale < 0.25f) {
 		userScale = 0.25f;
 	} else if (userScale > 2.0f) {
@@ -5386,15 +5920,15 @@ static void CL_UIR_PushUiPxScale(void)
 }
 
 /*
- * Added in OPM: surface + uiPxScale + UID_Update for draw-order <= 4 menus.
+ * Added in Omaha: surface + uiPxScale + UID_Update for draw-order <= 4 menus.
 	 * Runs each frame so HUD pack layout stays fresh when paint is gated off.
  */
 static qboolean CL_UIR_SyncHudLayerMenus(unsigned int time, int *lw, int *lh, int *fw, int *fh)
 {
 	int localLw = 0;
 	int localLh = 0;
-	int localFw = 0;
 	int localFh = 0;
+	int localFw = 0;
 
 	if (clc.state != CA_ACTIVE || CL_UIR_UseLegacyHud() || !CL_UIMenu_HasMenusUpTo(4)) {
 		return qfalse;
@@ -5412,11 +5946,24 @@ static qboolean CL_UIR_SyncHudLayerMenus(unsigned int time, int *lw, int *lh, in
 	g_lastFbH = localFh;
 	CL_UIR_PushUiPxScale();
 	/*
-	 * Changed in OPM: consume MWHEEL while the scoreboard is open even without a
+	 * Changed in Omaha: consume MWHEEL while the scoreboard is open even without a
 	 * pointer (hold-TAB in play). Overlay UpdateModern also applies wheel; this
 	 * covers the normal HUD paint tick.
+	 * Fixed in Omaha: when an interactive overlay (dm_pause) owns input, do not
+	 * run the HUD pointer path — UpdateAllWithPointer would deliver ungated
+	 * clicks to the top interactive menu and defeat the open click-gate
+	 * (fire → team → auto_join within 1ms).
+	 * Fixed in Omaha: still push HUD cvars from the snap while pause owns input.
+	 * Connected overlay paints HUD chrome with those cvars; skipping UIR_Hud_Sync
+	 * left health/weapons stuck at death values until the menu closed.
 	 */
-	{
+	if (CL_UIMenu_ShouldOwnInput()) {
+		if (CL_UIR_UseModernHudPack()) {
+			UiPerfScope hudCvarScope(UIPERF_HUD_CVAR);
+			UIR_Hud_Sync();
+		}
+		CL_UIMenu_UpdateAll(time);
+	} else {
 		const qboolean applyWheel =
 			(CL_UIMenu_IsOpen(CL_UIR_ScoreboardMenuId()) && g_pointerWheelDelta != 0) ? qtrue : qfalse;
 		CL_UIR_UpdateHudMenus(time, applyWheel);
@@ -5438,7 +5985,7 @@ static qboolean CL_UIR_SyncHudLayerMenus(unsigned int time, int *lw, int *lh, in
 }
 
 /*
- * Added in OPM: push current surface + ui px scale into all open runtimes.
+ * Added in Omaha: push current surface + ui px scale into all open runtimes.
  * Called by the menu dispatcher when a menu is opened so a newly created
  * runtime never lays out against the 0x0 default from UID_Create.
  */
@@ -5534,7 +6081,7 @@ static void CL_UIR_OverlayCallback(void *userdata)
 	CL_UIMenu_PaintOverlay();
 }
 
-/* Added in OPM: modern sniper zoom overlay (uirender radial + solid rects). */
+/* Added in Omaha: modern sniper zoom overlay (uirender radial + solid rects). */
 static void cl_uir_paint_sniper_zoom(void)
 {
 	const uir_viewport_t *vp;
@@ -5547,7 +6094,7 @@ static void cl_uir_paint_sniper_zoom(void)
 	if (!CL_UIVar_Integer("ui_om_hud_sniper_zoom")) {
 		return;
 	}
-	/* Added in OPM: off -> retail PK3 zoom overlays via CG_DrawZoomOverlay. */
+	/* Added in Omaha: off -> retail PK3 zoom overlays via CG_DrawZoomOverlay. */
 	if (!Cvar_VariableIntegerValue("cg_crosshair_sniper_modern")) {
 		return;
 	}
@@ -5680,15 +6227,15 @@ static void CL_UIR_DesignDump_f(void)
 /* Public bridge                                                             */
 /* ------------------------------------------------------------------------- */
 
-/* Added in OPM: register gameplay/settings cvars before cgame loads (cg_autoswitch pattern). */
+/* Added in Omaha: register gameplay/settings cvars before cgame loads (cg_autoswitch pattern). */
 static void CL_UIR_RegisterSettingsCvars(void)
 {
 	cvar_t *v;
 
 	Cvar_Get("fps", "0", CVAR_ARCHIVE);
 	Cvar_Get("cg_fov", "80", CVAR_ARCHIVE);
-	Cvar_Get("cg_zoomSensitivity", "screen", CVAR_ARCHIVE); /* Added in OPM: off|legacy|screen */
-	Cvar_Get("cg_crosshair_sniper_thickness", "3", CVAR_ARCHIVE);
+	Cvar_Get("cg_zoomSensitivity", "screen", CVAR_ARCHIVE); /* Added in Omaha: off|legacy|screen */
+	Cvar_Get("cg_crosshair_sniper_thickness", "2.5", CVAR_ARCHIVE); /* Changed in Omaha */
 	Cvar_Get("cg_crosshair_sniper_gap", "0", CVAR_ARCHIVE);
 	Cvar_Get("cg_crosshair_sniper_size", "5", CVAR_ARCHIVE);
 	Cvar_Get("cg_crosshair_sniper_t", "0", CVAR_ARCHIVE);
@@ -5696,9 +6243,9 @@ static void CL_UIR_RegisterSettingsCvars(void)
 	Cvar_Get("cg_drawviewmodel", "2", CVAR_ARCHIVE);
 	Cvar_Get("cg_hud", "1", CVAR_ARCHIVE);
 	/* Added in Omaha: hitmarker enable + server/client validation mode + sound pick. */
-	Cvar_Get("cg_hitmarker", "0", CVAR_ARCHIVE);
+	Cvar_Get("cg_hitmarker", "1", CVAR_ARCHIVE); /* Changed in Omaha: on by default */
 	Cvar_Get("cg_hitmarker_mode", "server", CVAR_ARCHIVE);
-	Cvar_Get("cg_hitmarker_sound", "hitmarker", CVAR_ARCHIVE);
+	Cvar_Get("cg_hitmarker_sound", "classic", CVAR_ARCHIVE); /* Changed in Omaha */
 	/* Added in Omaha: remote prediction enable (0/2) + MaxLead ceiling. */
 	{
 		cvar_t *rpLead;
@@ -5709,12 +6256,12 @@ static void CL_UIR_RegisterSettingsCvars(void)
 	}
 	Cvar_Get("cg_rain", "1", CVAR_ARCHIVE);
 	Cvar_Get("cg_marks_add", "1", CVAR_ARCHIVE);
-	Cvar_Get("cg_shadows", "0", CVAR_ARCHIVE);
+	Cvar_Get("cg_shadows", "2", CVAR_ARCHIVE); /* Changed in Omaha */
 	Cvar_Get("cg_effectdetail", "1.0", CVAR_ARCHIVE);
 	Cvar_Get("vss_draw", "1", CVAR_ARCHIVE);
 	Cvar_Get("com_blood", "1", CVAR_ARCHIVE);
 
-	v = Cvar_Get("in_mouse", "1", CVAR_ARCHIVE);
+	v = Cvar_Get("in_mouse", "-1", CVAR_ARCHIVE); /* Changed in Omaha: raw input by default */
 	Cvar_CheckRange(v, -1, 1, qfalse);
 
 	v = Cvar_FindVar("r_lodscale");
@@ -5752,42 +6299,69 @@ void CL_UIR_RegisterCvars(void)
 	CL_UIR_RegisterSettingsCvars();
 	ui_legacy = Cvar_Get("ui_legacy", "0", CVAR_INIT);
 	ui_om_hud = Cvar_Get("ui_om_hud", "classic", CVAR_ARCHIVE);
-	/* Added in OPM: user multiplier on reference-resolution px scale. */
+	/* Added in Omaha: user multiplier on reference-resolution px scale. */
 	ui_scale = Cvar_Get("ui_scale", "1.0", CVAR_ARCHIVE);
 	uir_debug = Cvar_Get("uir_debug", "0", CVAR_TEMP);
 	ui_render_stats = Cvar_Get("ui_render_stats", "0", CVAR_TEMP);
-	/* Added in OPM: wall-clock UI pipeline profiler (load + frame phases). */
+	/* Added in Omaha: wall-clock UI pipeline profiler (load + frame phases). */
 	ui_profile = Cvar_Get("ui_profile", "0", CVAR_TEMP);
 	ui_profile_interval = Cvar_Get("ui_profile_interval", "60", CVAR_TEMP);
-	/* Added in OPM: UID_OPT_* bitmask; -1 enables all optimizations. */
+	/* Added in Omaha: UID_OPT_* bitmask; -1 enables all optimizations. */
 	ui_opt = Cvar_Get("ui_opt", "-1", CVAR_ARCHIVE);
-	/* Added in OPM: skip redundant flush+scissor when clip unchanged. */
+	/* Added in Omaha: Stage 2 scoped layout from nearest fixed-size boundary. */
+	ui_layout_scoped = Cvar_Get("ui_layout_scoped", "1", CVAR_ARCHIVE);
+	ui_style_cache = Cvar_Get("ui_style_cache", "1", CVAR_ARCHIVE);
+	ui_paint_list = Cvar_Get("ui_paint_list", "1", CVAR_ARCHIVE);
+	/* Added in Omaha: GPU stencil shape clips; 0 = AABB (Phase 0 default). */
+	ui_shape_clip = Cvar_Get("ui_shape_clip", "0", CVAR_ARCHIVE);
+	ui_batch_tile = Cvar_Get("ui_batch_tile", "0", CVAR_ARCHIVE);
+	ui_bind_cache = Cvar_Get("ui_bind_cache", "1", CVAR_ARCHIVE);
+	/* Added in Omaha: skip unchanged UIR_Hud_SetCvar* format/store work. */
+	Cvar_Get("ui_hud_push_cache", "1", CVAR_ARCHIVE);
+	/* Added in Omaha: quantize HUD angles/fracs so retained paint can settle. */
+	Cvar_Get("ui_hud_anim_quantize", "1", CVAR_ARCHIVE);
+	/* Added in Omaha: skip redundant flush+scissor when clip unchanged. */
 	ui_clip_dedup = Cvar_Get("ui_clip_dedup", "1", CVAR_ARCHIVE);
-	/* Added in OPM: tessellated mesh cache for GPU path fills/strokes. */
+	/* Added in Omaha: tessellated mesh cache for GPU path fills/strokes. */
 	ui_mesh_cache = Cvar_Get("ui_mesh_cache", "1", CVAR_ARCHIVE);
-	/* Added in OPM: retained chrome RT; default off (rebuilds every frame while HUD is live). */
+	/* Added in Omaha: retained chrome RT; default off (rebuilds every frame while HUD is live).
+	 * Follow-up: auto-enable only after N clean (paint-only / no dirty) frames — not a forced-on cache. */
 	ui_chrome_cache = Cvar_Get("ui_chrome_cache", "0", CVAR_ARCHIVE);
-	/* Added in OPM: batched GPU UI path; default on. */
+	/* Added in Omaha: Phase 1 — skip redundant Set2DWindow/scissor in compositor. */
+	ui_d2d_dedup = Cvar_Get("ui_d2d_dedup", "1", CVAR_ARCHIVE);
+	/* Added in Omaha: Phase 3 — replay CLIP dedup / EndRecord collapse. */
+	ui_replay_clip_dedup = Cvar_Get("ui_replay_clip_dedup", "1", CVAR_ARCHIVE);
+	/* Added in Omaha: Phase 4.1 — per-region retained chrome chunks. */
+	ui_paint_regions = Cvar_Get("ui_paint_regions", "1", CVAR_ARCHIVE);
+	/* Added in Omaha: Phase 4.2 — cached geometry for bound translate-x/y. */
+	ui_live_translate_cache = Cvar_Get("ui_live_translate_cache", "1", CVAR_ARCHIVE);
+	/* Added in Omaha: Phase 4.3 — cached foreach lifetime fades. */
+	ui_live_opacity_cache = Cvar_Get("ui_live_opacity_cache", "1", CVAR_ARCHIVE);
+	ui_paint_retain = Cvar_Get("ui_paint_retain", "1", CVAR_ARCHIVE);
+	/* Added in Omaha: Phase 4.4 — skip bind walks when listed cvars are unchanged. */
+	ui_bind_deps = Cvar_Get("ui_bind_deps", "1", CVAR_ARCHIVE);
+	ui_bind_deps_verify = Cvar_Get("ui_bind_deps_verify", "0", CVAR_TEMP);
+	/* Added in Omaha: batched GPU UI path; default on. */
 	ui_gpu_draw = Cvar_Get("ui_gpu_draw", "1", CVAR_ARCHIVE);
 	Cvar_CheckRange(ui_gpu_draw, 0, 1, qtrue);
 	ui_debug_render = Cvar_Get("ui_debug_render", "0", CVAR_TEMP);
 	Cvar_Get("ui_om_favorite_servers", "", CVAR_ARCHIVE);
 	Cvar_Get("ui_om_browser_mock", "0", CVAR_TEMP);
-	/* Added in OPM: modern settings helpers (cm/360 + sensitivity mode). */
+	/* Added in Omaha: modern settings helpers (cm/360 + sensitivity mode). */
 	Cvar_Get("ui_modernsettings_dpi", "800", CVAR_ARCHIVE);
 	Cvar_Get("ui_modernsettings_sensitivity_mode", "sensitivity", CVAR_ARCHIVE);
-	/* Added in OPM: menu map backdrop catalog selection (sources.xml menu-map-views). */
+	/* Added in Omaha: menu map backdrop catalog selection (sources.xml menu-map-views). */
 	ui_om_menu_map_view = Cvar_Get("ui_om_menu_map_view", "remagen", CVAR_ARCHIVE);
-	/* Added in OPM: HUD pack selection (archived player setting). */
+	/* Added in Omaha: HUD pack selection (archived player setting). */
 	ui_om_hud = Cvar_Get("ui_om_hud", "classic", CVAR_ARCHIVE);
 	/*
-	 * Fixed in OPM: cache legacy flags before UseModernHudPack(). That helper
+	 * Fixed in Omaha: cache legacy flags before UseModernHudPack(). That helper
 	 * calls UseLegacyHud(), which re-enters RegisterCvars while g_legacyCached
 	 * is still false — infinite recursion / SIGSEGV on launch.
 	 */
 	g_useLegacyMain = ui_legacy->integer ? qtrue : qfalse;
 	g_legacyCached  = qtrue;
-	/* Added in OPM: CS2-compatible procedural crosshair settings (after g_legacyCached). */
+	/* Added in Omaha: CS2-compatible procedural crosshair settings (after g_legacyCached). */
 	XHair_RegisterClientCvars();
 	XHair_ClientSyncClAliases();
 	CL_UIR_ApplyDebugRenderPreset();
@@ -5839,6 +6413,16 @@ void CL_UIR_EnsureStarted(void)
 	CL_UIR_ApplyDebugRenderPreset();
 }
 
+static void CL_UIPerf_Reset_f(void)
+{
+	CL_UIPerf_Reset();
+}
+
+static void CL_UIPerf_Dump_f(void)
+{
+	CL_UIPerf_Dump();
+}
+
 void CL_UIR_Init(void)
 {
 	if (g_uirStarted) {
@@ -5855,6 +6439,8 @@ void CL_UIR_Init(void)
 	UIR_Init();
 	Cmd_AddCommand("ui_render_reloadworld", CL_UIR_ReloadWorld_f);
 	Cmd_AddCommand("ui_render_test", CL_UIR_Test_f);
+	Cmd_AddCommand("ui_perf_reset", CL_UIPerf_Reset_f);
+	Cmd_AddCommand("ui_perf_dump", CL_UIPerf_Dump_f);
 	Cmd_AddCommand("uir_stress_uiscale", CL_UIR_StressUiScale_f);
 	Cmd_AddCommand("ui_design_dump", CL_UIR_DesignDump_f);
 	Cmd_AddCommand("ui_compare_goto", CL_UIR_CompareGoto_f);
@@ -5864,6 +6450,7 @@ void CL_UIR_Init(void)
 	Cmd_AddCommand("toggle_scoreboard_cursor", CL_UIR_ToggleScoreboardCursor_f);
 	CL_UIR_MigrateScoreboardCursorBinds();
 	CL_UIR_RegisterBakeCommands();
+	CL_UIPerf_Init();
 	CL_ModernBrowser_Init();
 	g_browserDidFirstRefresh = qfalse;
 	g_uirStarted = qtrue;
@@ -5877,6 +6464,8 @@ void CL_UIR_Shutdown(void)
 	}
 	Cmd_RemoveCommand("ui_render_reloadworld");
 	Cmd_RemoveCommand("ui_render_test");
+	Cmd_RemoveCommand("ui_perf_reset");
+	Cmd_RemoveCommand("ui_perf_dump");
 	Cmd_RemoveCommand("uir_stress_uiscale");
 	Cmd_RemoveCommand("ui_design_dump");
 	Cmd_RemoveCommand("ui_compare_goto");
@@ -5891,6 +6480,7 @@ void CL_UIR_Shutdown(void)
 	UID_ClearInvokes();
 	CL_ModernBrowser_Shutdown();
 	UIR_Shutdown();
+	CL_UIPerf_Shutdown();
 	g_browserDidFirstRefresh = qfalse;
 	g_uirStarted = qfalse;
 }
@@ -5903,7 +6493,7 @@ void CL_UIR_OnRendererRegistration(void)
 	UIR_MenuWorldReleaseOwnership();
 	UIR_MenuWorldMarkNeedsReload();
 	/*
-	 * Added in OPM: vid_restart re-inits GL but keeps modern main active — refresh
+	 * Added in Omaha: vid_restart re-inits GL but keeps modern main active — refresh
 	 * surface, fonts, layout, and compositor callbacks so the menu is not black/frozen.
 	 */
 	if (CL_UIMenu_HasAnyOpen()) {
@@ -6020,10 +6610,31 @@ qboolean CL_UIR_IsEligibleForModernMain(void)
 
 void CL_UIR_SyncEligibility(void)
 {
+	static int lastClientState = -1;
+
 	CL_UIMenu_SyncAutoMenus();
 
 	/* Added in Omaha: mirror connection for main-menu Disconnect visibility. */
 	CL_UIVar_Set("ui_om_connected", clc.state == CA_ACTIVE ? "1" : "0");
+
+	/*
+	 * Fixed in Omaha: dm_pause is opened persistent and previously survived
+	 * disconnect/reconnect, then painted Select Team over the Continue plaque.
+	 */
+	if (lastClientState == CA_ACTIVE && clc.state != CA_ACTIVE) {
+		if (CL_UIR_IsDmPauseOpen()) {
+			CL_UIR_CloseDmPause();
+		}
+		g_uirPendingDmPausePanel[0] = '\0';
+	}
+	if (clc.state == CA_ACTIVE && CL_UIR_IsDmPauseOpen() && UI_IsLoadingContinueVisible()) {
+		/*
+		 * Fixed in Omaha: do not re-queue cancelled team/weapon into pending —
+		 * only fresh pushmenus during Continue should defer via OpenDmPause.
+		 */
+		CL_UIR_CloseDmPause();
+	}
+	lastClientState = clc.state;
 
 	if (clc.state != CA_ACTIVE) {
 		if (CL_UIMenu_IsOpen("main") && clc.state != CA_DISCONNECTED) {
@@ -6036,7 +6647,7 @@ void CL_UIR_SyncEligibility(void)
 	}
 
 	/*
-	 * Fixed in OPM: 758175fa only released the menu world when every menu closed.
+	 * Fixed in Omaha: 758175fa only released the menu world when every menu closed.
 	 * Auto HUD menus stay open in-game, so backdrop loads were never torn down before
 	 * gameplay LoadWorld — restore the pre-HUD explicit release on eligibility loss.
 	 */
@@ -6074,7 +6685,7 @@ void CL_UIR_ActivateModernMain(void)
 	if (clc.state == CA_DISCONNECTED) {
 		UI_ForceMenuOff(true);
 	}
-	/* Fixed in OPM: parity with connected overlay — enable GUI mouse / absolute pointer. */
+	/* Fixed in Omaha: parity with connected overlay — enable GUI mouse / absolute pointer. */
 	CL_UIR_EnterModernInputMode();
 }
 
@@ -6109,7 +6720,7 @@ qboolean CL_UIR_ShouldOwnInput(void)
 
 qboolean CL_UIR_LegacyModalOwnsInput(void)
 {
-	/* Changed in OPM: expanded via UI helpers (console, bind, dialogs, menus). */
+	/* Changed in Omaha: expanded via UI helpers (console, bind, dialogs, menus). */
 	if (UI_ConsoleIsOpen() || UI_BindActive()) {
 		return qtrue;
 	}
@@ -6124,6 +6735,18 @@ qboolean CL_UIR_IsCapturingKeybind(void)
 	return CL_UIMenu_IsCapturingKeybind();
 }
 
+/* Fixed in Omaha: defer pushmenu_teamselect while Continue/loading owns the screen. */
+
+static qboolean CL_UIR_DmPauseBlockedByLoading(void)
+{
+	if (!g_uirMapUiReady) {
+		return qtrue;
+	}
+	return UI_IsLoadingContinueVisible();
+}
+
+static void CL_UIR_FlushPendingDmPause(void);
+
 void CL_UIR_UpdateModern(void)
 {
 	CL_UIR_SyncGpuDrawBatch();
@@ -6133,6 +6756,7 @@ void CL_UIR_UpdateModern(void)
 	qboolean            ownInput;
 
 	CL_UIR_SyncEligibility();
+	CL_UIR_FlushPendingDmPause();
 
 	if (CL_UIR_IsDmPauseOpen()) {
 		CL_UIR_SyncPauseVoteCvars();
@@ -6146,7 +6770,7 @@ void CL_UIR_UpdateModern(void)
 	}
 
 	/*
-	 * Fixed in OPM: menus opened after the last resolution change (e.g. the
+	 * Fixed in Omaha: menus opened after the last resolution change (e.g. the
 	 * connected main overlay) would keep the 0x0 surface UID_Create starts with
 	 * and lay out into nothing. UID_SetSurface no-ops when values are unchanged.
 	 */
@@ -6161,7 +6785,7 @@ void CL_UIR_UpdateModern(void)
 	CL_UIR_TickUiScaleStress();
 	CL_UIR_PushUiPxScale();
 	/*
-	 * Added in OPM: keep draw-order<=4 HUD runtimes (crosshair, pack, scoreboard)
+	 * Added in Omaha: keep draw-order<=4 HUD runtimes (crosshair, pack, scoreboard)
 	 * laid out even when UpdateModern is the only tick (connected overlay / settings).
 	 */
 	if (clc.state == CA_ACTIVE && CL_UIMenu_HasMenusUpTo(4)) {
@@ -6184,6 +6808,7 @@ void CL_UIR_UpdateModern(void)
 			CL_UIMenu_UpdateAll(cls.realtime);
 		}
 		uir_browser_update_status_cvars();
+		CL_UIR_SyncSettingsApplyPending();
 		return;
 	}
 
@@ -6195,13 +6820,18 @@ void CL_UIR_UpdateModern(void)
 	memset(&pointer, 0, sizeof(pointer));
 	pointer.x = x;
 	pointer.y = y;
-	pointer.buttons = (int)uid.mouseFlags;
+	/*
+	 * Fixed in Omaha: use cl.mouseButtons — uid.mouseFlags is 0 before guimouse
+	 * and can lag a frame behind EnterModernInputMode.
+	 */
+	pointer.buttons = CL_UIR_ApplyDmPauseClickGate((int)cl.mouseButtons);
 	pointer.wheel = g_pointerWheelDelta;
 	pointer.moved = false;
 	g_pointerWheelDelta = 0;
 
 	CL_UIMenu_UpdateAllWithPointer(cls.realtime, &pointer);
 	uir_browser_update_status_cvars();
+	CL_UIR_SyncSettingsApplyPending();
 }
 
 qboolean CL_UIR_KeyEvent(int key, qboolean down, unsigned time)
@@ -6217,7 +6847,7 @@ qboolean CL_UIR_KeyEvent(int key, qboolean down, unsigned time)
 
 	if (down) {
 		/*
-		 * Fixed in OPM: while capturing a keybind, MWHEEL* is the bind key —
+		 * Fixed in Omaha: while capturing a keybind, MWHEEL* is the bind key —
 		 * do not accumulate scroll delta that steals the wheel from capture.
 		 */
 		if (!CL_UIR_IsCapturingKeybind()) {
@@ -6316,7 +6946,7 @@ void CL_UIR_OpenConnectedOverlay(void)
 		CL_UIR_Init();
 	}
 	/*
-	 * Fixed in OPM: bail before tearing down the legacy pause menu / latching
+	 * Fixed in Omaha: bail before tearing down the legacy pause menu / latching
 	 * KEYCATCH_UI, otherwise a failed load leaves the client with dead input.
 	 */
 	if (!CL_UIMenu_Open("main", qtrue)) {
@@ -6344,7 +6974,7 @@ void CL_UIR_CloseConnectedOverlay(void)
 	}
 }
 
-/* Added in OPM: sync vote widget visibility cvars for dm_pause XML conditionals. */
+/* Added in Omaha: sync vote widget visibility cvars for dm_pause XML conditionals. */
 static void CL_UIR_SyncPauseVoteCvars(void)
 {
 	const cvar_t *cg_allowvote = Cvar_Get("cg_allowvote", "1", 0);
@@ -6361,13 +6991,53 @@ static void CL_UIR_SyncPauseVoteCvars(void)
 	CL_UIVar_Set("ui_om_voted", voted ? "1" : "0");
 }
 
+static void CL_UIR_ArmDmPausePointerEdges(const char *menuId)
+{
+	uid_runtime_t  *runtime;
+	uid_document_t *doc;
+
+	/*
+	 * Fixed in Omaha: opening dm_pause while MOUSE1 is held (spectator fire /
+	 * pushmenu_teamselect) left inputScratch.lastButtons at 0, so the first
+	 * pointer tick looked like a fresh press on the outside-plaque dismiss
+	 * hit and the release flipped the panel to root. Seed from cl.mouseButtons
+	 * (real state) — uid.mouseFlags is forced 0 while !in_guimouse.
+	 */
+	runtime = CL_UIMenu_RuntimeById(menuId);
+	if (!runtime || !UID_HasDocument(runtime)) {
+		return;
+	}
+	doc = const_cast<uid_document_t *>(UID_GetDocument(runtime));
+	if (!doc) {
+		return;
+	}
+	doc->inputScratch.lastButtons = 0;
+	doc->inputScratch.pressNode = UID_INVALID_NODE_ID;
+	CL_UIR_ArmDmPauseClickGate();
+}
+
+static void CL_UIR_FlushPendingDmPause(void)
+{
+	char panel[32];
+
+	if (!g_uirPendingDmPausePanel[0]) {
+		return;
+	}
+	if (!CL_UIR_UseModernHudPack() || clc.state != CA_ACTIVE || CL_UIR_DmPauseBlockedByLoading()) {
+		return;
+	}
+	Q_strncpyz(panel, g_uirPendingDmPausePanel, sizeof(panel));
+	g_uirPendingDmPausePanel[0] = '\0';
+	CL_UIR_OpenDmPause(panel);
+}
+
 void CL_UIR_OpenDmPause(const char *panel)
 {
 	if (!CL_UIR_UseModernHudPack() || clc.state != CA_ACTIVE) {
 		return;
 	}
 	/*
-	 * Changed in OPM: retail mpoptions → modern main Play panel (name/models).
+	 * Changed in Omaha: retail mpoptions → modern main Play panel (name/models).
 	 * Escape "Main Menu" already opens Settings via dm_pause hit cbuf.
 	 */
 	if (panel && !Q_stricmp(panel, "options")) {
@@ -6378,10 +7048,18 @@ void CL_UIR_OpenDmPause(const char *panel)
 		CL_UIR_OpenConnectedOverlay();
 		return;
 	}
+	if (CL_UIR_DmPauseBlockedByLoading()) {
+		Q_strncpyz(
+			g_uirPendingDmPausePanel,
+			(panel && panel[0]) ? panel : "root",
+			sizeof(g_uirPendingDmPausePanel)
+		);
+		return;
+	}
 	if (!g_uirStarted) {
 		CL_UIR_Init();
 	}
-	/* Fixed in OPM: populate the retail display-model cvars before team panels bind them. */
+	/* Fixed in Omaha: populate the retail display-model cvars before team panels bind them. */
 	UI_GetPlayerModel_f();
 	CL_UIVar_Set("ui_om_pause_panel", (panel && panel[0]) ? panel : "root");
 	CL_UIR_SyncPauseVoteCvars();
@@ -6397,6 +7075,7 @@ void CL_UIR_OpenDmPause(const char *panel)
 	Key_SetCatcher(Key_GetCatcher() | KEYCATCH_UI);
 	CL_UIR_EnterModernInputMode();
 	Com_FakePause();
+	CL_UIR_ArmDmPausePointerEdges(menuId);
 }
 
 void CL_UIR_CloseDmPause(void)
@@ -6414,6 +7093,8 @@ void CL_UIR_CloseDmPause(void)
 			CL_UIMenu_Close(pauseMenu);
 		}
 	}
+	/* Fixed in Omaha: do not leave a sticky panel for the next open. */
+	CL_UIVar_Set("ui_om_pause_panel", "root");
 	if (!CL_UIMenu_HasInteractiveOpen()) {
 		CL_UIR_LeaveModernInputMode();
 		if (clc.state == CA_ACTIVE) {
@@ -6487,23 +7168,36 @@ void CL_UIR_DrawCrosshair(void)
 	qboolean       hadCallbacks;
 	qboolean       paintHud;
 	qboolean       paintSniper;
+	uir_status_t   beginRc = UIR_ERR_NOT_READY;
 
 	CL_UIR_EnsureStarted();
 	CL_UIR_SyncEligibility();
 	/*
-	 * Fixed in OPM: do not start a modern hud_layer profile sample on the
+	 * Fixed in Omaha: do not start a modern hud_layer profile sample on the
 	 * legacy URC path — UI_Update already owns the legacy_ui sample and a
 	 * nested BeginSample was resetting mid-frame timings/labels.
 	 */
 	if (CL_UIR_UseLegacyHud()) {
 		return;
 	}
+
+	UiPerfScope uiTotalScope(UIPERF_UI_TOTAL);
+
 	/*
-	 * Fixed in OPM: sync HUD menus before paint gates so layout/uiPxScale stay
+	 * Fixed in Omaha: sync HUD menus before paint gates so layout/uiPxScale stay
 	 * current even when ShouldPaintHudLayer returns false (zoom, settings, etc.).
 	 */
 	CL_UIR_ProfileBeginSample("hud_layer");
-	(void)CL_UIR_SyncHudLayerMenus(cls.realtime, &lw, &lh, &fw, &fh);
+	{
+		UiPerfScope syncScope(UIPERF_SYNC);
+		(void)CL_UIR_SyncHudLayerMenus(cls.realtime, &lw, &lh, &fw, &fh);
+	}
+	if (UID_ProfileEnabled()) {
+		uid_prof_timings_t t;
+		UID_ProfileCaptureFrame(&t);
+		CL_UIPerf_Mark(UIPERF_BIND, (double)t.us[UID_PROF_FRAME_BIND]);
+		CL_UIPerf_Mark(UIPERF_LAYOUT, (double)t.us[UID_PROF_FRAME_LAYOUT]);
+	}
 
 	paintSniper = (CL_UIVar_Integer("ui_om_hud_sniper_zoom") != 0
 				   && Cvar_VariableIntegerValue("cg_crosshair_sniper_modern") != 0
@@ -6511,7 +7205,7 @@ void CL_UIR_DrawCrosshair(void)
 					  ? qtrue
 					  : qfalse;
 	{
-		/* Fixed in OPM: scope lives in chrome; rebuild retained chrome when zoom toggles. */
+		/* Fixed in Omaha: scope lives in chrome; rebuild retained chrome when zoom toggles. */
 		static qboolean s_lastSniperZoom = qfalse;
 		if (paintSniper != s_lastSniperZoom) {
 			UIR_InvalidateChromeCache();
@@ -6546,17 +7240,30 @@ void CL_UIR_DrawCrosshair(void)
 	}
 
 	hadCallbacks = CL_UIMenu_HasInteractiveOpen() ? qtrue : qfalse;
+	/*
+	 * Phase 4.6: the retained UI target only holds region-owned HUD pixels.
+	 * Sniper overlay, interactive menus, or a hidden HUD must start from a clear
+	 * so nothing stale shows for even one frame.
+	 */
+	if (paintSniper || !paintHud || hadCallbacks) {
+		UIR_CompositorRetainSuppress();
+	}
 	if (!hadCallbacks) {
 		if (paintHud) {
 			UIR_CompositorSetChromeCallback(CL_UIR_HudChromeCallback, NULL);
 			UIR_CompositorSetOverlayCallback(CL_UIR_HudOverlayCallback, NULL);
 		} else {
-			/* Added in OPM: sniper scope still paints when HUD chrome is gated off. */
+			/* Added in Omaha: sniper scope still paints when HUD chrome is gated off. */
 			UIR_CompositorSetChromeCallback(CL_UIR_SniperZoomChromeCallback, NULL);
 			UIR_CompositorSetOverlayCallback(NULL, NULL);
 		}
 	}
-	if (UIR_BeginOverlayFrame(&vp, cls.realtime) == UIR_OK) {
+	{
+		UiPerfScope paintScope(UIPERF_PAINT);
+		beginRc = UIR_BeginOverlayFrame(&vp, cls.realtime);
+	}
+	if (beginRc == UIR_OK) {
+		UiPerfScope overlayScope(UIPERF_OVERLAY);
 		UIR_EndOverlayFrame();
 	}
 	if (!hadCallbacks) {

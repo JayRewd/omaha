@@ -39,7 +39,7 @@ typedef void (*uir_layer_fn)(void *userdata);
 typedef struct {
 	uir_rect_t                 rect;
 	uir_model_preview_params_t params;
-	char                       animStorage[64]; /* Fixed in OPM: own anim name for deferred draw */
+	char                       animStorage[64]; /* Fixed in Omaha: own anim name for deferred draw */
 } uir_queued_preview_t;
 
 void UIR_CompositorReset(void);
@@ -51,7 +51,7 @@ uir_status_t UIR_EndOverlayFrame(void);
 uir_status_t UIR_DrawSolidRect(float x, float y, float w, float h, const uir_color_t *rgba);
 uir_status_t UIR_FillPolygon2D(const uir_point_t *pts, int count, const uir_color_t *rgba);
 uir_status_t UIR_FillPath2D(const uir_path_t *path, const uir_color_t *rgba, int crisp, int noFringe);
-/* Added in OPM */
+/* Added in Omaha */
 uir_status_t UIR_StrokePath2D(const uir_path_t *path, const uir_color_t *rgba, float widthPx, int crisp);
 uir_status_t UIR_QueueModelPreview(const uir_rect_t *rect, const uir_model_preview_params_t *params);
 uir_status_t UIR_EndDisconnectedFrame(void);
@@ -68,11 +68,15 @@ uir_stats_t *UIR_CompositorStats(void);
 uir_status_t UIR_PushClipRect(float x, float y, float w, float h);
 void         UIR_PopClipRect(void);
 void         UIR_ResetClipStack(void);
-/* Added in OPM: toggle / invalidate clip-scissor dedup. */
+/* Added in Omaha: toggle / invalidate clip-scissor dedup. */
 void         UIR_SetClipDedup(int enable);
 void         UIR_InvalidateAppliedClip(void);
+/* Added in Omaha Stage 4: apply absolute logical clip (paint-list replay). */
+void         UIR_ForceClipRect(float x, float y, float w, float h);
+/* Added in Omaha: Phase 3 — same as Force but preserves applied-clip dedup. */
+void         UIR_ApplyClipRect(float x, float y, float w, float h);
 
-/* Added in OPM: optional retained chrome RT (gl1); default off via ui_chrome_cache. */
+/* Added in Omaha: optional retained chrome RT (gl1); default off via ui_chrome_cache. */
 typedef struct {
 	int (*available)(void);
 	int (*beginCapture)(float uiX, float uiY, float uiW, float uiH);
@@ -85,6 +89,8 @@ void UIR_ChromeCacheSetBackend(const uir_chrome_cache_backend_t *backend);
 void UIR_SetChromeCache(int enable);
 void UIR_InvalidateChromeCache(void);
 void UIR_ChromeCacheRequestRebuild(void);
+/* Added in Omaha: Phase 4.6 — next overlay frame must start from a cleared UI target. */
+void UIR_CompositorRetainSuppress(void);
 
 #ifdef __cplusplus
 }

@@ -26,6 +26,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 
 #include "uir_types.h"
 #include "uir_path.h"
+#include "uir_batch.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -35,12 +36,17 @@ typedef struct {
 	int (*available)(void);
 	void (*beginMask)(int scissorX, int scissorY, int scissorW, int scissorH);
 	void (*maskBox)(float x, float y, float w, float h);
+	/* Added in Omaha: GPU tess mask fill — must not touch the color buffer. */
+	void (*maskTris)(const uir_vert_t *v, int nv, const unsigned short *idx, int ni);
 	void (*beginDraw)(void);
 	void (*end)(void);
 } uir_stencil_backend_t;
 
 void UIR_StencilSetBackend(const uir_stencil_backend_t *backend);
 int UIR_StencilAvailable(void);
+/* Added in Omaha: gate real stencil shape clips (default off → AABB). */
+void UIR_SetShapeClipStencil(int enabled);
+int  UIR_ShapeClipStencilEnabled(void);
 
 uir_status_t UIR_BeginShapeClip(const uir_viewport_t *vp, const uir_rect_t *bounds);
 uir_status_t UIR_StencilWritePath(const uir_viewport_t *vp, const uir_path_t *path);

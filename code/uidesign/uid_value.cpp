@@ -322,6 +322,39 @@ bool UID_IsGradientBrush(const char *text)
 	return UIR_GradientIsBrush(text) != 0;
 }
 
+bool UID_MaskBrushIsOpaqueWhite(const char *text)
+{
+	int stops = 0;
+	const char *p;
+
+	if (!text || !text[0] || !UID_IsGradientBrush(text)) {
+		return false;
+	}
+	/*
+	 * Any transparent / non-white hex means a real soft mask. Only skip when every
+	 * #RRGGBB(AA) stop is opaque white (#FFFFFF / #FFFFFFFF).
+	 */
+	for (p = text; *p; ++p) {
+		if (*p != '#') {
+			continue;
+		}
+		unsigned int r = 0, g = 0, b = 0, a = 255;
+		int n = 0;
+		if (std::sscanf(p + 1, "%02x%02x%02x%02x%n", &r, &g, &b, &a, &n) >= 4 && n >= 8) {
+			/* #RRGGBBAA */
+		} else if (std::sscanf(p + 1, "%02x%02x%02x%n", &r, &g, &b, &n) >= 3 && n >= 6) {
+			a = 255;
+		} else {
+			return false;
+		}
+		if (r != 255 || g != 255 || b != 255 || a != 255) {
+			return false;
+		}
+		++stops;
+	}
+	return stops > 0;
+}
+
 bool UID_IsFillPaint(const char *text)
 {
 	if (!text || !text[0]) {

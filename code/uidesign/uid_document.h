@@ -28,6 +28,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "uid_value.h"
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <string>
 #include <unordered_map>
@@ -67,7 +68,7 @@ struct uid_shape_def_t {
 	std::vector<uid_path_def_t> paths;
 };
 
-/* Added in OPM: resolved shape path for paint (also cached on node state). */
+/* Added in Omaha: resolved shape path for paint (also cached on node state). */
 struct uid_resolved_path_t {
 	std::string d;
 	uid_color_t fill;
@@ -93,7 +94,7 @@ struct uid_select_option_t {
 	std::string label;
 };
 
-/* Added in OPM: host-backed collection item cached on scope nodes. */
+/* Added in Omaha: host-backed collection item cached on scope nodes. */
 struct uid_collection_entry_t {
 	std::string                        key;
 	std::string                        value;
@@ -114,9 +115,9 @@ struct uid_node_def_t {
 	std::vector<uid_select_option_t> options;
 	std::string                    optionSource;
 	std::string                    appearance; /* empty|dropdown = overlay; cyclic = prev/next */
-	std::string                    openModal; /* Added in OPM: modal= id opens relative/fullscreen modal instead of procedural overlay */
+	std::string                    openModal; /* Added in Omaha: modal= id opens relative/fullscreen modal instead of procedural overlay */
 
-	/* Added in OPM: bind value transforms / visibility / two-button set-value */
+	/* Added in Omaha: bind value transforms / visibility / two-button set-value */
 	std::string                    valueType;  /* percent|invert-mouse|pitch-magnitude|cm360|display-mode */
 	std::string                    visibleIf;  /* cvar:name=value (legacy) */
 	std::string                    enabledIf;   /* cvar:name=value (legacy) */
@@ -124,17 +125,17 @@ struct uid_node_def_t {
 	std::string                    enabledExpr; /* {bool expr} inner text */
 	bool                           visibleExprBound;
 	bool                           enabledExprBound;
-	/* Added in OPM: one-time migration of static visible="{...}" into visibleExpr. */
+	/* Added in Omaha: one-time migration of static visible="{...}" into visibleExpr. */
 	bool                           visibleExprProbed;
 	bool                           enabledExprProbed;
-	/* Added in OPM: style ternary exprs per property (inner of attr="{cond ? a : b}") */
+	/* Added in Omaha: style ternary exprs per property (inner of attr="{cond ? a : b}") */
 	std::map<std::string, std::string> styleExprs;
 	std::string                    setValue;   /* button writes this to bind on click */
-	/* Added in OPM: property values that are exactly {cvar:name} and sync each frame */
+	/* Added in Omaha: property values that are exactly {cvar:name} and sync each frame */
 	std::map<std::string, std::string> cvarBoundProps;
-	/* Added in OPM: runtime numeric {expr} property bindings (not exact cvar passthrough) */
+	/* Added in Omaha: runtime numeric {expr} property bindings (not exact cvar passthrough) */
 	std::map<std::string, std::string> exprBoundProps;
-	/* Added in OPM: cached "does this node need binding work?" bits. */
+	/* Added in Omaha: cached "does this node need binding work?" bits. */
 	unsigned                       bindingFlags;
 	bool                           bindingFlagsValid;
 
@@ -146,7 +147,7 @@ struct uid_node_def_t {
 	/* shape instance */
 	std::string                    shapeId;
 
-	/* model preview (Added in OPM) */
+	/* model preview (Added in Omaha) */
 	std::string                    modelPath;
 	std::string                    team; /* optional allies|axis */
 	std::string                    anim; /* optional; empty → team idle at paint */
@@ -171,11 +172,14 @@ struct uid_node_def_t {
 	float                          modelColor[4];
 	bool                           hasModelColor;
 
-	/* server-list / host region (Added in OPM) */
+	/* server-list / host region (Added in Omaha) */
 	std::string                    role; /* e.g. server-list */
 
-	/* Added in OPM: collection scope (source= on container) */
+	/* Added in Omaha: collection scope (source= on container) */
 	std::string                    collectionSource;
+	/* Added in Omaha: Phase 4.4 — 0 unresolved, 1 XML <sources>, 2 host provider. */
+	int                            collectionSourceClass;
+	int                            collectionHostId;
 	std::string                    collectionDisplay; /* label|value for {item.display} */
 	int                            collectionDefaultIndex;
 	bool                           hasCollectionDefaultIndex;
@@ -183,13 +187,13 @@ struct uid_node_def_t {
 	bool                           collectionWrap;
 	bool                           collectionScroll;
 
-	/* Added in OPM: foreach row template */
+	/* Added in Omaha: foreach row template */
 	std::string                    foreachMode; /* all|selected|window */
 	std::string                    foreachCountExpr; /* count="{...}" inner or full authored value */
 	bool                           hasForeachCount;
 	float                          foreachRowHeight;
 	bool                           hasForeachRowHeight;
-	/* Added in OPM: opt-in row age / fade on <foreach> (ms). */
+	/* Added in Omaha: opt-in row age / fade on <foreach> (ms). */
 	bool                           hasForeachLifetime;
 	int                            foreachLifetimeMs;
 	int                            foreachFadeDurationMs;
@@ -199,11 +203,11 @@ struct uid_node_def_t {
 	int                            foreachItemIndex;
 	bool                           foreachGenerated;
 
-	/* Added in OPM: templated scrollbar chrome on overflow=scroll containers */
+	/* Added in Omaha: templated scrollbar chrome on overflow=scroll containers */
 	std::string                    scrollbarTemplateId;
 	bool                           scrollbarGenerated;
 
-	/* Added in OPM: index actions on buttons */
+	/* Added in Omaha: index actions on buttons */
 	int                            stepIndex;
 	bool                           hasStepIndex;
 	int                            setIndexValue;
@@ -215,9 +219,9 @@ struct uid_node_def_t {
 
 	/* keybind */
 	std::string                    binding;
-	std::string                    confirmModal; /* Added in OPM: definitions modal id on conflict */
-	std::string                    modalCvar;    /* Added in OPM: dispatch cvar (default ui_om_modal) */
-	int                            bindSlot;     /* Added in OPM: 0 primary, 1 secondary */
+	std::string                    confirmModal; /* Added in Omaha: definitions modal id on conflict */
+	std::string                    modalCvar;    /* Added in Omaha: dispatch cvar (default ui_om_modal) */
+	int                            bindSlot;     /* Added in Omaha: 0 primary, 1 secondary */
 
 	/* slider / numeric bounds */
 	double                         minValue;
@@ -244,7 +248,7 @@ struct uid_template_def_t {
 	std::vector<uid_node_def_t>  nodes;
 };
 
-/* Added in OPM: XML-authored collection source definitions. */
+/* Added in Omaha: XML-authored collection source definitions. */
 struct uid_source_item_def_t {
 	std::string                        value;
 	std::string                        label;
@@ -257,13 +261,13 @@ struct uid_source_def_t {
 	std::vector<uid_source_item_def_t> items;
 };
 
-/* Added in OPM: static design-token definitions (<vars><var id= value=>). */
+/* Added in Omaha: static design-token definitions (<vars><var id= value=>). */
 struct uid_var_def_t {
 	std::string id;
 	std::string value;
 };
 
-/* Added in OPM: modal definitions (non-rendering until mounted via cvar). */
+/* Added in Omaha: modal definitions (non-rendering until mounted via cvar). */
 struct uid_modal_def_t {
 	std::string                  id;
 	std::string                  type; /* empty = fullscreen dialog; relative = opener-anchored panel */
@@ -295,12 +299,43 @@ struct uid_optional_value_t {
 	std::string stringValue;
 };
 
+/* Added in Omaha: Stage 3 computed paint style (ui_style_cache). */
+struct uid_computed_style_t {
+	unsigned    propsVersion;
+	unsigned    scaleEpoch;
+	unsigned    cvarEpoch;
+	unsigned    interactionKey;
+	bool        valid;
+	/* Added in Omaha: only invalidate on cvarEpoch when paint reads live cvars. */
+	bool        dependsOnCvar;
+
+	bool        hasFill;
+	bool        hasGradient;
+	uid_color_t fill;
+	std::string gradientBrush;
+
+	bool        hasStroke;
+	uid_color_t stroke;
+	float       strokeWidthPx;
+
+	char        shapeName[64];
+	bool        rectShape;
+	bool        isEdgeClip;
+
+	float       pathRotationDeg;
+	float       bgRotationDeg;
+
+	uid_color_t textColor;
+};
+
 struct uid_node_state_t {
 	bool                hovered;
 	bool                pressed;
 	bool                focused;
 	bool                effectivelyEnabled;
 	uid_optional_value_t runtimeValue;
+	/* Added in Omaha: commit=apply staged by user input (not auto sync/fallback). */
+	bool                applyUserEdited;
 	std::string         editBuffer;
 	std::string         preEditValue; /* Escape restores this for inputs */
 	size_t              caretCodepoint;
@@ -318,49 +353,111 @@ struct uid_node_state_t {
 	bool                dragging;      /* slider drag */
 	int                 highlightIndex; /* select highlight */
 
-	/* Added in OPM: collection scope runtime */
+	/* Added in Omaha: collection scope runtime */
 	std::vector<uid_collection_entry_t> collectionItems;
 	int                 collectionSelectedIndex;
 	int                 collectionItemCount;
 	uint64_t            collectionRevision;
 	int                 collectionScrollOffset;
-	/* Added in OPM: syncFrameCounter when RefreshCollectionScope last ran. */
+	/* Added in Omaha: syncFrameCounter when RefreshCollectionScope last ran. */
 	int                 collectionRefreshFrame;
 
-	/* Added in OPM: foreach expansion cache (skip rebuild when unchanged). */
+	/* Added in Omaha: foreach expansion cache (skip rebuild when unchanged). */
 	uint64_t            foreachExpandSig;
-	/* Added in OPM: first-seen time (doc updateTimeMs) per item.key when lifetime is set. */
+	/*
+	 * Fixed in Omaha: scope identity the last expand consumed. Skip paths must
+	 * prove the rows match the scope as it is now, not merely that the host did
+	 * not change this frame (hidden-while-loaded and selection-only changes).
+	 */
+	bool                foreachStamped;
+	uint64_t            foreachStampRev;
+	int                 foreachStampCount;
+	int                 foreachStampSize;
+	int                 foreachStampSel;
+	int                 foreachStampScroll;
+	/* Added in Omaha: first-seen time (doc updateTimeMs) per item.key when lifetime is set. */
 	std::unordered_map<std::string, int> foreachAppearAtMs;
-	/* Added in OPM: per-row opacity mul from foreach lifetime fade (wrap roots). */
+	/* Added in Omaha: per-row opacity mul from foreach lifetime fade (wrap roots). */
 	float               lifetimeOpacityMul;
+	/* Added in Omaha: Phase 4.3 — row wrapper has a valid LIVE_OPACITY cache. */
+	bool                liveOpacityCached;
 
-	/* Added in OPM: scrollbar chrome layout / drag (on scroll container). */
+	/* Added in Omaha: scrollbar chrome layout / drag (on scroll container). */
 	uid_rect_t          scrollbarTrackRect;
 	uid_rect_t          scrollbarThumbRect;
 	bool                scrollbarDragging;
 	float               scrollbarDragOffset;
 	bool                scrollbarVisible;
 
-	/* Added in OPM: per-node text measurement cache (layout + paint alignment). */
+	/* Added in Omaha: per-node text measurement cache (layout + paint alignment). */
 	void               *cachedFont;
 	float               cachedTextWidth;
 	uint64_t            cachedTextKey;     /* font id + weight + size + scales (ResolveFont) */
 	uint64_t            cachedMeasureKey;  /* text + font params (measure cache) */
-	/* Added in OPM: cvar-pure visible/enabled result memo keyed by cvar epoch. */
+	/* Added in Omaha: cvar-pure visible/enabled result memo keyed by cvar epoch. */
 	unsigned            visibleEpoch;
 	bool                visibleCached;
 	bool                visibleCachedValue;
 	unsigned            enabledEpoch;
 	bool                enabledCached;
 	bool                enabledCachedValue;
-	/* Added in OPM: skip SyncBoundStyleExprs when all styleExprs are cvar-pure and epoch matches. */
+	/* Added in Omaha: skip SyncBoundStyleExprs when all styleExprs are cvar-pure and epoch matches. */
 	unsigned            styleExprEpoch;
 	bool                styleExprCached;
 
-	/* Added in OPM: cached UID_ResolveShape output. */
+	/*
+	 * Added in Omaha Stage 6b: skip full bind body when cvar-pure work is unchanged.
+	 * bindSyncEpoch tracks Cvar_GlobalModCount; bindPrimaryModCount / labelCvarModCount
+	 * allow per-cvar early-outs when other HUD cvars still churn the global epoch.
+	 */
+	unsigned            bindSyncEpoch;
+	bool                bindSyncCached;
+	unsigned            bindPrimaryModCount;
+	unsigned            labelCvarModCount;
+	unsigned            cvarPropsModStamp;
+	/*
+	 * Added in Omaha: foreach-generated nodes skip item.* text/prop rebind while
+	 * the enclosing collection scope revision and this row's foreachItemIndex are
+	 * unchanged. Field refresh bumps revision; mode=selected rebind updates index
+	 * in place without expand teardown.
+	 */
+	uint64_t            itemBindRevision;
+	int                 itemBindItemIndex;
+	/* Added in Omaha: Phase 4.4 — last collectionRevision consumed by bind deps. */
+	uint64_t            bindDepsSeenCollectionRev;
+	/*
+	 * Fixed in Omaha: last collectionSelectedIndex consumed by bind deps. Selection
+	 * steps rebind mode=selected rows in place without a revision bump.
+	 */
+	int                 bindDepsSeenCollectionSel;
+	/* Added in Omaha: Phase 4.4 — last RefreshCollectionScope was a no-op this frame. */
+	bool                collectionRefreshUnchanged;
+
+	/* Added in Omaha: cached UID_ResolveShape output. */
 	std::vector<uid_resolved_path_t> cachedShapePaths;
 	unsigned long long               cachedShapeKey;
 	bool                             cachedShapeValid;
+
+	/*
+	 * Added in Omaha: last LayoutNode inputs (Stage 2 scoped layout). Valid after a
+	 * successful layout of this node; used to re-run LayoutNode from a boundary.
+	 */
+	float               layoutMarginX;
+	float               layoutMarginY;
+	float               layoutMarginW;
+	float               layoutMarginH;
+	float               layoutPercentBaseW;
+	float               layoutPercentBaseH;
+	uid_rect_t          layoutParentClip;
+	bool                layoutAncestorVisible;
+	bool                layoutAncestorEnabled;
+	bool                layoutInputsValid;
+	/* Added in Omaha: last LayoutNode authored size units were non-auto (px/%/fill). */
+	bool                layoutSizedW;
+	bool                layoutSizedH;
+
+	/* Added in Omaha: Stage 3 computed style cache. */
+	uid_computed_style_t computedStyle;
 };
 
 /* Per-document pointer/modifier edge state (owned; not a global map). */
@@ -376,12 +473,12 @@ struct uid_input_scratch_t {
 
 struct uid_document_t {
 	std::string                                  sourceName;
-	/* Added in OPM: registerable menu metadata from <definitions menu-id draw-order backdrop>. */
+	/* Added in Omaha: registerable menu metadata from <definitions menu-id draw-order backdrop>. */
 	bool                                         hasMenuMeta;
 	std::string                                  menuId;
 	int                                          drawOrder;
 	uid_menu_backdrop_t                          menuBackdrop;
-	/* Added in OPM: optional canvas pointer="{bool expr}"; empty = no cursor ownership. */
+	/* Added in Omaha: optional canvas pointer="{bool expr}"; empty = no cursor ownership. */
 	std::string                                  pointerExpr;
 	uid_limits_t                                 limits;
 	uid_definition_tables_t                      definitions;
@@ -392,24 +489,57 @@ struct uid_document_t {
 	uid_dirty_flags_t                            dirty;
 	bool                                         expanded;
 	float                                        lastFbScale; /* from last UID_LayoutDocument */
-	float                                        lastUiPxScale; /* authored px multiplier; Added in OPM */
+	float                                        lastUiPxScale; /* authored px multiplier; Added in Omaha */
 	int                                          lastLogicalW; /* viewport width from last layout */
 	int                                          lastLogicalH; /* viewport height from last layout */
 	uid_input_scratch_t                          inputScratch;
-	/* Added in OPM: last UID_Update realtime (ms) for foreach lifetime / fade. */
+	/* Added in Omaha: last UID_Update realtime (ms) for foreach lifetime / fade. */
 	int                                          updateTimeMs;
-	/* Added in OPM: skip UID_ApplyCollectionAndIndexFields until structure changes. */
+	/* Added in Omaha: skip UID_ApplyCollectionAndIndexFields until structure changes. */
 	bool                                         collectionFieldsApplied;
-	/* Added in OPM: incremented each UID_SyncBindings for collection refresh stamps. */
+	/* Added in Omaha: incremented each UID_SyncBindings for collection refresh stamps. */
 	int                                          syncFrameCounter;
+	/* Added in Omaha: translate-x/y deltas applied without full-document layout. */
+	struct translate_delta_t {
+		uid_node_id_t nodeId;
+		float         dx;
+		float         dy;
+	};
+	std::vector<translate_delta_t>               pendingTranslateDeltas;
 
-	/* Added in OPM: cvar-dispatched modal overlay (nodes appended to nodes/states). */
+	/* Added in Omaha: cvar-dispatched modal overlay (nodes appended to nodes/states). */
 	std::string                                  activeModalId;
 	size_t                                       modalOverlayBase;
 	uid_node_id_t                                modalRootNode;
-	/* Added in OPM: node that triggered show-modal / select modal= (relative placement anchor). */
+	/* Added in Omaha: node that triggered show-modal / select modal= (relative placement anchor). */
 	uid_node_id_t                                modalOpenerNode;
 	uid_keybind_pending_t                        keybindPending;
+
+	/* Added in Omaha: nodes that contributed UID_DIRTY_LAYOUT (Stage 2 scoped layout). */
+	std::vector<uid_node_id_t>                   dirtyLayoutNodes;
+
+	/* Added in Omaha Stage 4: retained chrome paint list (opaque; uid_paint.cpp). */
+	void                                        *paintList;
+	/* Added in Omaha: Phase 4.1 per-region retained paint (opaque vector in uid_paint.cpp). */
+	std::vector<uid_node_id_t>                   parentOf;
+	std::vector<int>                             regionOf;
+	bool                                         regionsStale;
+	void                                        *paintRegions;
+	/* Added in Omaha: Phase 4.4 — cvar dependency index for targeted bind sync. */
+	std::vector<std::string>                     depCvars;
+	std::vector<std::vector<uid_node_id_t>>      depNodes;
+	std::vector<unsigned>                        depLastMod;
+	std::vector<void *>                          depCvarPtrs;
+	std::vector<unsigned char>                   depAffectsVisible;
+	/* Added in Omaha: Phase 4.4 — cvar only appears in translate-x/y. */
+	std::vector<unsigned char>                   depTranslateOnly;
+	std::vector<uid_node_id_t>                   impureNodes;
+	bool                                         bindDepsStale;
+	bool                                         bindDepsWarm;
+	size_t                                       bindDepsNodeCount;
+	/* Added in Omaha: Phase 4.4 — reused per-frame scratch (avoid heap in FRAME_BIND). */
+	std::vector<unsigned char>                   bindTouchedScratch;
+	std::vector<unsigned char>                   visMemoScratch;
 };
 
 void UID_InitNodeDef(uid_node_def_t *node);
@@ -418,6 +548,13 @@ void UID_InitNodeState(uid_node_state_t *state);
 uid_document_t *UID_CreateDocument(void);
 void            UID_DestroyDocument(uid_document_t *doc);
 void            UID_ClearDocument(uid_document_t *doc);
+
+/*
+ * Added in Omaha: OR dirty flags; when LAYOUT is newly set, attribute the first
+ * transition for ui_profile (nodeId may be UID_INVALID_NODE_ID; reason optional).
+ */
+void UID_MarkDirty(uid_document_t *doc, uid_dirty_flags_t flags, uid_node_id_t nodeId, const char *reason);
+const char *UID_NodeKindName(uid_node_kind_t kind);
 
 /* Look up an expanded (or parsed canvas) node by id string. */
 uid_node_def_t *UID_GetNodeById(uid_document_t *doc, const char *id);
@@ -432,7 +569,7 @@ const uid_node_def_t *UID_GetNode(const uid_document_t *doc, uid_node_id_t id);
  */
 const uid_font_def_t *UID_FindFontDef(const uid_document_t *doc, const char *fontId, int requestedWeight);
 
-/* Added in OPM: slider/input min/max/step from properties (after template expand). */
+/* Added in Omaha: slider/input min/max/step from properties (after template expand). */
 bool UID_IsSliderPartKind(uid_node_kind_t kind);
 bool UID_IsScrollbarPartKind(uid_node_kind_t kind);
 bool UID_SyncSliderBounds(uid_node_def_t *node);

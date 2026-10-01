@@ -1151,7 +1151,8 @@ uir_status_t UIR_GradientDrawClipped(
 	} else if (useAxisScissor) {
 		UIR_PushClipRect(clipAabb.x, clipAabb.y, clipAabb.w, clipAabb.h);
 		pushedClip = 1;
-	} else {
+	} else if (rotationDeg != 0.0f) {
+		/* Rotated gradient quads can extend past dest. */
 		UIR_PushClipRect(x, y, w, h);
 		pushedClip = 1;
 	}

@@ -27,6 +27,10 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "uid_backend.h"
 #include "uid_document.h"
 
+/* Added in Omaha: Phase 4.4 — intern host collection source ids at compile. */
+int  UID_CollectionHostIdFromName(const char *source);
+void UID_StampCollectionSourceKinds(uid_document_t *doc);
+
 /* Added in Omaha: composable foreach / collection scopes. */
 void UID_SyncCollections(uid_document_t *doc, const uid_backend_t *backend);
 

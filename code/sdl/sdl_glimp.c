@@ -72,11 +72,13 @@ QGL_DESKTOP_1_1_PROCS;
 QGL_DESKTOP_1_1_FIXED_FUNCTION_PROCS;
 QGL_ES_1_1_PROCS;
 QGL_ES_1_1_FIXED_FUNCTION_PROCS;
+QGL_1_2_PROCS;
 QGL_1_3_PROCS;
 QGL_1_5_PROCS;
 QGL_2_0_PROCS;
 QGL_3_0_PROCS;
 QGL_ARB_occlusion_query_PROCS;
+QGL_ARB_timer_query_PROCS;
 QGL_ARB_framebuffer_object_PROCS;
 QGL_ARB_vertex_array_object_PROCS;
 QGL_EXT_direct_state_access_PROCS;
@@ -333,6 +335,10 @@ static qboolean GLimp_GetProcAddresses( qboolean fixedFunction ) {
 		}
 		// Added in OPM
 		//  Add compression-related GL functions for the renderer
+		/* Added in Omaha: DrawRangeElements (GL 1.2) for UI batch draws. */
+		if ( QGL_VERSION_ATLEAST( 1, 2 ) ) {
+			QGL_1_2_PROCS;
+		}
 		if ( QGL_VERSION_ATLEAST( 1, 3 ) ) {
 			QGL_1_3_PROCS;
 		}
@@ -357,6 +363,19 @@ static qboolean GLimp_GetProcAddresses( qboolean fixedFunction ) {
 			QGL_ARB_framebuffer_object_PROCS;
 #undef GLE
 		}
+		/* Added in Omaha: Phase 3 — UI VBO streaming (GL 1.5 / ARB_vertex_buffer_object). */
+		if ( QGL_VERSION_ATLEAST( 1, 5 ) || SDL_GL_ExtensionSupported( "GL_ARB_vertex_buffer_object" ) ) {
+#define GLE GLE_OPT
+			QGL_1_5_PROCS;
+#undef GLE
+		}
+		/* Added in Omaha: optional timer queries for ui_perf_gpu (non-fatal). */
+		if ( QGL_VERSION_ATLEAST( 3, 3 ) || SDL_GL_ExtensionSupported( "GL_ARB_timer_query" ) ) {
+#define GLE GLE_OPT
+			QGL_ARB_occlusion_query_PROCS;
+			QGL_ARB_timer_query_PROCS;
+#undef GLE
+		}
 #undef GLE_OPT
 #ifdef __SDL_NOGETPROCADDR__
 #define GLE( ret, name, ... ) qgl##name = gl#name;
@@ -371,12 +390,14 @@ static qboolean GLimp_GetProcAddresses( qboolean fixedFunction ) {
 		if ( QGL_VERSION_ATLEAST( 2, 0 ) ) {
 			QGL_1_1_PROCS;
 			QGL_DESKTOP_1_1_PROCS;
+			QGL_1_2_PROCS;
 			QGL_1_3_PROCS;
 			QGL_1_5_PROCS;
 			QGL_2_0_PROCS;
 		} else if ( QGLES_VERSION_ATLEAST( 2, 0 ) ) {
 			QGL_1_1_PROCS;
 			QGL_ES_1_1_PROCS;
+			QGL_1_2_PROCS;
 			QGL_1_3_PROCS;
 			QGL_1_5_PROCS;
 			QGL_2_0_PROCS;
@@ -420,11 +441,13 @@ static void GLimp_ClearProcAddresses( void ) {
 	QGL_DESKTOP_1_1_FIXED_FUNCTION_PROCS;
 	QGL_ES_1_1_PROCS;
 	QGL_ES_1_1_FIXED_FUNCTION_PROCS;
+	QGL_1_2_PROCS;
 	QGL_1_3_PROCS;
 	QGL_1_5_PROCS;
 	QGL_2_0_PROCS;
 	QGL_3_0_PROCS;
 	QGL_ARB_occlusion_query_PROCS;
+	QGL_ARB_timer_query_PROCS;
 	QGL_ARB_framebuffer_object_PROCS;
 	QGL_ARB_vertex_array_object_PROCS;
 	QGL_EXT_direct_state_access_PROCS;

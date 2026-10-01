@@ -26,27 +26,35 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "uid_collection.h"
 #include "uid_expr.h"
 #include "uid_expr_bool.h"
+#include "uid_layout.h"
 #include "uid_modal.h"
+#include "uid_paint.h"
+#include "uid_style.h"
 #include "uid_opt.h"
 #include "uid_profile.h"
+#include "uid_string_hash.h"
 #include "uid_value.h"
 #include "uid_vars.h"
 
 #include <cctype>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <functional>
+#include <map>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
 namespace {
 
-/* Added in OPM: frame-scoped cvar read memo for SyncBindings. */
-std::unordered_map<std::string, std::string> g_cvarMemo;
-bool                                         g_cvarMemoActive = false;
+/* Added in Omaha: frame-scoped cvar read memo — transparent map keys avoid alloc on find. */
+std::map<std::string, std::string, uid_cstring_less> g_cvarMemo;
+bool                                                g_cvarMemoActive = false;
 
 enum {
 	UID_BIND_F_VISIBLE_EXPR = 1u << 0,
@@ -61,11 +69,103 @@ enum {
 	UID_BIND_F_SELECT = 1u << 9
 };
 
-void MarkDirty(uid_document_t *doc, uid_dirty_flags_t flags)
+static bool IsTranslateProp(const std::string &name)
 {
-	if (doc) {
-		doc->dirty = static_cast<uid_dirty_flags_t>(doc->dirty | flags);
+	return name == "translate-x" || name == "translate-y";
+}
+
+/* Added in Omaha: resolve translate length to layout px (post-flow offset). */
+static float ResolveTranslateValuePx(const uid_document_t *doc, const char *valueStr, float percentBase)
+{
+	uid_length_t len{};
+	if (!doc || !valueStr || !valueStr[0]) {
+		return 0.0f;
 	}
+	if (!UID_ParseLength(valueStr, &len, nullptr)) {
+		return 0.0f;
+	}
+	if (len.unit == UID_LENGTH_PERCENT) {
+		return percentBase * (len.value / 100.0f);
+	}
+	if (len.unit == UID_LENGTH_PX) {
+		return UID_ScaleAuthoredPx(doc, len.value);
+	}
+	return 0.0f;
+}
+
+/*
+ * Added in Omaha: translate-x/y change boxes post-flow without full layout.
+ * Queue a delta and mark paint-only; UID_Update applies ShiftSubtreeBoxes.
+ */
+static void QueueTranslatePropChange(
+	uid_document_t *doc,
+	uid_node_id_t nodeId,
+	const std::string &propName,
+	const char *oldValue,
+	const char *newValue
+)
+{
+	if (!doc || nodeId < 0) {
+		return;
+	}
+	const float percentBase = (propName == "translate-y")
+		? static_cast<float>(doc->lastLogicalH > 0 ? doc->lastLogicalH : 0)
+		: static_cast<float>(doc->lastLogicalW > 0 ? doc->lastLogicalW : 0);
+	const float oldPx = ResolveTranslateValuePx(doc, oldValue, percentBase);
+	const float newPx = ResolveTranslateValuePx(doc, newValue, percentBase);
+	const float delta = newPx - oldPx;
+	if (std::fabs(delta) < 1e-6f) {
+		return;
+	}
+	const float dx = (propName == "translate-x") ? delta : 0.0f;
+	const float dy = (propName == "translate-y") ? delta : 0.0f;
+	for (uid_document_t::translate_delta_t &d : doc->pendingTranslateDeltas) {
+		if (d.nodeId == nodeId) {
+			d.dx += dx;
+			d.dy += dy;
+			return;
+		}
+	}
+	uid_document_t::translate_delta_t entry{};
+	entry.nodeId = nodeId;
+	entry.dx = dx;
+	entry.dy = dy;
+	doc->pendingTranslateDeltas.push_back(entry);
+}
+
+static void MarkDirtyAfterPropChange(
+	uid_document_t *doc,
+	uid_node_id_t nodeId,
+	const std::string &propName,
+	const char *oldValue,
+	const char *newValue,
+	const char *const *layoutProps,
+	size_t layoutPropCount,
+	bool strokeLayoutExtra
+)
+{
+	uid_dirty_flags_t dirty = UID_DIRTY_PAINT;
+	/* Changed in Omaha debug: empty prop names were collapsing into "(null)" in reason ranks. */
+	const char *reason = (!propName.empty()) ? propName.c_str() : "prop_empty";
+	if (IsTranslateProp(propName)) {
+		QueueTranslatePropChange(doc, nodeId, propName, oldValue, newValue);
+		/*
+		 * Fixed in Omaha: translate-only motion must not UID_MarkDirty(PAINT) —
+		 * that invalidates the retained chrome list. Box shifts + LIVE_SUBTREE
+		 * paint-list cmds update any bound translate-x/y HUD element.
+		 */
+		return;
+	}
+	for (size_t i = 0; i < layoutPropCount; ++i) {
+		if (propName == layoutProps[i]) {
+			dirty = static_cast<uid_dirty_flags_t>(dirty | UID_DIRTY_LAYOUT);
+			break;
+		}
+	}
+	if (strokeLayoutExtra && (propName == "stroke" || propName == "stroke-width")) {
+		dirty = static_cast<uid_dirty_flags_t>(dirty | UID_DIRTY_LAYOUT);
+	}
+	UID_MarkDirty(doc, dirty, nodeId, reason);
 }
 
 bool TextSizeMayChange(uid_node_kind_t kind)
@@ -82,7 +182,28 @@ bool TextSizeMayChange(uid_node_kind_t kind)
 	}
 }
 
-/* Added in OPM: keep leaf <image> src/fit/scale mirrored onto background-* for paint. */
+/*
+ * Added in Omaha: text change only affects geometry when width or height is auto
+ * (content-sized). Explicit px/% boxes are paint-only.
+ */
+bool TextIsContentSized(const uid_node_def_t &node)
+{
+	uid_length_t width;
+	uid_length_t height;
+	width.unit = UID_LENGTH_AUTO;
+	width.value = 0.0f;
+	height.unit = UID_LENGTH_AUTO;
+	height.value = 0.0f;
+	if (!node.properties.GetLengthCached("width", &width)) {
+		width.unit = UID_LENGTH_AUTO;
+	}
+	if (!node.properties.GetLengthCached("height", &height)) {
+		height.unit = UID_LENGTH_AUTO;
+	}
+	return width.unit == UID_LENGTH_AUTO || height.unit == UID_LENGTH_AUTO;
+}
+
+/* Added in Omaha: keep leaf <image> src/fit/scale mirrored onto background-* for paint. */
 void MirrorLeafImageProps(uid_node_def_t *node, const std::string &prop, const std::string &value)
 {
 	if (!node || node->kind != UID_NODE_IMAGE) {
@@ -129,13 +250,13 @@ bool StagingBlocksSync(uid_document_t *doc, const uid_node_def_t &node, const ui
 		return true;
 	}
 
-	/* Added in OPM: slider drag stages runtime until pointer release write. */
+	/* Added in Omaha: slider drag stages runtime until pointer release write. */
 	if (node.kind == UID_NODE_SLIDER && st.dragging) {
 		return true;
 	}
 
 	/*
-	 * Added in OPM: companion number inputs mirror staged slider values during
+	 * Added in Omaha: companion number inputs mirror staged slider values during
 	 * drag — do not pull the old cvar over them until release.
 	 */
 	if (doc && node.kind == UID_NODE_INPUT && node.inputType == "number" && !node.bind.empty()) {
@@ -185,11 +306,15 @@ void SetRuntimeIfChanged(
 	st->runtimeValue.hasValue = true;
 	st->runtimeValue.stringValue = value;
 	if (TextSizeMayChange(kind)) {
-		MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_LAYOUT | UID_DIRTY_PAINT));
+		const uid_node_def_t *node = UID_GetNode(doc, id);
+		if (node && TextIsContentSized(*node)) {
+			UID_MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_LAYOUT | UID_DIRTY_PAINT), id, "runtime_text");
+		} else {
+			UID_MarkDirty(doc, UID_DIRTY_PAINT, id, "runtime_text");
+		}
 	} else {
-		MarkDirty(doc, UID_DIRTY_PAINT);
+		UID_MarkDirty(doc, UID_DIRTY_PAINT, id, "runtime_text");
 	}
-	(void)id;
 }
 
 bool ReadCvarString(const uid_backend_t *backend, const char *name, std::string *out)
@@ -213,13 +338,13 @@ bool ReadCvarString(const uid_backend_t *backend, const char *name, std::string 
 	(void)flags;
 	*out = buf;
 	if (g_cvarMemoActive && UID_OptEnabled(UID_OPT_CVAR_MEMO)) {
-		g_cvarMemo[name] = *out;
+		g_cvarMemo.emplace(name, *out);
 		UID_ProfileCountInc(UID_PROF_CNT_NEW); /* string key/value insert (alloc proxy) */
 	}
 	return true;
 }
 
-/* Added in OPM: invalidate memo when a cvar is written during sync. */
+/* Added in Omaha: invalidate memo when a cvar is written during sync. */
 void InvalidateCvarMemo(const char *name)
 {
 	if (!name || !g_cvarMemoActive) {
@@ -230,6 +355,17 @@ void InvalidateCvarMemo(const char *name)
 
 double ReadCvarNumber(const uid_backend_t *backend, const char *name, double fallback)
 {
+	if (!backend || !name) {
+		return fallback;
+	}
+	/* Prefer numeric backend read — avoids 1 KB string copy + strtod. */
+	if (backend->cvarNumber) {
+		double v = 0.0;
+		if (backend->cvarNumber(name, &v, nullptr)) {
+			return v;
+		}
+		return fallback;
+	}
 	std::string s;
 	if (!ReadCvarString(backend, name, &s) || s.empty()) {
 		return fallback;
@@ -351,7 +487,7 @@ bool UID_ResolveCvarRgba(const uid_backend_t *backend, const char *spec, uid_col
 
 namespace {
 
-/* Added in OPM: cvar → UI runtime transforms. */
+/* Added in Omaha: cvar → UI runtime transforms. */
 std::string TransformCvarToUi(
 	const uid_node_def_t &node,
 	const std::string &cvarValue,
@@ -417,7 +553,7 @@ std::string TransformCvarToUi(
 	return cvarValue;
 }
 
-/* Added in OPM: format slider/number display using authored step precision. */
+/* Added in Omaha: format slider/number display using authored step precision. */
 static std::string FormatControlDisplayValue(const uid_node_def_t &node, const std::string &uiValue)
 {
 	if (node.kind != UID_NODE_SLIDER &&
@@ -449,7 +585,7 @@ static std::string FormatControlDisplayValue(const uid_node_def_t &node, const s
 	return buf;
 }
 
-/* Added in OPM: UI runtime → cvar transforms. */
+/* Added in Omaha: UI runtime → cvar transforms. */
 bool TransformUiToCvar(
 	const uid_node_def_t &node,
 	const std::string &uiValue,
@@ -763,9 +899,56 @@ static bool ResolveRuntimeNumericPropValue(
 	return ResolveAllRuntimeNumericBraceExprs(doc, nodeId, authored, backend, out);
 }
 
+/*
+ * Added in Omaha: single `{expr}` (+ optional unit suffix) → double without formatting.
+ * Multi-brace authored strings fall through to the string resolve path.
+ */
+static bool TryEvalSingleNumericAuthored(
+	uid_document_t      *doc,
+	uid_node_id_t        nodeId,
+	const std::string   &authored,
+	const uid_backend_t *backend,
+	double              *outValue,
+	std::string         *outSuffix
+)
+{
+	if (!outValue || !outSuffix || authored.empty()) {
+		return false;
+	}
+	outSuffix->clear();
+	size_t start = 0;
+	while (start < authored.size() && std::isspace(static_cast<unsigned char>(authored[start]))) {
+		++start;
+	}
+	if (start >= authored.size() || authored[start] != '{') {
+		return false;
+	}
+	const size_t end = authored.find('}', start + 1);
+	if (end == std::string::npos) {
+		return false;
+	}
+	if (authored.find('{', end + 1) != std::string::npos) {
+		return false;
+	}
+	std::string expr = authored.substr(start + 1, end - start - 1);
+	TrimInPlace(&expr);
+	if (expr.empty() || expr.find('?') != std::string::npos) {
+		return false;
+	}
+	if (!EvalRuntimeNumericExprImpl(doc, nodeId, expr, backend, outValue)) {
+		return false;
+	}
+	size_t after = end + 1;
+	while (after < authored.size() && !std::isspace(static_cast<unsigned char>(authored[after]))) {
+		++after;
+	}
+	*outSuffix = authored.substr(end + 1, after - (end + 1));
+	return true;
+}
+
 static bool ExprLooksCvarPure(const std::string &expr)
 {
-	/* Added in OPM: cvar/var/literal-only exprs can be memoized on cvar epoch. */
+	/* Added in Omaha: cvar/var/literal-only exprs can be memoized on cvar epoch. */
 	if (expr.find("item.") != std::string::npos) {
 		return false;
 	}
@@ -788,6 +971,55 @@ static bool ExprLooksCvarPure(const std::string &expr)
 		return false;
 	}
 	return true;
+}
+
+/*
+ * Stage 6b: nodes whose bind body only depends on cvars (no item/bind/hover/
+ * foreach field / keybind / option refresh) can skip the whole body when the
+ * global cvar epoch is unchanged.
+ */
+static bool NodeBindBodyIsCvarPure(const uid_node_def_t *node)
+{
+	if (!node) {
+		return false;
+	}
+	const unsigned flags = node->bindingFlags;
+	if (flags & (UID_BIND_F_EXPR_PROPS | UID_BIND_F_KEYBIND)) {
+		return false;
+	}
+	if ((flags & UID_BIND_F_SELECT) && (flags & UID_BIND_F_OPTION_SOURCE)) {
+		return false;
+	}
+	if (!node->visibleExpr.empty() && !ExprLooksCvarPure(node->visibleExpr)) {
+		return false;
+	}
+	if (!node->enabledExpr.empty() && !ExprLooksCvarPure(node->enabledExpr)) {
+		return false;
+	}
+	for (const auto &kv : node->styleExprs) {
+		if (!kv.second.empty() && !ExprLooksCvarPure(kv.second)) {
+			return false;
+		}
+	}
+	if (flags & UID_BIND_F_LABEL) {
+		if (node->foreachGenerated && node->text.find("{item.") != std::string::npos) {
+			return false;
+		}
+		const char *tc = node->properties.GetCStr("text-cvar", nullptr);
+		if (!(tc && tc[0]) && !node->text.empty() && node->text.find('{') != std::string::npos) {
+			std::string cvarName;
+			if (!UID_ParseExactCvarBraceBinding(node->text, &cvarName)) {
+				/* Interpolated / join / mixed braces need runtime each frame. */
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
+static bool NodeBindInteractionDirty(const uid_node_state_t *st)
+{
+	return st && (st->hovered || st->pressed || st->focused || st->capturing || st->dragging);
 }
 
 static bool EvalNodeBoolExpr(
@@ -849,7 +1081,7 @@ static bool EvalNodeBoolExprCached(
 	return result;
 }
 
-/* Added in OPM: sync style ternaries (any property) into resolved property values. */
+/* Added in Omaha: sync style ternaries (any property) into resolved property values. */
 static void SyncBoundStyleExprs(
 	uid_document_t      *doc,
 	uid_node_id_t        nodeId,
@@ -880,9 +1112,8 @@ static void SyncBoundStyleExprs(
 	}
 
 	static const char *kLayoutProps[] = {
-		"width", "height", "gap", "margin", "padding", "font-size", "rotation", "rotation-origin",
-		"translate-x", "translate-y",
-		"src" /* Added in OPM: leaf <image> intrinsic size depends on src */
+		"width", "height", "gap", "margin", "padding", "font-size",
+		"src" /* Added in Omaha: leaf <image> intrinsic size depends on src */
 	};
 	bool strokeLayout = true;
 	{
@@ -906,26 +1137,28 @@ static void SyncBoundStyleExprs(
 		if (cur && resolved == cur) {
 			continue;
 		}
+		const std::string oldVal = cur ? cur : "";
 		node->properties.Set(kv.first.c_str(), resolved.c_str());
-		/* Changed in OPM: hoverfill aliases share one resolved value. */
+		if (st) {
+			UID_InvalidateComputedStyle(st);
+		}
+		/* Changed in Omaha: hoverfill aliases share one resolved value. */
 		if (kv.first == "hoverfill") {
 			node->properties.Set("hover-fill", resolved.c_str());
 		} else if (kv.first == "hover-fill") {
 			node->properties.Set("hoverfill", resolved.c_str());
 		}
 		MirrorLeafImageProps(node, kv.first, resolved);
-		uid_dirty_flags_t dirty = UID_DIRTY_PAINT;
-		for (const char *lp : kLayoutProps) {
-			if (kv.first == lp) {
-				dirty = static_cast<uid_dirty_flags_t>(dirty | UID_DIRTY_LAYOUT);
-				break;
-			}
-		}
-		/* Changed in OPM: stroke layout dirty only when stroke-layout is true (default). */
-		if (strokeLayout && (kv.first == "stroke" || kv.first == "stroke-width")) {
-			dirty = static_cast<uid_dirty_flags_t>(dirty | UID_DIRTY_LAYOUT);
-		}
-		MarkDirty(doc, dirty);
+		MarkDirtyAfterPropChange(
+			doc,
+			nodeId,
+			kv.first,
+			oldVal.c_str(),
+			resolved.c_str(),
+			kLayoutProps,
+			sizeof(kLayoutProps) / sizeof(kLayoutProps[0]),
+			strokeLayout
+		);
 	}
 
 	if (canMemo) {
@@ -954,7 +1187,7 @@ std::string FormatKeybindKeyName(const char *name)
 }
 
 /*
- * Fixed in OPM: Quake/MOHAA letter binds are lowercase ASCII ('w' == 119).
+ * Fixed in Omaha: Quake/MOHAA letter binds are lowercase ASCII ('w' == 119).
  * Display labels may show "W"; never store uppercase letter keynums.
  */
 int NormalizeBindKey(int key)
@@ -1006,6 +1239,16 @@ void SyncTextCvarLabel(
 	const char *tc = node->properties.GetCStr("text-cvar", nullptr);
 	if (!tc || !tc[0]) {
 		return;
+	}
+	/* Stage 6b: skip read/assign when this cvar's modificationCount is unchanged. */
+	if (st && backend && backend->cvarNumber) {
+		double unused = 0.0;
+		unsigned mod = 0;
+		if (backend->cvarNumber(tc, &unused, &mod) && st->labelCvarModCount == mod &&
+		    st->runtimeValue.hasValue) {
+			return;
+		}
+		st->labelCvarModCount = mod;
 	}
 	std::string value;
 	if (!ReadCvarString(backend, tc, &value)) {
@@ -1087,16 +1330,29 @@ void SyncCvarBind(
 		return;
 	}
 
-	char valueBuf[1024];
-	valueBuf[0] = '\0';
-	int flags = 0;
-	if (!backend->cvarDescribe(cvarName.c_str(), &flags, valueBuf, sizeof(valueBuf))) {
+	/* Stage 6b: unchanged cvar → runtime value already current. */
+	if (backend->cvarNumber) {
+		double unused = 0.0;
+		unsigned mod = 0;
+		if (backend->cvarNumber(cvarName.c_str(), &unused, &mod) && st->bindPrimaryModCount == mod &&
+		    st->runtimeValue.hasValue) {
+			return;
+		}
+		st->bindPrimaryModCount = mod;
+	}
+
+	/* Stage 6: route through frame memo / host describe cache (was direct describe). */
+	std::string value;
+	if (!ReadCvarString(backend, cvarName.c_str(), &value)) {
 		return;
 	}
-	(void)flags;
+	char valueBuf[1024];
+	std::snprintf(valueBuf, sizeof(valueBuf), "%s", value.c_str());
 	MigrateSettingsCvarValue(cvarName, valueBuf, sizeof(valueBuf), backend);
 	const std::string ui = TransformCvarToUi(*node, std::string(valueBuf), backend);
 	SetRuntimeIfChanged(doc, id, st, node->kind, FormatControlDisplayValue(*node, ui));
+	/* Sync from live cvar is not a user Apply edit. */
+	st->applyUserEdited = false;
 }
 
 void SyncKeybindDisplay(
@@ -1122,7 +1378,7 @@ void SyncKeybindDisplay(
 	}
 
 	/*
-	 * Fixed in OPM: migrate corrupted uppercase letter binds (from display-label
+	 * Fixed in Omaha: migrate corrupted uppercase letter binds (from display-label
 	 * round-trip) down to lowercase so console bind w matches the settings UI.
 	 */
 	if (backend->setBinding && backend->getBinding) {
@@ -1200,7 +1456,7 @@ void RefreshOptionSource(
 		opt.label = labels[static_cast<size_t>(i)] ? labels[static_cast<size_t>(i)] : opt.value;
 		node->options.push_back(opt);
 	}
-	MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_LAYOUT | UID_DIRTY_PAINT));
+	UID_MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_LAYOUT | UID_DIRTY_PAINT), UID_INVALID_NODE_ID, "option_source");
 }
 
 uid_result_t WriteCvarBind(
@@ -1237,7 +1493,7 @@ uid_result_t WriteCvarBind(
 	if (!backend->cvarWrite(cvarName.c_str(), primary.c_str())) {
 		return UID_ERR_VALIDATE;
 	}
-	/* Added in OPM: display-mode also drives r_noborder. */
+	/* Added in Omaha: display-mode also drives r_noborder. */
 	if (node->valueType == "display-mode" && !noborder.empty()) {
 		backend->cvarWrite("r_noborder", noborder.c_str());
 	}
@@ -1331,7 +1587,7 @@ uid_result_t WriteKeybind(
 	}
 
 	/*
-	 * Fixed in OPM: runtimeValue holds display labels ("W", "NONE"), not capture
+	 * Fixed in Omaha: runtimeValue holds display labels ("W", "NONE"), not capture
 	 * keynums. Capture commits via UID_TryCommitKeybindCapture. Only empty value
 	 * means clear this slot (Backspace / Del).
 	 */
@@ -1407,7 +1663,7 @@ uid_result_t TryCommitKeybindCaptureImpl(
 
 		backend->cvarWrite(KeybindModalCvarName(*node), node->confirmModal.c_str());
 		SyncKeybindDisplay(doc, nodeId, node, st, backend);
-		MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_BINDING | UID_DIRTY_LAYOUT | UID_DIRTY_PAINT));
+		UID_MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_BINDING | UID_DIRTY_LAYOUT | UID_DIRTY_PAINT), nodeId, "keybind_modal");
 		return UID_OK;
 	}
 
@@ -1538,9 +1794,8 @@ static void SyncExprBoundProps(
 		return;
 	}
 	static const char *kLayoutProps[] = {
-		"width", "height", "gap", "margin", "padding", "font-size", "rotation", "rotation-origin",
-		"translate-x", "translate-y",
-		"src" /* Added in OPM: leaf <image> intrinsic size depends on src */
+		"width", "height", "gap", "margin", "padding", "font-size",
+		"src" /* Added in Omaha: leaf <image> intrinsic size depends on src */
 	};
 	for (const auto &kv : node->exprBoundProps) {
 		uid_bool_lookup_ctx_t ctx;
@@ -1551,7 +1806,26 @@ static void SyncExprBoundProps(
 		}
 
 		std::string resolved;
-		bool ok = ResolveRuntimeNumericPropValue(doc, nodeId, authored, backend, &resolved);
+		bool        ok = false;
+		/* Prefer double compare before FormatEvaluatedNumber + properties.Set. */
+		{
+			double      numVal = 0.0;
+			std::string unitSuffix;
+			if (TryEvalSingleNumericAuthored(doc, nodeId, authored, backend, &numVal, &unitSuffix)) {
+				if (unitSuffix.empty()) {
+					double curNum = 0.0;
+					if (node->properties.GetNumberCached(kv.first.c_str(), &curNum)
+						&& std::fabs(curNum - numVal) < 1e-9) {
+						continue;
+					}
+				}
+				resolved = FormatEvaluatedNumber(numVal) + unitSuffix;
+				ok = true;
+			}
+		}
+		if (!ok) {
+			ok = ResolveRuntimeNumericPropValue(doc, nodeId, authored, backend, &resolved);
+		}
 		if (!ok && authored.find('{') == std::string::npos) {
 			resolved = authored;
 			ok = !resolved.empty();
@@ -1583,6 +1857,7 @@ static void SyncExprBoundProps(
 				ok = true;
 			} else if (expr == "item.lifetime_alpha") {
 				char buf[32];
+				UID_ProfileCountInc(UID_PROF_CNT_SNPRINTF);
 				std::snprintf(buf, sizeof(buf), "%.6g", static_cast<double>(UID_EvalItemLifetimeAlpha(doc, nodeId)));
 				resolved = std::string(buf) + suffix;
 				ok = true;
@@ -1596,20 +1871,23 @@ static void SyncExprBoundProps(
 		if (cur && std::strcmp(cur, want) == 0) {
 			continue;
 		}
+		const std::string oldVal = cur ? cur : "";
 		node->properties.Set(kv.first.c_str(), want);
 		MirrorLeafImageProps(node, kv.first, resolved);
-		uid_dirty_flags_t dirty = UID_DIRTY_PAINT;
-		for (const char *lp : kLayoutProps) {
-			if (kv.first == lp) {
-				dirty = static_cast<uid_dirty_flags_t>(dirty | UID_DIRTY_LAYOUT);
-				break;
-			}
-		}
-		MarkDirty(doc, dirty);
+		MarkDirtyAfterPropChange(
+			doc,
+			nodeId,
+			kv.first,
+			oldVal.c_str(),
+			want,
+			kLayoutProps,
+			sizeof(kLayoutProps) / sizeof(kLayoutProps[0]),
+			false
+		);
 	}
 }
 
-static void SyncForeachItemFieldText(
+static void SyncForeachItemText(
 	uid_document_t      *doc,
 	uid_node_id_t        nodeId,
 	uid_node_def_t      *node,
@@ -1620,13 +1898,21 @@ static void SyncForeachItemFieldText(
 	if (!doc || !node || !st || !backend || !node->foreachGenerated) {
 		return;
 	}
-	if (node->text.find("{item.field.") == std::string::npos) {
+	if (node->text.find("{item.") == std::string::npos) {
 		return;
 	}
 	uid_bool_lookup_ctx_t ctx;
 	FillBoolLookupCtx(&ctx, doc, nodeId, backend);
 	if (!ctx.item) {
+		SetRuntimeIfChanged(doc, nodeId, st, node->kind, std::string());
 		return;
+	}
+
+	const char *displayMode = "label";
+	if (node->foreachScopeId >= 0 && static_cast<size_t>(node->foreachScopeId) < doc->nodes.size()) {
+		if (doc->nodes[static_cast<size_t>(node->foreachScopeId)].collectionDisplay == "value") {
+			displayMode = "value";
+		}
 	}
 
 	std::string out;
@@ -1642,7 +1928,21 @@ static void SyncForeachItemFieldText(
 			continue;
 		}
 		const std::string key = node->text.substr(i + 1, end - i - 1);
-		if (key.rfind("item.field.", 0) == 0) {
+		if (key == "item.index") {
+			out += std::to_string(ctx.itemIndex);
+		} else if (key == "item.count") {
+			out += std::to_string(ctx.itemCount);
+		} else if (key == "item.selected") {
+			out += (ctx.itemIndex == ctx.selectedIndex) ? "true" : "false";
+		} else if (ctx.item && key == "item.key") {
+			out += ctx.item->key;
+		} else if (ctx.item && key == "item.value") {
+			out += ctx.item->value;
+		} else if (ctx.item && key == "item.label") {
+			out += ctx.item->label;
+		} else if (ctx.item && key == "item.display") {
+			out += (std::strcmp(displayMode, "value") == 0) ? ctx.item->value : ctx.item->label;
+		} else if (ctx.item && key.rfind("item.field.", 0) == 0) {
 			const std::string fname = key.substr(11);
 			auto it = ctx.item->fields.find(fname);
 			if (it != ctx.item->fields.end()) {
@@ -1660,10 +1960,10 @@ static void SyncForeachItemFieldText(
 	st->runtimeValue.hasValue = true;
 	st->runtimeValue.stringValue = out;
 	uid_dirty_flags_t dirty = UID_DIRTY_PAINT;
-	if (TextSizeMayChange(node->kind)) {
+	if (TextSizeMayChange(node->kind) && TextIsContentSized(*node)) {
 		dirty = static_cast<uid_dirty_flags_t>(dirty | UID_DIRTY_LAYOUT);
 	}
-	MarkDirty(doc, dirty);
+	UID_MarkDirty(doc, dirty, nodeId, "foreach_text");
 }
 
 static void SyncCvarBoundProps(
@@ -1676,10 +1976,41 @@ static void SyncCvarBoundProps(
 	if (!doc || !node || !backend) {
 		return;
 	}
+	uid_node_state_t *st = nullptr;
+	if (nodeId >= 0 && static_cast<size_t>(nodeId) < doc->states.size()) {
+		st = &doc->states[static_cast<size_t>(nodeId)];
+	}
+	/* Stage 6b: combined modCount stamp — skip when no bound cvar changed. */
+	unsigned propsStamp = 0;
+	bool     propsStampOk = false;
+	if (st && backend->cvarNumber && !node->cvarBoundProps.empty()) {
+		unsigned stamp = 0;
+		bool ok = true;
+		for (const auto &kv : node->cvarBoundProps) {
+			std::string cvarName;
+			if (!UID_ParseExactCvarBraceBinding(kv.second, &cvarName)) {
+				ok = false;
+				break;
+			}
+			double unused = 0.0;
+			unsigned mod = 0;
+			if (!backend->cvarNumber(cvarName.c_str(), &unused, &mod)) {
+				ok = false;
+				break;
+			}
+			stamp = stamp * 131u + (mod + 1u);
+		}
+		if (ok) {
+			propsStampOk = true;
+			propsStamp = stamp;
+			if (st->cvarPropsModStamp == stamp) {
+				return;
+			}
+		}
+	}
 	static const char *kLayoutProps[] = {
-		"width", "height", "gap", "margin", "padding", "font-size", "rotation-origin",
-		"translate-x", "translate-y",
-		"src" /* Added in OPM: leaf <image> intrinsic size depends on src */
+		"width", "height", "gap", "margin", "padding", "font-size",
+		"src" /* Added in Omaha: leaf <image> intrinsic size depends on src */
 	};
 	for (const auto &kv : node->cvarBoundProps) {
 		std::string cvarName;
@@ -1693,16 +2024,19 @@ static void SyncCvarBoundProps(
 			if (cur && std::strcmp(cur, authored) == 0) {
 				continue;
 			}
+			const std::string oldVal = cur ? cur : "";
 			node->properties.Set(kv.first.c_str(), authored);
 			MirrorLeafImageProps(node, kv.first, authored);
-			uid_dirty_flags_t dirty = UID_DIRTY_PAINT;
-			for (const char *lp : kLayoutProps) {
-				if (kv.first == lp) {
-					dirty = static_cast<uid_dirty_flags_t>(dirty | UID_DIRTY_LAYOUT);
-					break;
-				}
-			}
-			MarkDirty(doc, dirty);
+			MarkDirtyAfterPropChange(
+				doc,
+				nodeId,
+				kv.first,
+				oldVal.c_str(),
+				authored,
+				kLayoutProps,
+				sizeof(kLayoutProps) / sizeof(kLayoutProps[0]),
+				false
+			);
 			continue;
 		}
 		const char *want = val.c_str();
@@ -1710,20 +2044,26 @@ static void SyncCvarBoundProps(
 		if (cur && std::strcmp(cur, want) == 0) {
 			continue;
 		}
+		const std::string oldVal = cur ? cur : "";
 		node->properties.Set(kv.first.c_str(), want);
 		MirrorLeafImageProps(node, kv.first, val);
-		uid_dirty_flags_t dirty = UID_DIRTY_PAINT;
-		for (const char *lp : kLayoutProps) {
-			if (kv.first == lp) {
-				dirty = static_cast<uid_dirty_flags_t>(dirty | UID_DIRTY_LAYOUT);
-				break;
-			}
-		}
-		MarkDirty(doc, dirty);
+		MarkDirtyAfterPropChange(
+			doc,
+			nodeId,
+			kv.first,
+			oldVal.c_str(),
+			want,
+			kLayoutProps,
+			sizeof(kLayoutProps) / sizeof(kLayoutProps[0]),
+			false
+		);
+	}
+	if (st && propsStampOk) {
+		st->cvarPropsModStamp = propsStamp;
 	}
 }
 
-/* Added in OPM: max joined label text so huge servers cannot blow buffers. */
+/* Added in Omaha: max joined label text so huge servers cannot blow buffers. */
 constexpr size_t kJoinMaxChars = 2048;
 
 static bool JoinReadBareId(const char *s, size_t len, size_t *pos, std::string *out)
@@ -1818,7 +2158,7 @@ static std::string JoinFieldValue(const uid_collection_entry_t &item, const std:
 }
 
 /*
- * Added in OPM: join(source, field, "sep"[, boolFilter]) → string for label braces.
+ * Added in Omaha: join(source, field, "sep"[, boolFilter]) → string for label braces.
  * Filter is evaluated per row with item.field.* bound to that row.
  */
 static bool EvalJoinCall(
@@ -1946,7 +2286,7 @@ static bool EvalJoinCall(
 	return true;
 }
 
-/* Added in OPM: label braces may be join(...) strings or numeric embeds. */
+/* Added in Omaha: label braces may be join(...) strings or numeric embeds. */
 static bool ResolveAllRuntimeLabelBraceExprs(
 	uid_document_t *doc,
 	uid_node_id_t nodeId,
@@ -2002,7 +2342,7 @@ static bool ResolveAllRuntimeLabelBraceExprs(
 	return false;
 }
 
-/* Added in OPM: evaluate {expr} embeds in label text (e.g. floor(cvar…/60) for MM:SS). */
+/* Added in Omaha: evaluate {expr} embeds in label text (e.g. floor(cvar…/60) for MM:SS). */
 static void SyncInterpolatedLabelText(
 	uid_document_t *doc,
 	uid_node_id_t id,
@@ -2020,6 +2360,15 @@ static void SyncInterpolatedLabelText(
 	/* Exact {cvar.name} passthrough — keep as string, not numeric format. */
 	std::string cvarName;
 	if (UID_ParseExactCvarBraceBinding(node->text, &cvarName)) {
+		if (backend->cvarNumber) {
+			double unused = 0.0;
+			unsigned mod = 0;
+			if (backend->cvarNumber(cvarName.c_str(), &unused, &mod) && st->labelCvarModCount == mod &&
+			    st->runtimeValue.hasValue) {
+				return;
+			}
+			st->labelCvarModCount = mod;
+		}
 		std::string value;
 		if (!ReadCvarString(backend, cvarName.c_str(), &value)) {
 			value.clear();
@@ -2027,8 +2376,8 @@ static void SyncInterpolatedLabelText(
 		SetRuntimeIfChanged(doc, id, st, node->kind, value);
 		return;
 	}
-	/* Foreach item.field text is handled by SyncForeachItemFieldText. */
-	if (node->foreachGenerated && node->text.find("{item.field.") != std::string::npos &&
+	/* Foreach item.* text is handled by SyncForeachItemText. */
+	if (node->foreachGenerated && node->text.find("{item.") != std::string::npos &&
 	    node->text.find("cvar.") == std::string::npos &&
 	    node->text.find("join(") == std::string::npos) {
 		return;
@@ -2109,7 +2458,7 @@ bool UID_ParseExactCvarBraceBinding(const std::string &value, std::string *cvarN
 		return false;
 	}
 	/*
-	 * Fixed in OPM: only exact {cvar.name} / {cvar:name} — not style ternaries
+	 * Fixed in Omaha: only exact {cvar.name} / {cvar:name} — not style ternaries
 	 * that begin with cvar. (e.g. "{cvar.a != cvar.b ? …}"). Those must stay on
 	 * the styleExprs path; treating them as cvar binds made SyncCvarBoundProps
 	 * restore the unresolved ternary after SyncBoundStyleExprs.
@@ -2137,7 +2486,7 @@ void UID_RegisterCvarBoundProps(uid_node_def_t *node)
 		"translate-x", "translate-y",
 		"opacity", "background-image", "mask-image", "color", "fill", "left", "top", "right", "bottom",
 		"background-scale",
-		/* Added in OPM: leaf <image> */
+		/* Added in Omaha: leaf <image> */
 		"src", "fit", "scale"
 	};
 	node->cvarBoundProps.clear();
@@ -2165,7 +2514,7 @@ void UID_RegisterCvarBoundProps(uid_node_def_t *node)
 		if (UID_ParseExactCvarBraceBinding(value, &cvarName)) {
 			node->cvarBoundProps[prop] = value;
 		} else if (value.find("item.field.") != std::string::npos) {
-			/* Added in OPM: keep authored item.field placeholders (incl. ternaries)
+			/* Added in Omaha: keep authored item.field placeholders (incl. ternaries)
 			 * so SyncExprBoundProps can refresh them after same-key collection updates. */
 			node->exprBoundProps[prop] = value;
 		} else if (value.find("item.lifetime_alpha") != std::string::npos) {
@@ -2259,6 +2608,369 @@ bool UID_ParseItemFieldBind(const char *bind, std::string *fieldNameOut)
 	return false;
 }
 
+/* Added in Omaha: Phase 4.4 — cvar dependency index (skip unchanged subtrees). */
+static int g_bindDeps = 1;
+static int g_bindDepsVerify = 0;
+/* Added in Omaha: Phase 4.4 — heading/tape cvars that only drive translate-x/y. */
+static int s_bindTxChanged = 0;
+static int s_bindTxOnly = 0;
+
+void UID_SetBindDeps(int enabled)
+{
+	g_bindDeps = enabled ? 1 : 0;
+}
+
+int UID_BindDepsEnabled(void)
+{
+	return g_bindDeps;
+}
+
+void UID_SetBindDepsVerify(int enabled)
+{
+	g_bindDepsVerify = enabled ? 1 : 0;
+}
+
+static void BindDepsProbeExprs(uid_node_def_t *node)
+{
+	if (!node) {
+		return;
+	}
+	if (!node->visibleExprProbed) {
+		node->visibleExprProbed = true;
+		if (node->visibleExpr.empty()) {
+			std::string vis;
+			if (node->properties.Get("visible", &vis)) {
+				std::string inner;
+				if (UID_ParseBraceBoolExpr(vis.c_str(), &inner)) {
+					node->visibleExpr = inner;
+					node->bindingFlagsValid = false;
+				}
+			}
+		}
+	}
+	if (!node->enabledExprProbed) {
+		node->enabledExprProbed = true;
+		if (node->enabledExpr.empty()) {
+			std::string en;
+			if (node->properties.Get("enabled", &en)) {
+				std::string inner;
+				if (UID_ParseBraceBoolExpr(en.c_str(), &inner)) {
+					node->enabledExpr = inner;
+					node->bindingFlagsValid = false;
+				}
+			}
+		}
+	}
+}
+
+static void BindDepsCollectNodeCvars(const uid_node_def_t *node, std::vector<std::string> *names)
+{
+	if (!node || !names) {
+		return;
+	}
+	UID_ExprCollectCvarNames(node->visibleExpr, names);
+	UID_ExprCollectCvarNames(node->enabledExpr, names);
+	UID_ExprCollectCvarNames(node->visibleIf, names);
+	UID_ExprCollectCvarNames(node->enabledIf, names);
+	for (const auto &kv : node->styleExprs) {
+		UID_ExprCollectCvarNames(kv.second, names);
+	}
+	for (const auto &kv : node->cvarBoundProps) {
+		if (IsTranslateProp(kv.first)) {
+			continue;
+		}
+		std::string cn;
+		if (UID_ParseExactCvarBraceBinding(kv.second, &cn)) {
+			names->push_back(cn);
+		} else {
+			UID_ExprCollectCvarNames(kv.second, names);
+		}
+	}
+	for (const auto &kv : node->exprBoundProps) {
+		if (IsTranslateProp(kv.first)) {
+			continue;
+		}
+		UID_ExprCollectCvarNames(kv.second, names);
+	}
+	{
+		std::string cn;
+		if (UID_ParseCvarBind(node->bind.c_str(), &cn)) {
+			names->push_back(cn);
+		}
+	}
+	UID_ExprCollectCvarNames(node->text, names);
+	const char *tc = node->properties.GetCStr("text-cvar", nullptr);
+	if (tc && tc[0]) {
+		names->emplace_back(tc);
+	}
+}
+
+static void BindDepsCollectTranslateCvars(const uid_node_def_t *node, std::vector<std::string> *names)
+{
+	if (!node || !names) {
+		return;
+	}
+	for (const auto &kv : node->cvarBoundProps) {
+		if (!IsTranslateProp(kv.first)) {
+			continue;
+		}
+		std::string cn;
+		if (UID_ParseExactCvarBraceBinding(kv.second, &cn)) {
+			names->push_back(cn);
+		} else {
+			UID_ExprCollectCvarNames(kv.second, names);
+		}
+	}
+	for (const auto &kv : node->exprBoundProps) {
+		if (!IsTranslateProp(kv.first)) {
+			continue;
+		}
+		UID_ExprCollectCvarNames(kv.second, names);
+	}
+}
+
+static void BindDepsMarkAncestors(
+	uid_document_t *doc,
+	std::vector<unsigned char> *touched,
+	uid_node_id_t id
+)
+{
+	if (!doc || !touched) {
+		return;
+	}
+	while (id >= 0 && static_cast<size_t>(id) < touched->size()) {
+		unsigned char &flag = (*touched)[static_cast<size_t>(id)];
+		if (flag) {
+			break;
+		}
+		flag = 1;
+		if (static_cast<size_t>(id) >= doc->parentOf.size()) {
+			break;
+		}
+		id = doc->parentOf[static_cast<size_t>(id)];
+	}
+}
+
+static void BindDepsMarkDescendants(
+	uid_document_t *doc,
+	std::vector<unsigned char> *touched,
+	uid_node_id_t id
+)
+{
+	if (!doc || !touched || id < 0 || static_cast<size_t>(id) >= doc->nodes.size()) {
+		return;
+	}
+	std::vector<uid_node_id_t> stack;
+	stack.push_back(id);
+	while (!stack.empty()) {
+		const uid_node_id_t cur = stack.back();
+		stack.pop_back();
+		if (cur < 0 || static_cast<size_t>(cur) >= touched->size()) {
+			continue;
+		}
+		(*touched)[static_cast<size_t>(cur)] = 1;
+		if (static_cast<size_t>(cur) >= doc->nodes.size()) {
+			continue;
+		}
+		for (uid_node_id_t c : doc->nodes[static_cast<size_t>(cur)].children) {
+			stack.push_back(c);
+		}
+	}
+}
+
+static void UID_RebuildBindDeps(uid_document_t *doc, const uid_backend_t *backend)
+{
+	if (!doc) {
+		return;
+	}
+	std::unordered_map<std::string, unsigned> prevMod;
+	prevMod.reserve(doc->depCvars.size() * 2 + 1);
+	for (size_t i = 0; i < doc->depCvars.size() && i < doc->depLastMod.size(); ++i) {
+		prevMod.emplace(doc->depCvars[i], doc->depLastMod[i]);
+	}
+	doc->depCvars.clear();
+	doc->depNodes.clear();
+	doc->depLastMod.clear();
+	doc->depCvarPtrs.clear();
+	doc->depAffectsVisible.clear();
+	doc->depTranslateOnly.clear();
+	doc->impureNodes.clear();
+	if (doc->parentOf.size() != doc->nodes.size()) {
+		UID_RebuildParentMap(doc);
+	}
+
+	std::unordered_map<std::string, size_t> index;
+	std::vector<std::string> names;
+	names.reserve(8);
+	for (size_t i = 0; i < doc->nodes.size(); ++i) {
+		uid_node_def_t *node = &doc->nodes[i];
+		BindDepsProbeExprs(node);
+		const uid_node_id_t id = static_cast<uid_node_id_t>(i);
+		if (node->foreachGenerated || !NodeBindBodyIsCvarPure(node)) {
+			doc->impureNodes.push_back(id);
+		}
+		names.clear();
+		BindDepsCollectNodeCvars(node, &names);
+		auto addDep = [&](const std::string &name, int translateOnly) {
+			if (name.empty()) {
+				return;
+			}
+			auto it = index.find(name);
+			if (it == index.end()) {
+				const size_t slot = doc->depCvars.size();
+				index.emplace(name, slot);
+				doc->depCvars.push_back(name);
+				doc->depNodes.emplace_back();
+				doc->depCvarPtrs.push_back(
+					(backend && backend->cvarFind) ? backend->cvarFind(name.c_str()) : nullptr
+				);
+				doc->depAffectsVisible.push_back(0);
+				doc->depTranslateOnly.push_back(translateOnly ? 1 : 0);
+				doc->depNodes.back().push_back(id);
+			} else {
+				if (!translateOnly && it->second < doc->depTranslateOnly.size()) {
+					doc->depTranslateOnly[it->second] = 0;
+				}
+				std::vector<uid_node_id_t> &list = doc->depNodes[it->second];
+				if (list.empty() || list.back() != id) {
+					list.push_back(id);
+				}
+			}
+		};
+		for (const std::string &name : names) {
+			addDep(name, 0);
+		}
+		{
+			std::vector<std::string> txNames;
+			BindDepsCollectTranslateCvars(node, &txNames);
+			for (const std::string &name : txNames) {
+				addDep(name, 1);
+			}
+		}
+		std::vector<std::string> visNames;
+		UID_ExprCollectCvarNames(node->visibleExpr, &visNames);
+		UID_ExprCollectCvarNames(node->visibleIf, &visNames);
+		{
+			const char *visProp = node->properties.GetCStr("visible", nullptr);
+			if (visProp && visProp[0] == '{') {
+				UID_ExprCollectCvarNames(visProp, &visNames);
+			}
+		}
+		for (const std::string &name : visNames) {
+			const auto it = index.find(name);
+			if (it != index.end() && it->second < doc->depAffectsVisible.size()) {
+				doc->depAffectsVisible[it->second] = 1;
+			}
+		}
+	}
+	doc->depLastMod.resize(doc->depCvars.size(), 0u);
+	for (size_t i = 0; i < doc->depCvars.size(); ++i) {
+		const auto it = prevMod.find(doc->depCvars[i]);
+		if (it != prevMod.end()) {
+			doc->depLastMod[i] = it->second;
+		} else if (backend && backend->cvarModCount) {
+			doc->depLastMod[i] = backend->cvarModCount(doc->depCvars[i].c_str());
+		}
+	}
+	if (doc->depAffectsVisible.size() != doc->depCvars.size()) {
+		doc->depAffectsVisible.resize(doc->depCvars.size(), 0);
+	}
+	if (doc->depTranslateOnly.size() != doc->depCvars.size()) {
+		doc->depTranslateOnly.resize(doc->depCvars.size(), 0);
+	}
+	if (doc->depCvarPtrs.size() != doc->depCvars.size()) {
+		doc->depCvarPtrs.resize(doc->depCvars.size(), nullptr);
+	}
+	doc->bindDepsStale = false;
+	doc->bindDepsWarm = false;
+	doc->bindDepsNodeCount = doc->nodes.size();
+}
+
+static int BindDepsMarkTouched(
+	uid_document_t *doc,
+	const uid_backend_t *backend,
+	std::vector<unsigned char> *touched,
+	int commitMods
+)
+{
+	if (!doc || !touched) {
+		return 0;
+	}
+	touched->assign(doc->nodes.size(), 0);
+	if (doc->parentOf.size() != doc->nodes.size()) {
+		UID_RebuildParentMap(doc);
+	}
+	int nChanged = 0;
+	s_bindTxChanged = 0;
+	s_bindTxOnly = 0;
+	if (!doc->bindDepsWarm) {
+		touched->assign(doc->nodes.size(), 1);
+	}
+	if (backend && (backend->cvarModCountHandle || backend->cvarModCount)) {
+		const size_t n = doc->depCvars.size() < doc->depNodes.size() ? doc->depCvars.size() : doc->depNodes.size();
+		const size_t nMod = n < doc->depLastMod.size() ? n : doc->depLastMod.size();
+		if (doc->depCvarPtrs.size() != doc->depCvars.size()) {
+			doc->depCvarPtrs.resize(doc->depCvars.size(), nullptr);
+		}
+		for (size_t i = 0; i < nMod; ++i) {
+			unsigned now = 0;
+			if (backend->cvarModCountHandle) {
+				if (!doc->depCvarPtrs[i] && backend->cvarFind) {
+					doc->depCvarPtrs[i] = backend->cvarFind(doc->depCvars[i].c_str());
+				}
+				now = backend->cvarModCountHandle(doc->depCvarPtrs[i]);
+			} else {
+				now = backend->cvarModCount(doc->depCvars[i].c_str());
+			}
+			if (now == doc->depLastMod[i]) {
+				continue;
+			}
+			if (commitMods) {
+				doc->depLastMod[i] = now;
+			}
+			++nChanged;
+			if (doc->bindDepsWarm) {
+				const int vis = (i < doc->depAffectsVisible.size() && doc->depAffectsVisible[i]);
+				for (uid_node_id_t id : doc->depNodes[i]) {
+					BindDepsMarkAncestors(doc, touched, id);
+					if (vis) {
+						BindDepsMarkDescendants(doc, touched, id);
+					}
+				}
+			}
+		}
+	}
+	const size_t nState = doc->states.size() < touched->size() ? doc->states.size() : touched->size();
+	for (size_t i = 0; i < nState; ++i) {
+		uid_node_state_t *st = &doc->states[i];
+		if (doc->bindDepsWarm && NodeBindInteractionDirty(st)) {
+			BindDepsMarkAncestors(doc, touched, static_cast<uid_node_id_t>(i));
+		}
+		if (doc->nodes[i].collectionSource.empty()) {
+			continue;
+		}
+		if (st->collectionRevision == st->bindDepsSeenCollectionRev &&
+			st->collectionSelectedIndex == st->bindDepsSeenCollectionSel) {
+			continue;
+		}
+		if (commitMods) {
+			st->bindDepsSeenCollectionRev = st->collectionRevision;
+			st->bindDepsSeenCollectionSel = st->collectionSelectedIndex;
+		}
+		++nChanged;
+		if (!doc->bindDepsWarm) {
+			continue;
+		}
+		for (size_t j = 0; j < doc->nodes.size(); ++j) {
+			if (doc->nodes[j].foreachGenerated && doc->nodes[j].foreachScopeId == static_cast<uid_node_id_t>(i)) {
+				BindDepsMarkAncestors(doc, touched, static_cast<uid_node_id_t>(j));
+			}
+		}
+	}
+	s_bindTxOnly = (s_bindTxChanged > 0 && nChanged == 0) ? 1 : 0;
+	return nChanged;
+}
+
 void UID_SyncBindings(uid_document_t *doc, const uid_backend_t *backend)
 {
 	if (!doc || !backend) {
@@ -2341,13 +3053,41 @@ void UID_SyncBindings(uid_document_t *doc, const uid_backend_t *backend)
 	};
 
 	/*
-	 * Added in OPM: apply visibleExpr before SyncCollections so visibility-aware
+	 * Added in Omaha: apply visibleExpr before SyncCollections so visibility-aware
 	 * collection cull sees this frame's panel visibility (not last frame).
 	 * Always recurse so hidden panels update before a same-frame reveal.
+	 * Phase 4.4: skip untouched subtrees when the cvar index says nothing changed.
 	 */
+	std::vector<unsigned char> &subtreeTouched = doc->bindTouchedScratch;
+	int bindDepsForceFull = 0;
+	int nChangedCvars = 0;
+	const int useBindDeps = (g_bindDeps && backend->cvarModCount) ? 1 : 0;
+
+	auto bindDepsSkip = [&](uid_node_id_t id) -> bool {
+		if (bindDepsForceFull || !useBindDeps || subtreeTouched.empty()) {
+			return false;
+		}
+		if (id < 0 || static_cast<size_t>(id) >= subtreeTouched.size()) {
+			return false;
+		}
+		return subtreeTouched[static_cast<size_t>(id)] == 0;
+	};
+	auto refreshBindDeps = [&](int commitMods) {
+		if (!useBindDeps) {
+			return;
+		}
+		if (doc->bindDepsStale || doc->bindDepsNodeCount != doc->nodes.size()) {
+			UID_RebuildBindDeps(doc, backend);
+		}
+		nChangedCvars += BindDepsMarkTouched(doc, backend, &subtreeTouched, commitMods);
+	};
+
 	UID_ProfileBegin(UID_PROF_FRAME_COLLECTION_CULL);
 	auto applyVisibility = [&](auto &self, uid_node_id_t id) -> void {
 		if (id < 0 || static_cast<size_t>(id) >= doc->nodes.size() || static_cast<size_t>(id) >= doc->states.size()) {
+			return;
+		}
+		if (bindDepsSkip(id)) {
 			return;
 		}
 		uid_node_def_t *node = &doc->nodes[static_cast<size_t>(id)];
@@ -2359,45 +3099,152 @@ void UID_SyncBindings(uid_document_t *doc, const uid_backend_t *backend)
 			const char *cur = node->properties.GetCStr("visible", "");
 			if (!cur || std::strcmp(cur, show ? "true" : "false") != 0) {
 				node->properties.Set("visible", show ? "true" : "false");
-				MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_LAYOUT | UID_DIRTY_PAINT));
+				UID_MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_LAYOUT | UID_DIRTY_PAINT), id, "visible_expr");
 			}
 		}
 		for (uid_node_id_t c : node->children) {
 			self(self, c);
 		}
 	};
-	if (doc->rootNode != UID_INVALID_NODE_ID) {
-		applyVisibility(applyVisibility, doc->rootNode);
-	}
-	if (UID_IsModalActive(doc)) {
-		const uid_node_id_t modalRoot = UID_GetModalRoot(doc);
-		if (modalRoot != UID_INVALID_NODE_ID) {
-			applyVisibility(applyVisibility, modalRoot);
+	auto applyVisibilityTree = [&]() {
+		if (doc->rootNode != UID_INVALID_NODE_ID) {
+			applyVisibility(applyVisibility, doc->rootNode);
 		}
+		if (UID_IsModalActive(doc)) {
+			const uid_node_id_t modalRoot = UID_GetModalRoot(doc);
+			if (modalRoot != UID_INVALID_NODE_ID) {
+				applyVisibility(applyVisibility, modalRoot);
+			}
+		}
+	};
+	refreshBindDeps(0);
+	if (!(s_bindTxOnly && nChangedCvars == 0 && doc->bindDepsWarm)) {
+		applyVisibilityTree();
+	}
+	UID_ProfileEnd(UID_PROF_FRAME_COLLECTION_CULL);
+	const int firstChanged = nChangedCvars;
+
+	UID_SyncCollections(doc, backend);
+	if (!(doc->bindDepsWarm && firstChanged == 0 && !(doc->dirty & UID_DIRTY_BINDING))) {
+		nChangedCvars = 0;
+		refreshBindDeps(1);
+	}
+
+	/*
+	 * Fixed in Omaha: foreach expand clones nodes with visible="{expr}" still in the
+	 * property bag. PropBool cannot parse that and falls back to true, so kill-feed
+	 * skull/headshot/team-icon rows all lay out for one frame (huge gaps). applyVisibility
+	 * ran before SyncCollections and never saw the new nodes; syncOneNodeBody intentionally
+	 * skips visibleExpr. Re-apply after expand so layout in this frame sees true/false.
+	 */
+	UID_ProfileBegin(UID_PROF_FRAME_COLLECTION_CULL);
+	/* vis2 exists for foreach clones born this sync. No STRUCTURE → no new nodes. */
+	if (doc->dirty & UID_DIRTY_STRUCTURE) {
+		applyVisibilityTree();
 	}
 	UID_ProfileEnd(UID_PROF_FRAME_COLLECTION_CULL);
 
-	UID_SyncCollections(doc, backend);
+	/*
+	 * Stage 6b: do NOT force-resync the whole tree on UID_DIRTY_BINDING.
+	 * SyncCollections marks BINDING on every host field refresh (same keys),
+	 * which would disable epoch skip every in-match frame. Foreach/item and
+	 * hover/bind. nodes are impure and always sync; rebuilt nodes reset
+	 * bindSyncCached via UID_InitNodeState.
+	 */
+	const unsigned bindEpoch = (backend->cvarEpoch) ? backend->cvarEpoch() : 0u;
+
+	auto markBindBodySynced = [&](uid_node_def_t *node, uid_node_state_t *st) {
+		if (!st) {
+			return;
+		}
+		(void)node;
+		if (!NodeBindInteractionDirty(st) && backend->cvarEpoch) {
+			st->bindSyncEpoch = bindEpoch;
+			st->bindSyncCached = true;
+		} else {
+			st->bindSyncCached = false;
+		}
+	};
+
+	auto trySkipBindBody = [&](uid_node_def_t *node, uid_node_state_t *st) -> bool {
+		if (!st || !backend->cvarEpoch) {
+			return false;
+		}
+		if (NodeBindInteractionDirty(st)) {
+			return false;
+		}
+		if (!NodeBindBodyIsCvarPure(node)) {
+			return false;
+		}
+		if (st->bindSyncCached && st->bindSyncEpoch == bindEpoch) {
+			return true;
+		}
+		return false;
+	};
 
 	auto syncOneNodeBody = [&](uid_document_t *d, uid_node_id_t id, uid_node_def_t *node, uid_node_state_t *st) {
 		ensureBindingFlags(node);
-		const unsigned flags = node->bindingFlags;
+		if (trySkipBindBody(node, st)) {
+			return;
+		}
 
-		if (flags & UID_BIND_F_VISIBLE_EXPR) {
-			const bool show = EvalNodeBoolExprCached(node->visibleExpr, d, id, backend, st, true);
-			const char *cur = node->properties.GetCStr("visible", "");
-			if (!cur || std::strcmp(cur, show ? "true" : "false") != 0) {
-				node->properties.Set("visible", show ? "true" : "false");
-				MarkDirty(d, static_cast<uid_dirty_flags_t>(UID_DIRTY_LAYOUT | UID_DIRTY_PAINT));
+		/*
+		 * Added in Omaha: foreach row nodes rebind item.* only when the enclosing
+		 * collection revision or this row's foreachItemIndex changes. Cvar/style/expr
+		 * paths still run (they have their own memos). Applies to every foreach source.
+		 * Fixed in Omaha: SyncExprBoundProps must run here — ammo edge-clip
+		 * top/height use cvar math in exprBoundProps, not style/cvar binds.
+		 * Fixed in Omaha: itemBindItemIndex tracks mode=selected in-place rebind.
+		 */
+		if (node->foreachGenerated && node->foreachScopeId >= 0 &&
+			static_cast<size_t>(node->foreachScopeId) < d->states.size() &&
+			!NodeBindInteractionDirty(st)
+			) {
+			const uid_node_state_t &scopeSt = d->states[static_cast<size_t>(node->foreachScopeId)];
+			const uint64_t scopeRev = scopeSt.collectionRevision;
+			if (st->itemBindRevision == scopeRev && scopeRev != 0 &&
+				st->itemBindItemIndex == node->foreachItemIndex) {
+				const unsigned flags = node->bindingFlags;
+				if (flags & UID_BIND_F_ENABLED_EXPR) {
+					const bool on = EvalNodeBoolExprCached(node->enabledExpr, d, id, backend, st, false);
+					const char *cur = node->properties.GetCStr("enabled", "");
+					if (!cur || std::strcmp(cur, on ? "true" : "false") != 0) {
+						node->properties.Set("enabled", on ? "true" : "false");
+						UID_MarkDirty(d, static_cast<uid_dirty_flags_t>(UID_DIRTY_LAYOUT | UID_DIRTY_PAINT), id, "enabled_expr");
+					}
+				}
+				if (flags & UID_BIND_F_STYLE) {
+					SyncBoundStyleExprs(d, id, node, backend);
+				}
+				if (flags & UID_BIND_F_CVAR_PROPS) {
+					SyncCvarBoundProps(d, id, node, backend);
+				}
+				if (flags & UID_BIND_F_EXPR_PROPS) {
+					SyncExprBoundProps(d, id, node, backend);
+				}
+				if (flags & UID_BIND_F_BIND) {
+					std::string cvarName;
+					if (UID_ParseCvarBind(node->bind.c_str(), &cvarName)) {
+						SyncCvarBind(d, id, node, st, backend, cvarName);
+					}
+				}
+				return;
 			}
 		}
+
+		const unsigned flags = node->bindingFlags;
+
+		/*
+		 * Stage 6: visibleExpr already applied in applyVisibility prepass —
+		 * do not re-eval here (was double-cost every node every frame).
+		 */
 
 		if (flags & UID_BIND_F_ENABLED_EXPR) {
 			const bool on = EvalNodeBoolExprCached(node->enabledExpr, d, id, backend, st, false);
 			const char *cur = node->properties.GetCStr("enabled", "");
 			if (!cur || std::strcmp(cur, on ? "true" : "false") != 0) {
 				node->properties.Set("enabled", on ? "true" : "false");
-				MarkDirty(d, static_cast<uid_dirty_flags_t>(UID_DIRTY_LAYOUT | UID_DIRTY_PAINT));
+				UID_MarkDirty(d, static_cast<uid_dirty_flags_t>(UID_DIRTY_LAYOUT | UID_DIRTY_PAINT), id, "enabled_expr");
 			}
 		}
 
@@ -2417,12 +3264,16 @@ void UID_SyncBindings(uid_document_t *doc, const uid_backend_t *backend)
 
 		if (flags & UID_BIND_F_LABEL) {
 			SyncTextCvarLabel(d, id, node, st, backend);
-			SyncForeachItemFieldText(d, id, node, st, backend);
+			SyncForeachItemText(d, id, node, st, backend);
 			SyncInterpolatedLabelText(d, id, node, st, backend);
+		} else if (node->foreachGenerated && node->text.find("{item.") != std::string::npos) {
+			/* Buttons / other text nodes in foreach rows (e.g. modal item lists). */
+			SyncForeachItemText(d, id, node, st, backend);
 		}
 
 		if (flags & UID_BIND_F_KEYBIND) {
 			SyncKeybindDisplay(d, id, node, st, backend);
+			markBindBodySynced(node, st);
 			return;
 		}
 
@@ -2432,10 +3283,20 @@ void UID_SyncBindings(uid_document_t *doc, const uid_backend_t *backend)
 				SyncCvarBind(d, id, node, st, backend, cvarName);
 			}
 		}
+		if (node->foreachGenerated && node->foreachScopeId >= 0 &&
+			static_cast<size_t>(node->foreachScopeId) < d->states.size()) {
+			st->itemBindRevision =
+				d->states[static_cast<size_t>(node->foreachScopeId)].collectionRevision;
+			st->itemBindItemIndex = node->foreachItemIndex;
+		}
+		markBindBodySynced(node, st);
 	};
 
 	auto syncRecursive = [&](auto &self, uid_node_id_t id, bool ancestorVisible) -> void {
 		if (id < 0 || static_cast<size_t>(id) >= doc->nodes.size() || static_cast<size_t>(id) >= doc->states.size()) {
+			return;
+		}
+		if (bindDepsSkip(id)) {
 			return;
 		}
 		uid_node_def_t *node = &doc->nodes[static_cast<size_t>(id)];
@@ -2444,15 +3305,10 @@ void UID_SyncBindings(uid_document_t *doc, const uid_backend_t *backend)
 		probeVisibleEnabled(node);
 		ensureBindingFlags(node);
 
-		/* Always evaluate this node's visibility first. */
-		if (node->bindingFlags & UID_BIND_F_VISIBLE_EXPR) {
-			const bool show = EvalNodeBoolExprCached(node->visibleExpr, doc, id, backend, st, true);
-			const char *cur = node->properties.GetCStr("visible", "");
-			if (!cur || std::strcmp(cur, show ? "true" : "false") != 0) {
-				node->properties.Set("visible", show ? "true" : "false");
-				MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_LAYOUT | UID_DIRTY_PAINT));
-			}
-		}
+		/*
+		 * Stage 6: visibleExpr already applied in applyVisibility prepass.
+		 * Read the property for ancestor culling only.
+		 */
 
 		bool selfVisible = ancestorVisible;
 		{
@@ -2469,41 +3325,7 @@ void UID_SyncBindings(uid_document_t *doc, const uid_backend_t *backend)
 			return;
 		}
 
-		/* Visible: run remaining sync (skip redoing visibleExpr). */
-		unsigned flags = node->bindingFlags;
-		if (flags & UID_BIND_F_ENABLED_EXPR) {
-			const bool on = EvalNodeBoolExprCached(node->enabledExpr, doc, id, backend, st, false);
-			const char *cur = node->properties.GetCStr("enabled", "");
-			if (!cur || std::strcmp(cur, on ? "true" : "false") != 0) {
-				node->properties.Set("enabled", on ? "true" : "false");
-				MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_LAYOUT | UID_DIRTY_PAINT));
-			}
-		}
-		if (flags & UID_BIND_F_STYLE) {
-			SyncBoundStyleExprs(doc, id, node, backend);
-		}
-		if (flags & UID_BIND_F_CVAR_PROPS) {
-			SyncCvarBoundProps(doc, id, node, backend);
-		}
-		if (flags & UID_BIND_F_EXPR_PROPS) {
-			SyncExprBoundProps(doc, id, node, backend);
-		}
-		if ((flags & UID_BIND_F_SELECT) && (flags & UID_BIND_F_OPTION_SOURCE)) {
-			RefreshOptionSource(doc, node, backend);
-		}
-		if (flags & UID_BIND_F_LABEL) {
-			SyncTextCvarLabel(doc, id, node, st, backend);
-			SyncForeachItemFieldText(doc, id, node, st, backend);
-			SyncInterpolatedLabelText(doc, id, node, st, backend);
-		}
-		if (flags & UID_BIND_F_KEYBIND) {
-			SyncKeybindDisplay(doc, id, node, st, backend);
-		} else if (flags & UID_BIND_F_BIND) {
-			std::string cvarName;
-			if (UID_ParseCvarBind(node->bind.c_str(), &cvarName)) {
-				SyncCvarBind(doc, id, node, st, backend, cvarName);
-			}
-		}
+		syncOneNodeBody(doc, id, node, st);
 
 		for (uid_node_id_t c : node->children) {
 			self(self, c, true);
@@ -2513,6 +3335,9 @@ void UID_SyncBindings(uid_document_t *doc, const uid_backend_t *backend)
 	auto syncAllNodesFlat = [&]() {
 		const size_t n = doc->nodes.size() < doc->states.size() ? doc->nodes.size() : doc->states.size();
 		for (size_t i = 0; i < n; ++i) {
+			if (bindDepsSkip(static_cast<uid_node_id_t>(i))) {
+				continue;
+			}
 			uid_node_def_t *node = &doc->nodes[i];
 			uid_node_state_t *st = &doc->states[i];
 			probeVisibleEnabled(node);
@@ -2520,18 +3345,84 @@ void UID_SyncBindings(uid_document_t *doc, const uid_backend_t *backend)
 		}
 	};
 
-	if (UID_OptEnabled(UID_OPT_BIND_CULL)) {
-		if (doc->rootNode != UID_INVALID_NODE_ID) {
-			syncRecursive(syncRecursive, doc->rootNode, true);
-		}
-		if (UID_IsModalActive(doc)) {
-			const uid_node_id_t modalRoot = UID_GetModalRoot(doc);
-			if (modalRoot != UID_INVALID_NODE_ID) {
-				syncRecursive(syncRecursive, modalRoot, true);
+	{
+		auto nodeHasTranslateBind = [](const uid_node_def_t *node) -> bool {
+			if (!node) {
+				return false;
 			}
+			for (const auto &kv : node->cvarBoundProps) {
+				if (IsTranslateProp(kv.first)) {
+					return true;
+				}
+			}
+			for (const auto &kv : node->exprBoundProps) {
+				if (IsTranslateProp(kv.first)) {
+					return true;
+				}
+			}
+			return false;
+		};
+		auto syncTranslateLeaves = [&]() {
+			const size_t nT = subtreeTouched.size() < doc->nodes.size()
+				? subtreeTouched.size()
+				: doc->nodes.size();
+			for (size_t i = 0; i < nT && i < doc->states.size(); ++i) {
+				if (!subtreeTouched[i] || !nodeHasTranslateBind(&doc->nodes[i])) {
+					continue;
+				}
+				uid_node_def_t *node = &doc->nodes[i];
+				ensureBindingFlags(node);
+				if (node->bindingFlags & UID_BIND_F_CVAR_PROPS) {
+					SyncCvarBoundProps(doc, static_cast<uid_node_id_t>(i), node, backend);
+				}
+				if (node->bindingFlags & UID_BIND_F_EXPR_PROPS) {
+					SyncExprBoundProps(doc, static_cast<uid_node_id_t>(i), node, backend);
+				}
+			}
+		};
+		if (s_bindTxOnly && firstChanged == 0 && useBindDeps && doc->bindDepsWarm) {
+			syncTranslateLeaves();
+		} else if (UID_OptEnabled(UID_OPT_BIND_CULL)) {
+			if (doc->rootNode != UID_INVALID_NODE_ID) {
+				syncRecursive(syncRecursive, doc->rootNode, true);
+			}
+			if (UID_IsModalActive(doc)) {
+				const uid_node_id_t modalRoot = UID_GetModalRoot(doc);
+				if (modalRoot != UID_INVALID_NODE_ID) {
+					syncRecursive(syncRecursive, modalRoot, true);
+				}
+			}
+		} else {
+			syncAllNodesFlat();
 		}
-	} else {
-		syncAllNodesFlat();
+		if (s_bindTxChanged > 0 && !(s_bindTxOnly && firstChanged == 0) && doc->bindDepsWarm) {
+			syncTranslateLeaves();
+		}
+	}
+
+
+	/* Added in Omaha: Phase 4.4 verify — full walk after targeted sync; must stay silent. */
+	if (useBindDeps && (g_bindDepsVerify || ((doc->syncFrameCounter % 2000) == 1))) {
+		bindDepsForceFull = 1;
+		applyVisibilityTree();
+		if (UID_OptEnabled(UID_OPT_BIND_CULL)) {
+			if (doc->rootNode != UID_INVALID_NODE_ID) {
+				syncRecursive(syncRecursive, doc->rootNode, true);
+			}
+			if (UID_IsModalActive(doc)) {
+				const uid_node_id_t modalRoot = UID_GetModalRoot(doc);
+				if (modalRoot != UID_INVALID_NODE_ID) {
+					syncRecursive(syncRecursive, modalRoot, true);
+				}
+			}
+		} else {
+			syncAllNodesFlat();
+		}
+		bindDepsForceFull = 0;
+	}
+
+	if (useBindDeps) {
+		doc->bindDepsWarm = true;
 	}
 
 	g_cvarMemoActive = false;
@@ -2598,6 +3489,9 @@ uid_result_t UID_WriteAllBindings(uid_document_t *doc, const uid_backend_t *back
 			continue;
 		}
 		const uid_result_t r = UID_WriteBinding(doc, static_cast<uid_node_id_t>(i), backend);
+		if (r == UID_OK) {
+			doc->states[i].applyUserEdited = false;
+		}
 		if (r != UID_OK && worst == UID_OK) {
 			worst = r;
 		}
@@ -2619,8 +3513,69 @@ void UID_ClearApplyStagedBindings(uid_document_t *doc)
 		}
 		doc->states[i].runtimeValue.hasValue = false;
 		doc->states[i].runtimeValue.stringValue.clear();
+		doc->states[i].applyUserEdited = false;
 	}
-	MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_BINDING | UID_DIRTY_PAINT | UID_DIRTY_LAYOUT));
+	UID_MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_BINDING | UID_DIRTY_PAINT | UID_DIRTY_LAYOUT), UID_INVALID_NODE_ID, "revert_apply");
+}
+
+static bool CvarNameAllowed(const char *name, const char *const *allowList)
+{
+	if (!allowList) {
+		return true;
+	}
+	if (!name || !name[0]) {
+		return false;
+	}
+	for (int i = 0; allowList[i]; ++i) {
+		if (allowList[i][0] && std::strcmp(name, allowList[i]) == 0) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/* Added in Omaha: detect staged commit=apply edits that still need settings-apply. */
+bool UID_HasPendingApplyBindings(
+	const uid_document_t *doc,
+	const uid_backend_t *backend,
+	const char *const *cvarAllowList
+)
+{
+	if (!doc || !backend) {
+		return false;
+	}
+	const size_t n = doc->nodes.size() < doc->states.size() ? doc->nodes.size() : doc->states.size();
+	for (size_t i = 0; i < n; ++i) {
+		const uid_node_def_t &node = doc->nodes[i];
+		const uid_node_state_t &st = doc->states[i];
+		if (!node.hasCommit || node.commit != UID_COMMIT_APPLY || node.bind.empty()) {
+			continue;
+		}
+		if (!st.runtimeValue.hasValue || !st.applyUserEdited) {
+			continue;
+		}
+		std::string cvarName;
+		if (!UID_ParseCvarBind(node.bind.c_str(), &cvarName)) {
+			continue;
+		}
+		if (!CvarNameAllowed(cvarName.c_str(), cvarAllowList)) {
+			continue;
+		}
+		std::string live;
+		if (!UID_ReadCvarString(backend, cvarName.c_str(), &live)) {
+			continue;
+		}
+		/*
+		 * Match SyncCvarBind display path (transform + control formatting) so
+		 * pending is false when the staged UI value still equals the live cvar.
+		 */
+		const std::string liveUi =
+			FormatControlDisplayValue(node, TransformCvarToUi(node, live, backend));
+		if (liveUi != st.runtimeValue.stringValue) {
+			return true;
+		}
+	}
+	return false;
 }
 
 std::string UID_TransformCvarToUi(

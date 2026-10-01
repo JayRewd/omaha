@@ -28,7 +28,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 extern "C" {
 #endif
 
-/* Added in OPM: wall-clock phase profiler (XML load → paint). */
+/* Added in Omaha: wall-clock phase profiler (XML load → paint). */
 
 typedef enum uid_prof_phase_e {
 	UID_PROF_LOAD_READ = 0,
@@ -36,28 +36,28 @@ typedef enum uid_prof_phase_e {
 	UID_PROF_LOAD_EXPAND,
 	UID_PROF_LOAD_COMPILE,
 	UID_PROF_LOAD_ADOPT,
-	UID_PROF_LEGACY_LOAD, /* Added in OPM: URC UILayout::Load */
+	UID_PROF_LEGACY_LOAD, /* Added in Omaha: URC UILayout::Load */
 	UID_PROF_FRAME_BIND,
 	UID_PROF_FRAME_LAYOUT,
 	UID_PROF_FRAME_POINTER,
 	UID_PROF_FRAME_PAINT_CHROME,
 	UID_PROF_FRAME_PAINT_OVERLAY,
 	/* Nested under FRAME_BIND (detail only; not summed again into totalUs). */
-	UID_PROF_FRAME_FOREACH_WINDOW,   /* Added in OPM: <foreach mode="window"> expand */
-	UID_PROF_FRAME_COLLECTION_CULL,  /* Added in OPM: visibility prepass + collection cull walk */
+	UID_PROF_FRAME_FOREACH_WINDOW,   /* Added in Omaha: <foreach mode="window"> expand */
+	UID_PROF_FRAME_COLLECTION_CULL,  /* Added in Omaha: visibility prepass + collection cull walk */
 	UID_PROF_HOST_WORLD,
 	UID_PROF_HOST_CHROME,
 	UID_PROF_HOST_PREVIEWS,
 	UID_PROF_HOST_OVERLAY,
 	UID_PROF_HOST_BATCH_FLUSH,
-	UID_PROF_LEGACY_EVENTS,  /* Added in OPM: uWinMan.ServiceEvents */
-	UID_PROF_LEGACY_VIEW3D,  /* Added in OPM: View3D (world + cgame 2D) — not URC */
-	UID_PROF_LEGACY_URC,     /* Added in OPM: URC widget Display only */
-	UID_PROF_LEGACY_MISC,    /* Added in OPM: UI_Update HUD/menu logic between events and draw */
+	UID_PROF_LEGACY_EVENTS,  /* Added in Omaha: uWinMan.ServiceEvents */
+	UID_PROF_LEGACY_VIEW3D,  /* Added in Omaha: View3D (world + cgame 2D) — not URC */
+	UID_PROF_LEGACY_URC,     /* Added in Omaha: URC widget Display only */
+	UID_PROF_LEGACY_MISC,    /* Added in Omaha: UI_Update HUD/menu logic between events and draw */
 	UID_PROF_COUNT
 } uid_prof_phase_t;
 
-/* Added in OPM: per-sample work counters (heap/format/parse churn). */
+/* Added in Omaha: per-sample work counters (heap/format/parse churn). */
 typedef enum uid_prof_counter_e {
 	UID_PROF_CNT_NEW = 0, /* scoped operator-new observations during UID_Update */
 	UID_PROF_CNT_CVAR_SET,
@@ -74,9 +74,22 @@ typedef struct uid_prof_timings_s {
 	int       nodeCount;
 	int       counts[UID_PROF_CNT_COUNT];
 	char      label[128];
+	/* Added in Omaha: first UID_DIRTY_LAYOUT transition this sample (Stage 1). */
+	int       layoutDirtyHits;
+	int       layoutDirtyNodeId;
+	char      layoutDirtyKind[32];
+	char      layoutDirtyReason[64];
+	/* Added in Omaha: compositor submission counters snapshotted at sample end. */
+	int       batches;
+	int       batchVerts;
+	int       batchTris;
+	int       clipApplies;
+	int       clipSkips;
 } uid_prof_timings_t;
 
 void        UID_ProfileSetEnabled(int enabled);
+/* Added in Omaha: ui_perf_hud enables timers without ui_profile console path. */
+void        UID_ProfileSetExternalEnable(int enabled);
 int         UID_ProfileEnabled(void);
 const char *UID_ProfilePhaseName(uid_prof_phase_t phase);
 const char *UID_ProfileCounterName(uid_prof_counter_t counter);
@@ -86,13 +99,29 @@ void UID_ProfileResetFrame(void);
 void UID_ProfileBegin(uid_prof_phase_t phase);
 void UID_ProfileEnd(uid_prof_phase_t phase);
 
-/* Added in OPM: nested sample stack — pause parent phases across child samples. */
+/* Added in Omaha: nested sample stack — pause parent phases across child samples. */
 void UID_ProfilePushFrame(void);
 void UID_ProfilePopFrame(void);
 
 void UID_ProfileSetLoadLabel(const char *label);
 void UID_ProfileSetFrameLabel(const char *label);
 void UID_ProfileSetFrameMeta(int layoutRan, int nodeCount);
+
+/*
+ * layoutRan codes (printed as layout=N in UIProfile):
+ *   0 = no layout this sample
+ *   1 = full UID_LayoutDocument
+ *   2 = Stage 2 scoped non-root boundary layout
+ */
+
+/*
+ * Added in Omaha: record first (and count subsequent) layout-dirty transitions
+ * when MarkDirty adds UID_DIRTY_LAYOUT to a previously layout-clean document.
+ */
+void UID_ProfileNoteLayoutDirty(int nodeId, const char *kind, const char *reason);
+
+/* Added in Omaha: snapshot uir_stats_t batch/clip counters into the current sample. */
+void UID_ProfileSetSubmitStats(int batches, int batchVerts, int batchTris, int clipApplies, int clipSkips);
 
 void UID_ProfileCountReset(void);
 void UID_ProfileCountInc(uid_prof_counter_t counter);

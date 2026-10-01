@@ -1086,7 +1086,7 @@ void CG_UpdateCountdown()
         cgi.Cvar_Set("ui_timemessage", message);
     }
     /* Added in Omaha: scalar seconds provider (empty when no active countdown). */
-    cgi.Cvar_Set("ui_om_hud_time_seconds", secondsBuf);
+    CG_HudSetCached("ui_om_hud_time_seconds", secondsBuf);
 }
 
 static void CG_RemoveStopwatch()
@@ -1694,6 +1694,95 @@ static void CG_SyncModernObjectives(void)
     cgi.UIR_Objectives_NotifyChanged();
 }
 
+/* Added in Omaha: Phase 4.5 — skip unchanged ui_om_hud_* Cvar_Set traffic. */
+#define CG_HUD_PUSH_CACHE_SLOTS 64
+
+typedef struct {
+    const char *name;
+    char        value[256];
+    qboolean    valid;
+} cgHudPushSlot_t;
+
+static cgHudPushSlot_t s_hudPushCache[CG_HUD_PUSH_CACHE_SLOTS];
+static int             s_hudPushCacheLastEnabled = -1;
+
+void CG_HudPushCacheReset(void)
+{
+    memset(s_hudPushCache, 0, sizeof(s_hudPushCache));
+    s_hudPushCacheLastEnabled = -1;
+}
+
+static unsigned CG_HudPushNameHash(const char *name)
+{
+    unsigned hash = 2166136261u;
+    for (; name && *name; ++name) {
+        hash ^= (unsigned char)*name;
+        hash *= 16777619u;
+    }
+    return hash;
+}
+
+static cgHudPushSlot_t *CG_HudPushFindSlot(const char *name, qboolean create)
+{
+    unsigned     hash;
+    unsigned     i;
+    unsigned     n;
+
+    if (!name) {
+        return NULL;
+    }
+    hash = CG_HudPushNameHash(name);
+    for (n = 0; n < CG_HUD_PUSH_CACHE_SLOTS; ++n) {
+        i = (hash + n) % CG_HUD_PUSH_CACHE_SLOTS;
+        if (!s_hudPushCache[i].valid) {
+            if (!create) {
+                return NULL;
+            }
+            s_hudPushCache[i].name    = name;
+            s_hudPushCache[i].valid   = qtrue;
+            s_hudPushCache[i].value[0] = '\0';
+            return &s_hudPushCache[i];
+        }
+        /* Prefer pointer identity (call sites use string literals). */
+        if (s_hudPushCache[i].name == name || !strcmp(s_hudPushCache[i].name, name)) {
+            return &s_hudPushCache[i];
+        }
+    }
+    return NULL;
+}
+
+void CG_HudSetCached(const char *name, const char *value)
+{
+    cgHudPushSlot_t *slot;
+
+    if (!name) {
+        return;
+    }
+    if (!value) {
+        value = "";
+    }
+    if (!cg_hud_push_cache) {
+        cgi.Cvar_Set(name, value);
+        return;
+    }
+    if (s_hudPushCacheLastEnabled != cg_hud_push_cache->integer) {
+        CG_HudPushCacheReset();
+        s_hudPushCacheLastEnabled = cg_hud_push_cache->integer;
+    }
+    if (!cg_hud_push_cache->integer) {
+        cgi.Cvar_Set(name, value);
+        return;
+    }
+    slot = CG_HudPushFindSlot(name, qtrue);
+    if (slot && slot->valid && !strcmp(slot->value, value)) {
+        return;
+    }
+    cgi.Cvar_Set(name, value);
+    if (slot) {
+        Q_strncpyz(slot->value, value, sizeof(slot->value));
+    }
+}
+
 void CG_SyncModernHudCvars(void)
 {
     char        buf[512];
@@ -1719,9 +1808,9 @@ void CG_SyncModernHudCvars(void)
             cgi.LV_ConvertString("Vote Running"),
             cgs.voteString[0] ? cgs.voteString : ""
         );
-        cgi.Cvar_Set("ui_om_hud_vote_text", buf);
+        CG_HudSetCached("ui_om_hud_vote_text", buf);
         Com_sprintf(buf, sizeof(buf), "%d", seconds);
-        cgi.Cvar_Set("ui_om_hud_vote_seconds", buf);
+        CG_HudSetCached("ui_om_hud_vote_seconds", buf);
 
         percentYes =
             cgs.numVotesYes * 100 / (cgs.numUndecidedVotes + cgs.numVotesNo + cgs.numVotesYes);
@@ -1741,28 +1830,27 @@ void CG_SyncModernHudCvars(void)
             cgi.LV_ConvertString("Undecided"),
             percentUndecided
         );
-        cgi.Cvar_Set("ui_om_hud_vote_stats", buf);
+        CG_HudSetCached("ui_om_hud_vote_stats", buf);
 
         if (cg.snap && !cg.snap->ps.voted) {
-            cgi.Cvar_Set("ui_om_hud_vote_prompt", cgi.LV_ConvertString("Vote now, it's your patriotic duty!"));
-            cgi.Cvar_Set(
-                "ui_om_hud_vote_keys",
+            CG_HudSetCached("ui_om_hud_vote_prompt", cgi.LV_ConvertString("Vote now, it's your patriotic duty!"));
+            CG_HudSetCached("ui_om_hud_vote_keys",
                 cgi.LV_ConvertString(va("Press %s to vote yes, and %s to vote no.", "F1", "F2"))
             );
         } else {
-            cgi.Cvar_Set("ui_om_hud_vote_prompt", "");
-            cgi.Cvar_Set("ui_om_hud_vote_keys", "");
+            CG_HudSetCached("ui_om_hud_vote_prompt", "");
+            CG_HudSetCached("ui_om_hud_vote_keys", "");
         }
     } else {
-        cgi.Cvar_Set("ui_om_hud_vote_text", "");
-        cgi.Cvar_Set("ui_om_hud_vote_seconds", "0");
-        cgi.Cvar_Set("ui_om_hud_vote_stats", "");
-        cgi.Cvar_Set("ui_om_hud_vote_prompt", "");
-        cgi.Cvar_Set("ui_om_hud_vote_keys", "");
+        CG_HudSetCached("ui_om_hud_vote_text", "");
+        CG_HudSetCached("ui_om_hud_vote_seconds", "0");
+        CG_HudSetCached("ui_om_hud_vote_stats", "");
+        CG_HudSetCached("ui_om_hud_vote_prompt", "");
+        CG_HudSetCached("ui_om_hud_vote_keys", "");
     }
 
     message = ui_timemessage ? ui_timemessage->string : "";
-    cgi.Cvar_Set("ui_om_hud_time_message", message ? message : "");
+    CG_HudSetCached("ui_om_hud_time_message", message ? message : "");
 
     if (cg.snap && cg.snap->ps.stats[STAT_INFOCLIENT] >= 0) {
         const int         iClientNum = cg.snap->ps.stats[STAT_INFOCLIENT];
@@ -1770,21 +1858,21 @@ void CG_SyncModernHudCvars(void)
         const char       *pszName = Info_ValueForKey(pszClientInfo, "name");
         qboolean          friendly = qfalse;
 
-        cgi.Cvar_Set("ui_om_hud_info_name", pszName ? pszName : "");
+        CG_HudSetCached("ui_om_hud_info_name", pszName ? pszName : "");
         Com_sprintf(buf, sizeof(buf), "%d", cg.snap->ps.stats[STAT_INFOCLIENT_HEALTH]);
-        cgi.Cvar_Set("ui_om_hud_info_health", buf);
+        CG_HudSetCached("ui_om_hud_info_health", buf);
         Com_sprintf(buf, sizeof(buf), "%d", cg.clientinfo[iClientNum].team);
-        cgi.Cvar_Set("ui_om_hud_info_team", buf);
+        CG_HudSetCached("ui_om_hud_info_team", buf);
         if (cgs.gametype > GT_FFA && cg.snap->ps.stats[STAT_TEAM] > 0 &&
             cg.clientinfo[iClientNum].team == cg.snap->ps.stats[STAT_TEAM]) {
             friendly = qtrue;
         }
-        cgi.Cvar_Set("ui_om_hud_info_friendly", friendly ? "1" : "0");
+        CG_HudSetCached("ui_om_hud_info_friendly", friendly ? "1" : "0");
     } else {
-        cgi.Cvar_Set("ui_om_hud_info_name", "");
-        cgi.Cvar_Set("ui_om_hud_info_health", "0");
-        cgi.Cvar_Set("ui_om_hud_info_team", "0");
-        cgi.Cvar_Set("ui_om_hud_info_friendly", "0");
+        CG_HudSetCached("ui_om_hud_info_name", "");
+        CG_HudSetCached("ui_om_hud_info_health", "0");
+        CG_HudSetCached("ui_om_hud_info_team", "0");
+        CG_HudSetCached("ui_om_hud_info_friendly", "0");
     }
 
     if (cg.snap && cg.snap->ps.stats[STAT_ATTACKERCLIENT] >= 0) {
@@ -1793,18 +1881,18 @@ void CG_SyncModernHudCvars(void)
         const char *pszName = Info_ValueForKey(pszClientInfo, "name");
         qboolean    friendly = qfalse;
 
-        cgi.Cvar_Set("ui_om_hud_attacker_name", pszName ? pszName : "");
+        CG_HudSetCached("ui_om_hud_attacker_name", pszName ? pszName : "");
         Com_sprintf(buf, sizeof(buf), "%d", cg.clientinfo[iClientNum].team);
-        cgi.Cvar_Set("ui_om_hud_attacker_team", buf);
+        CG_HudSetCached("ui_om_hud_attacker_team", buf);
         if (cgs.gametype > GT_FFA && cg.snap->ps.stats[STAT_TEAM] > 0 &&
             cg.clientinfo[iClientNum].team == cg.snap->ps.stats[STAT_TEAM]) {
             friendly = qtrue;
         }
-        cgi.Cvar_Set("ui_om_hud_attacker_friendly", friendly ? "1" : "0");
+        CG_HudSetCached("ui_om_hud_attacker_friendly", friendly ? "1" : "0");
     } else {
-        cgi.Cvar_Set("ui_om_hud_attacker_name", "");
-        cgi.Cvar_Set("ui_om_hud_attacker_team", "0");
-        cgi.Cvar_Set("ui_om_hud_attacker_friendly", "0");
+        CG_HudSetCached("ui_om_hud_attacker_name", "");
+        CG_HudSetCached("ui_om_hud_attacker_team", "0");
+        CG_HudSetCached("ui_om_hud_attacker_friendly", "0");
     }
 
     if (cg.snap && (cg.predicted_player_state.pm_flags & PMF_SPECTATING)) {
@@ -1818,20 +1906,20 @@ void CG_SyncModernHudCvars(void)
             const char *pszName = cg.clientinfo[iClientNum].name;
 
             Com_sprintf(buf, sizeof(buf), "%s %s", cgi.LV_ConvertString("Following"), pszName ? pszName : "");
-            cgi.Cvar_Set("ui_om_hud_following_text", buf);
+            CG_HudSetCached("ui_om_hud_following_text", buf);
             /* Added in Omaha: bare name + team token for modern HUD (health cluster). */
-            cgi.Cvar_Set("ui_om_hud_following_name", pszName ? pszName : "");
+            CG_HudSetCached("ui_om_hud_following_name", pszName ? pszName : "");
             if (cg.clientinfo[iClientNum].team == TEAM_AXIS) {
-                cgi.Cvar_Set("ui_om_hud_following_team", "axis");
+                CG_HudSetCached("ui_om_hud_following_team", "axis");
             } else if (cg.clientinfo[iClientNum].team == TEAM_ALLIES) {
-                cgi.Cvar_Set("ui_om_hud_following_team", "allies");
+                CG_HudSetCached("ui_om_hud_following_team", "allies");
             } else {
-                cgi.Cvar_Set("ui_om_hud_following_team", "");
+                CG_HudSetCached("ui_om_hud_following_team", "");
             }
         } else {
-            cgi.Cvar_Set("ui_om_hud_following_text", "");
-            cgi.Cvar_Set("ui_om_hud_following_name", "");
-            cgi.Cvar_Set("ui_om_hud_following_team", "");
+            CG_HudSetCached("ui_om_hud_following_text", "");
+            CG_HudSetCached("ui_om_hud_following_name", "");
+            CG_HudSetCached("ui_om_hud_following_team", "");
         }
 
         if (cg_protocol >= PROTOCOL_MOHTA_MIN) {
@@ -1840,19 +1928,19 @@ void CG_SyncModernHudCvars(void)
                 pszString = cgi.LV_ConvertString(
                     va("Press Fire(%s) to join the battle!", cgi.Key_KeynumToBindString(iKey1))
                 );
-                cgi.Cvar_Set("ui_om_hud_spectator_text", pszString);
+                CG_HudSetCached("ui_om_hud_spectator_text", pszString);
             } else if (cg.predicted_player_state.pm_flags & PMF_CAMERA_VIEW) {
                 cgi.Key_GetKeysForCommand("+use", &iKey1, &iKey2);
                 pszString = cgi.LV_ConvertString(
                     va("Press Use(%s) to enter free spectate mode.", cgi.Key_KeynumToBindString(iKey1))
                 );
-                cgi.Cvar_Set("ui_om_hud_spectator_text", pszString);
+                CG_HudSetCached("ui_om_hud_spectator_text", pszString);
             } else {
                 cgi.Key_GetKeysForCommand("+use", &iKey1, &iKey2);
                 pszString = cgi.LV_ConvertString(
                     va("Press Use(%s) to enter player following spectate mode.", cgi.Key_KeynumToBindString(iKey1))
                 );
-                cgi.Cvar_Set("ui_om_hud_spectator_text", pszString);
+                CG_HudSetCached("ui_om_hud_spectator_text", pszString);
             }
         } else {
             cgi.Key_GetKeysForCommand("+use", &iKey1, &iKey2);
@@ -1865,31 +1953,31 @@ void CG_SyncModernHudCvars(void)
                     va("Press Use(%s) to follow a player.", cgi.Key_KeynumToBindString(iKey1))
                 );
             }
-            cgi.Cvar_Set("ui_om_hud_spectator_text", pszString);
+            CG_HudSetCached("ui_om_hud_spectator_text", pszString);
         }
     } else {
-        cgi.Cvar_Set("ui_om_hud_spectator_text", "");
-        cgi.Cvar_Set("ui_om_hud_following_text", "");
-        cgi.Cvar_Set("ui_om_hud_following_name", "");
-        cgi.Cvar_Set("ui_om_hud_following_team", "");
+        CG_HudSetCached("ui_om_hud_spectator_text", "");
+        CG_HudSetCached("ui_om_hud_following_text", "");
+        CG_HudSetCached("ui_om_hud_following_name", "");
+        CG_HudSetCached("ui_om_hud_following_team", "");
     }
 
     Com_sprintf(buf, sizeof(buf), "%d", cg.iInstaMessageMenu);
-    cgi.Cvar_Set("ui_om_hud_im_menu", buf);
+    CG_HudSetCached("ui_om_hud_im_menu", buf);
     if (cg.iInstaMessageMenu > 0) {
         Com_sprintf(buf, sizeof(buf), "textures/hud/instamsg_group_%c", cg.iInstaMessageMenu + 96);
-        cgi.Cvar_Set("ui_om_hud_im_image", buf);
+        CG_HudSetCached("ui_om_hud_im_image", buf);
     } else if (cg.iInstaMessageMenu < 0) {
-        cgi.Cvar_Set("ui_om_hud_im_image", "textures/hud/instamsg_main");
+        CG_HudSetCached("ui_om_hud_im_image", "textures/hud/instamsg_main");
     } else {
-        cgi.Cvar_Set("ui_om_hud_im_image", "");
+        CG_HudSetCached("ui_om_hud_im_image", "");
     }
 
-    cgi.Cvar_Set("ui_om_hud_pause_icon", paused->integer ? "1" : "0");
+    CG_HudSetCached("ui_om_hud_pause_icon", paused->integer ? "1" : "0");
     if (cg.predicted_player_state.pm_flags & PMF_LEVELEXIT) {
-        cgi.Cvar_Set("ui_om_hud_level_exit_icon", ((cg.time >> 9) & 1) ? "0" : "1");
+        CG_HudSetCached("ui_om_hud_level_exit_icon", ((cg.time >> 9) & 1) ? "0" : "1");
     } else {
-        cgi.Cvar_Set("ui_om_hud_level_exit_icon", "0");
+        CG_HudSetCached("ui_om_hud_level_exit_icon", "0");
     }
 
     /*
@@ -1910,14 +1998,14 @@ void CG_SyncModernHudCvars(void)
         }
     }
     Com_sprintf(buf, sizeof(buf), "%d", iFraction);
-    cgi.Cvar_Set("ui_om_hud_stopwatch_ms", buf);
+    CG_HudSetCached("ui_om_hud_stopwatch_ms", buf);
     /* Changed in Omaha: clear type when inactive so idle dial cannot linger. */
     if (iFraction > 0) {
         Com_sprintf(buf, sizeof(buf), "%d", cgi.stopWatch->eType);
-        cgi.Cvar_Set("ui_om_hud_stopwatch_type", buf);
+        CG_HudSetCached("ui_om_hud_stopwatch_type", buf);
         const int seconds = (iFraction + 999) / 1000;
         Com_sprintf(buf, sizeof(buf), "%d", seconds);
-        cgi.Cvar_Set("ui_om_hud_stopwatch_text", buf);
+        CG_HudSetCached("ui_om_hud_stopwatch_text", buf);
         /* Added in Omaha: remaining/total for modern plant progress bar (1 → 0). */
         {
             const int rawTotalMs = cgi.stopWatch->iEndTime - cgi.stopWatch->iStartTime;
@@ -1937,21 +2025,21 @@ void CG_SyncModernHudCvars(void)
                 }
             }
             Com_sprintf(buf, sizeof(buf), "%.4f", frac);
-            cgi.Cvar_Set("ui_om_hud_stopwatch_frac", buf);
+            CG_HudSetCached("ui_om_hud_stopwatch_frac", buf);
         }
     } else {
-        cgi.Cvar_Set("ui_om_hud_stopwatch_type", "-1");
-        cgi.Cvar_Set("ui_om_hud_stopwatch_text", "");
-        cgi.Cvar_Set("ui_om_hud_stopwatch_frac", "0");
+        CG_HudSetCached("ui_om_hud_stopwatch_type", "-1");
+        CG_HudSetCached("ui_om_hud_stopwatch_text", "");
+        CG_HudSetCached("ui_om_hud_stopwatch_frac", "0");
     }
 
     /* Changed in Omaha: match retail MP score/fraglimit mutual exclusion (any MP gametype). */
     if (cgs.gametype && cgs.fraglimit) {
         Com_sprintf(buf, sizeof(buf), "%s %d", cgi.LV_ConvertString("Frag Limit:"), cgs.fraglimit);
-        cgi.Cvar_Set("ui_om_hud_frag_limit_text", buf);
-        cgi.Cvar_Set("ui_om_hud_score_text", "");
+        CG_HudSetCached("ui_om_hud_frag_limit_text", buf);
+        CG_HudSetCached("ui_om_hud_score_text", "");
     } else if (cgs.gametype && cg.snap) {
-        cgi.Cvar_Set("ui_om_hud_frag_limit_text", "");
+        CG_HudSetCached("ui_om_hud_frag_limit_text", "");
         Com_sprintf(
             buf,
             sizeof(buf),
@@ -1960,10 +2048,10 @@ void CG_SyncModernHudCvars(void)
             cg.snap->ps.stats[STAT_KILLS],
             cg.snap->ps.stats[STAT_HIGHEST_SCORE]
         );
-        cgi.Cvar_Set("ui_om_hud_score_text", buf);
+        CG_HudSetCached("ui_om_hud_score_text", buf);
     } else {
-        cgi.Cvar_Set("ui_om_hud_frag_limit_text", "");
-        cgi.Cvar_Set("ui_om_hud_score_text", "");
+        CG_HudSetCached("ui_om_hud_frag_limit_text", "");
+        CG_HudSetCached("ui_om_hud_score_text", "");
     }
 
     /*
@@ -1972,30 +2060,30 @@ void CG_SyncModernHudCvars(void)
      * scoreboard headers (silent score refresh) and keep own team live from STAT_KILLS.
      */
     if (!cgs.gametype || !cg.snap) {
-        cgi.Cvar_Set("ui_om_hud_allied_score", "");
-        cgi.Cvar_Set("ui_om_hud_axis_score", "");
-        cgi.Cvar_Set("ui_om_hud_score_self", "");
-        cgi.Cvar_Set("ui_om_hud_score_leader", "");
+        CG_HudSetCached("ui_om_hud_allied_score", "");
+        CG_HudSetCached("ui_om_hud_axis_score", "");
+        CG_HudSetCached("ui_om_hud_score_self", "");
+        CG_HudSetCached("ui_om_hud_score_leader", "");
     } else if (cgs.gametype == GT_FFA) {
-        cgi.Cvar_Set("ui_om_hud_allied_score", "");
-        cgi.Cvar_Set("ui_om_hud_axis_score", "");
+        CG_HudSetCached("ui_om_hud_allied_score", "");
+        CG_HudSetCached("ui_om_hud_axis_score", "");
         Com_sprintf(buf, sizeof(buf), "%d", cg.snap->ps.stats[STAT_KILLS]);
-        cgi.Cvar_Set("ui_om_hud_score_self", buf);
+        CG_HudSetCached("ui_om_hud_score_self", buf);
         Com_sprintf(buf, sizeof(buf), "%d", cg.snap->ps.stats[STAT_HIGHEST_SCORE]);
-        cgi.Cvar_Set("ui_om_hud_score_leader", buf);
+        CG_HudSetCached("ui_om_hud_score_leader", buf);
     } else {
         const int team  = cg.snap->ps.stats[STAT_TEAM];
         const int score = cg.snap->ps.stats[STAT_KILLS];
 
-        cgi.Cvar_Set("ui_om_hud_score_self", "");
-        cgi.Cvar_Set("ui_om_hud_score_leader", "");
+        CG_HudSetCached("ui_om_hud_score_self", "");
+        CG_HudSetCached("ui_om_hud_score_leader", "");
         CG_RequestHudTeamScoresSilent();
         if (team == TEAM_ALLIES) {
             Com_sprintf(buf, sizeof(buf), "%d", score);
-            cgi.Cvar_Set("ui_om_hud_allied_score", buf);
+            CG_HudSetCached("ui_om_hud_allied_score", buf);
         } else if (team == TEAM_AXIS) {
             Com_sprintf(buf, sizeof(buf), "%d", score);
-            cgi.Cvar_Set("ui_om_hud_axis_score", buf);
+            CG_HudSetCached("ui_om_hud_axis_score", buf);
         }
     }
 }

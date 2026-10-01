@@ -264,6 +264,11 @@ cvar_t* r_showSkeleton;
 cvar_t* r_ext_multisample;
 cvar_t* r_uiFramebuffer;
 cvar_t* r_uiMultisample;
+cvar_t* r_uiSyncQueries; /* Added in Omaha: Phase 1 A/B for glIsEnabled/glGet */
+cvar_t* r_uiClearMode;   /* Added in Omaha: Phase 2 — 0 color-only UI FBO clear, 1 color+depth+stencil */
+cvar_t* r_uiResolveRects; /* Added in Omaha: Phase 2 — 1 region resolve, 0 full, 2 debug outlines */
+cvar_t* r_uiVbo;          /* Added in Omaha: Phase 3 — stream UI batches via VBO */
+/* r_uiPerfGpu is defined in tr_ui_stats.c */
 cvar_t* r_noborder;
 cvar_t* r_ext_texture_filter_anisotropic;
 cvar_t* r_stereoEnabled;
@@ -1076,6 +1081,29 @@ void GL_SetDefaultState( void )
 	qglDisable( GL_CULL_FACE );
 	qglDisable( GL_BLEND );
 
+	/* Added in Omaha: sync tracked scissor / MSAA / FBO with actual GL (vid_restart). */
+	glState.scissorEnabled = qtrue;
+	glState.scissorBox[0] = 0;
+	glState.scissorBox[1] = 0;
+	glState.scissorBox[2] = glConfig.vidWidth;
+	glState.scissorBox[3] = glConfig.vidHeight;
+	qglScissor( 0, 0, glConfig.vidWidth, glConfig.vidHeight );
+#ifdef GL_MULTISAMPLE
+	glState.multisampleEnabled = qtrue;
+	qglEnable( GL_MULTISAMPLE );
+#else
+	glState.multisampleEnabled = qfalse;
+#endif
+	glState.fboDraw = 0;
+	glState.fboRead = 0;
+	glState.fboKnown = qtrue;
+	if ( qglBindFramebuffer ) {
+#ifndef GL_FRAMEBUFFER
+#define GL_FRAMEBUFFER 0x8D40
+#endif
+		qglBindFramebuffer( GL_FRAMEBUFFER, 0 );
+	}
+
 	qglFogi(GL_FOG_MODE, GL_LINEAR);
 
 	glState.fFogColor[0] = 0.0;
@@ -1566,6 +1594,16 @@ void R_Register( void )
 	r_ext_multisample = ri.Cvar_Get("r_ext_multisample", "0", CVAR_ARCHIVE | CVAR_LATCH);
 	r_uiFramebuffer = ri.Cvar_Get("r_uiFramebuffer", "1", CVAR_ARCHIVE);
 	r_uiMultisample = ri.Cvar_Get("r_uiMultisample", "8", CVAR_ARCHIVE | CVAR_LATCH);
+	/* Added in Omaha: Phase 1 A/B — 1 restores old glIsEnabled/glGetIntegerv UI queries. */
+	r_uiSyncQueries = ri.Cvar_Get("r_uiSyncQueries", "0", CVAR_ARCHIVE);
+	/* Added in Omaha: Phase 2 — UI FBO clear / resolve region controls. */
+	r_uiClearMode = ri.Cvar_Get("r_uiClearMode", "0", CVAR_ARCHIVE);
+	r_uiResolveRects = ri.Cvar_Get("r_uiResolveRects", "1", CVAR_ARCHIVE);
+	/* Added in Omaha: Phase 3 — stream UI batches via VBO. */
+	r_uiVbo = ri.Cvar_Get("r_uiVbo", "1", CVAR_ARCHIVE);
+	/* Added in Omaha: GPU timing reads force a driver sync every 60 frames;
+	 * compare frame us with ui_perf_gpu 0 vs 1 to see the sync penalty itself. */
+	r_uiPerfGpu = ri.Cvar_Get("r_uiPerfGpu", "0", CVAR_TEMP);
 	r_noborder = ri.Cvar_Get("r_noborder", "0", CVAR_ARCHIVE | CVAR_LATCH);
 	r_ext_texture_filter_anisotropic = ri.Cvar_Get("r_ext_texture_filter_anisotropic",
 		"0", CVAR_ARCHIVE | CVAR_LATCH);
@@ -1995,6 +2033,7 @@ refexport_t *GetRefAPI ( int apiVersion, refimport_t *rimp ) {
 	re.BeginUiStencilMask = RE_BeginUiStencilMask;
 	re.BeginUiStencilDraw = RE_BeginUiStencilDraw;
 	re.EndUiStencil = RE_EndUiStencil;
+	re.DrawUiStencilMaskTris = RE_DrawUiStencilMaskTris;
 	re.UI2DBatchSupported = RE_UI2DBatchSupported;
 	re.UI2DCanBatchShader = RE_UI2DCanBatchShader;
 	re.DrawUI2D = RE_DrawUI2D;
@@ -2006,6 +2045,7 @@ refexport_t *GetRefAPI ( int apiVersion, refimport_t *rimp ) {
 	re.UI2DTargetIsActive = RE_UI2DTargetIsActive;
 	re.UI2DTargetSamples = RE_UI2DTargetSamples;
 	re.UI2DTargetRebind = RE_UI2DTargetRebind;
+	re.UiStatsGet = RE_UiStatsGet;
 	re.UiLayerAvailable = RE_UiLayerAvailable;
 	re.BeginUiLayer = RE_BeginUiLayer;
 	re.UiLayerApplyMask = RE_UiLayerApplyMask;
@@ -2015,6 +2055,9 @@ refexport_t *GetRefAPI ( int apiVersion, refimport_t *rimp ) {
 	re.EndUiChromeCacheCapture = RE_EndUiChromeCacheCapture;
 	re.BlitUiChromeCache = RE_BlitUiChromeCache;
 	re.InvalidateUiChromeCache = RE_InvalidateUiChromeCache;
+	/* Added in Omaha: Phase 4.6 — retained UI target. */
+	re.BeginUI2DTargetKeep = RE_BeginUI2DTargetKeep;
+	re.UI2DClearRectFb = RE_UI2DClearRectFb;
 	re.ClearWorld = RE_ClearWorld;
 	re.LoadMenuWorld = RE_LoadMenuWorld;
 	re.LoadMenuWorldStaged = RE_LoadMenuWorldStaged;

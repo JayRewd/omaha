@@ -155,7 +155,7 @@ void UIR_FontSetBackend(const uir_font_backend_t *backend)
 
 void UIR_FontShutdown(void)
 {
-	/* Fixed in OPM: release from end so swap-shrink in UIR_FontRelease cannot skip entries. */
+	/* Fixed in Omaha: release from end so swap-shrink in UIR_FontRelease cannot skip entries. */
 	while (g_fontCount > 0) {
 		UIR_FontRelease(g_fonts[g_fontCount - 1]);
 	}
@@ -166,7 +166,7 @@ void UIR_FontInvalidateGpu(void)
 	int i;
 
 	g_gpuGeneration++;
-	/* Fixed in OPM: drop stale GPU handles so re-upload always CreateUIAtlas. */
+	/* Fixed in Omaha: drop stale GPU handles so re-upload always CreateUIAtlas. */
 	for (i = 0; i < g_fontCount; i++) {
 		if (g_fonts[i]) {
 			g_fonts[i]->shader = 0;
@@ -183,7 +183,7 @@ static int uir_font_upload(uir_font_t *font)
 		return 0;
 	}
 	snprintf(name, sizeof(name), "*uir_font_%p", (void *)font);
-	/* Fixed in OPM: Update only when handle is live for the current GPU generation. */
+	/* Fixed in Omaha: Update only when handle is live for the current GPU generation. */
 	if (font->shader != 0 && font->gpuGeneration == g_gpuGeneration && g_fontBackend.updateAtlas) {
 		if (g_fontBackend.updateAtlas(font->shader, font->atlasRgba, font->atlasW, font->atlasH)) {
 			font->gpuGeneration = g_gpuGeneration;
@@ -310,10 +310,10 @@ uir_font_t *UIR_FontResolve(const char *vfsPath, float logicalPx, float fbScale)
 	if (!(fbScale > 0.0f)) {
 		fbScale = 1.0f;
 	}
-	/* Changed in OPM: quantize so ui_scale drag does not create a unique atlas per step. */
+	/* Changed in Omaha: quantize so ui_scale drag does not create a unique atlas per step. */
 	logicalPx = UIR_FontQuantizeLogical(logicalPx);
 	bakePx = logicalPx * fbScale;
-	/* Fixed in OPM: clamp bake size so atlas pack cannot overflow / thrash. */
+	/* Fixed in Omaha: clamp bake size so atlas pack cannot overflow / thrash. */
 	if (bakePx < 4.0f) {
 		bakePx = 4.0f;
 	} else if (bakePx > 128.0f) {
@@ -363,7 +363,7 @@ uir_font_t *UIR_FontResolve(const char *vfsPath, float logicalPx, float fbScale)
 		return NULL;
 	}
 
-	/* Fixed in OPM: always track fonts; evict LRU when full (was leaking atlases). */
+	/* Fixed in Omaha: always track fonts; evict LRU when full (was leaking atlases). */
 	if (g_fontCount >= UIR_FONT_REGISTRY_MAX) {
 		if (UIR_DebugEnabled()) {
 			fprintf(
@@ -471,20 +471,83 @@ float UIR_FontMeasure(const uir_font_t *font, const char *text, float tracking)
 	return w;
 }
 
-uir_status_t UIR_FontDraw(
-	const uir_viewport_t *vp,
-	uir_font_t           *font,
-	float                 x,
-	float                 y,
-	const char           *text,
-	const uir_color_t    *rgba,
-	float                 tracking
+float UIR_FontGlyphAdvance(const uir_font_t *font, unsigned char ch)
+{
+	float inv;
+	if (!font) {
+		return 0.0f;
+	}
+	inv = font->toLogical > 0.0f ? font->toLogical : 1.0f;
+	if (ch < UIR_FONT_FIRST_CHAR || ch >= UIR_FONT_FIRST_CHAR + UIR_FONT_NUM_CHARS) {
+		ch = (unsigned char)'?';
+	}
+	return font->baked[ch - UIR_FONT_FIRST_CHAR].xadvance * inv;
+}
+
+static void uir_font_emit_glyph_quad(
+	uir_font_t *font,
+	float gx,
+	float gy,
+	float gw,
+	float gh,
+	float u0,
+	float v0,
+	float u1,
+	float v1,
+	const uir_color_t *glyphColor
+)
+{
+	if (!(gw > 0.0f) || !(gh > 0.0f)) {
+		return;
+	}
+	if (UIR_BatchEnabled()) {
+		if (UIR_BatchQuad(font->shader, gx, gy, gw, gh, u0, v0, u1, v1, glyphColor) != UIR_OK) {
+			float color[4];
+			color[0] = glyphColor->r;
+			color[1] = glyphColor->g;
+			color[2] = glyphColor->b;
+			color[3] = glyphColor->a;
+			g_fontBackend.setColor(color);
+			g_fontBackend.drawPic(gx, gy, gw, gh, u0, v0, u1, v1, font->shader);
+			color[0] = color[1] = color[2] = color[3] = 1.0f;
+			g_fontBackend.setColor(color);
+		}
+	} else {
+		float color[4];
+		color[0] = glyphColor->r;
+		color[1] = glyphColor->g;
+		color[2] = glyphColor->b;
+		color[3] = glyphColor->a;
+		g_fontBackend.setColor(color);
+		g_fontBackend.drawPic(gx, gy, gw, gh, u0, v0, u1, v1, font->shader);
+		color[0] = color[1] = color[2] = color[3] = 1.0f;
+		g_fontBackend.setColor(color);
+	}
+}
+
+uir_status_t UIR_FontDrawWithShadows(
+	const uir_viewport_t     *vp,
+	uir_font_t               *font,
+	float                     x,
+	float                     y,
+	const char               *text,
+	const uir_color_t        *rgba,
+	float                     tracking,
+	const uir_font_shadow_t  *shadows,
+	int                       shadowCount
 )
 {
 	float penX;
 	float baseline;
+	int i;
 
 	if (!vp || !font || !text || !rgba || !g_fontBackend.drawPic || !g_fontBackend.setColor) {
+		return UIR_ERR_INVALID_ARG;
+	}
+	if (shadowCount < 0) {
+		shadowCount = 0;
+	}
+	if (shadowCount > 0 && !shadows) {
 		return UIR_ERR_INVALID_ARG;
 	}
 
@@ -522,30 +585,21 @@ uir_status_t UIR_FontDraw(
 
 		UIR_FontInsetUVs(&u0, &v0, &u1, &v1, font->atlasW, font->atlasH);
 		UIR_ViewportSnapQuad(vp, &gx, &gy, &gw, &gh);
-		glyphColor = *rgba;
-		if (UIR_BatchEnabled()) {
-			if (UIR_BatchQuad(font->shader, gx, gy, gw, gh, u0, v0, u1, v1, &glyphColor) != UIR_OK) {
-				float color[4];
-				color[0] = rgba->r;
-				color[1] = rgba->g;
-				color[2] = rgba->b;
-				color[3] = rgba->a;
-				g_fontBackend.setColor(color);
-				g_fontBackend.drawPic(gx, gy, gw, gh, u0, v0, u1, v1, font->shader);
-				color[0] = color[1] = color[2] = color[3] = 1.0f;
-				g_fontBackend.setColor(color);
-			}
-		} else {
-			float color[4];
-			color[0] = rgba->r;
-			color[1] = rgba->g;
-			color[2] = rgba->b;
-			color[3] = rgba->a;
-			g_fontBackend.setColor(color);
-			g_fontBackend.drawPic(gx, gy, gw, gh, u0, v0, u1, v1, font->shader);
-			color[0] = color[1] = color[2] = color[3] = 1.0f;
-			g_fontBackend.setColor(color);
+
+		for (i = 0; i < shadowCount; i++) {
+			float sgx = gx + shadows[i].dx;
+			float sgy = gy + shadows[i].dy;
+			float sgw = gw;
+			float sgh = gh;
+			glyphColor.r = 0.0f;
+			glyphColor.g = 0.0f;
+			glyphColor.b = 0.0f;
+			glyphColor.a = shadows[i].a;
+			uir_font_emit_glyph_quad(font, sgx, sgy, sgw, sgh, u0, v0, u1, v1, &glyphColor);
 		}
+
+		glyphColor = *rgba;
+		uir_font_emit_glyph_quad(font, gx, gy, gw, gh, u0, v0, u1, v1, &glyphColor);
 
 		penX += font->baked[ch - UIR_FONT_FIRST_CHAR].xadvance * inv;
 		if (*text) {
@@ -554,6 +608,19 @@ uir_status_t UIR_FontDraw(
 	}
 
 	return UIR_OK;
+}
+
+uir_status_t UIR_FontDraw(
+	const uir_viewport_t *vp,
+	uir_font_t           *font,
+	float                 x,
+	float                 y,
+	const char           *text,
+	const uir_color_t    *rgba,
+	float                 tracking
+)
+{
+	return UIR_FontDrawWithShadows(vp, font, x, y, text, rgba, tracking, NULL, 0);
 }
 
 uir_status_t UIR_FontDrawSkewed(

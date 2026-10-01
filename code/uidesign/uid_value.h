@@ -27,6 +27,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "uid_types.h"
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <string>
 
@@ -42,7 +43,7 @@ struct uid_sides_t {
 	uid_length_t left;
 };
 
-/* Added in OPM: which enum family GetEnumCached last parsed for this entry. */
+/* Added in Omaha: which enum family GetEnumCached last parsed for this entry. */
 typedef enum uid_prop_enum_kind_e {
 	UID_PROP_ENUM_NONE = 0,
 	UID_PROP_ENUM_ALIGN,
@@ -52,7 +53,7 @@ typedef enum uid_prop_enum_kind_e {
 	UID_PROP_ENUM_SCROLLBAR_EDGE
 } uid_prop_enum_kind_t;
 
-/* Added in OPM: parsed-value memo so paint/layout stop re-parsing text each frame. */
+/* Added in Omaha: parsed-value memo so paint/layout stop re-parsing text each frame. */
 enum {
 	UID_PROP_CACHE_COLOR = 1u << 0,
 	UID_PROP_CACHE_LENGTH = 1u << 1,
@@ -76,16 +77,21 @@ struct uid_prop_entry_t {
 /* Optional diagnostic message out-parameter may be nullptr. */
 bool UID_ParseLength(const char *text, uid_length_t *out, std::string *diagMessage);
 bool UID_ParseSides(const char *text, uid_sides_t *out, std::string *diagMessage);
-/* Added in OPM: duration for foreach lifetime / fade ("5", "5s", "500ms"). */
+/* Added in Omaha: duration for foreach lifetime / fade ("5", "5s", "500ms"). */
 bool UID_ParseDurationMs(const char *text, int *outMs, std::string *diagMessage);
 
 bool UID_ParseColor(const char *text, uid_color_t *out, std::string *diagMessage);
-/* Added in OPM: fill may be #RRGGBB(AA) or linear(...)/radial(...) atlas brush. */
+/* Added in Omaha: fill may be #RRGGBB(AA) or linear(...)/radial(...) atlas brush. */
 bool UID_IsGradientBrush(const char *text);
+/*
+ * Added in Omaha: true when a gradient mask is fully opaque white (no fade).
+ * Soft-mask FBO is a no-op in that case and can be skipped.
+ */
+bool UID_MaskBrushIsOpaqueWhite(const char *text);
 bool UID_IsFillPaint(const char *text); /* color, cvar-rgba, or gradient brush */
 bool UID_ParseBool(const char *text, bool *out, std::string *diagMessage);
 bool UID_ParseNumber(const char *text, double *out, std::string *diagMessage);
-/* Added in OPM: snap/format numeric control values using authored step. */
+/* Added in Omaha: snap/format numeric control values using authored step. */
 bool UID_FormatNumberForStep(
 	double value,
 	double minV,
@@ -97,7 +103,7 @@ bool UID_FormatNumberForStep(
 	char *buf,
 	size_t bufSize
 );
-/* Added in OPM: shape-rotation degrees ("90", "90deg", "-45deg"). */
+/* Added in Omaha: shape-rotation degrees ("90", "90deg", "-45deg"). */
 bool UID_ParseRotationDeg(const char *text, float *outDeg, std::string *diagMessage);
 bool UID_ParseRotationOrigin(
 	const char *text,
@@ -133,14 +139,14 @@ public:
 
 	void Set(const char *name, const char *value);
 	void Set(const char *name, const std::string &value);
-	/* Added in OPM: later keys override earlier ones. */
+	/* Added in Omaha: later keys override earlier ones. */
 	void MergeFrom(const uid_property_set_t &other);
 
-	const std::map<std::string, uid_prop_entry_t> &Attrs() const { return m_attrs; }
-	/* Added in OPM: bumps on Set/Clear/MergeFrom for shape resolve cache keys. */
+	const std::map<std::string, uid_prop_entry_t, std::less<>> &Attrs() const { return m_attrs; }
+	/* Added in Omaha: bumps on Set/Clear/MergeFrom for shape resolve cache keys. */
 	unsigned Version() const { return m_version; }
 
-	/* Added in OPM: typed accessors with per-entry parse memo (Stage 3). */
+	/* Added in Omaha: typed accessors with per-entry parse memo (Stage 3). */
 	bool GetColorCached(const char *name, uid_color_t *out) const;
 	bool GetLengthCached(const char *name, uid_length_t *out) const;
 	bool GetNumberCached(const char *name, double *out) const;
@@ -148,13 +154,14 @@ public:
 	bool GetEnumCached(const char *name, uid_prop_enum_kind_t kind, int *out) const;
 
 private:
-	std::map<std::string, uid_prop_entry_t> m_attrs;
-	unsigned                                m_version = 0;
+	/* Added in Omaha: transparent comparator — GetCStr("width") does not allocate a key. */
+	std::map<std::string, uid_prop_entry_t, std::less<>> m_attrs;
+	unsigned                                             m_version = 0;
 };
 
 /* Built-in defaults: transparent, visible, enabled, vertical, start, zero spacing, overflow none, auto size. */
 const char *UID_BuiltinDefault(const char *canonicalName);
-/* Added in OPM: builtin defaults are constant, so parse them once. */
+/* Added in Omaha: builtin defaults are constant, so parse them once. */
 const uid_prop_entry_t *UID_BuiltinDefaultParsed(const char *canonicalName);
 void        UID_ApplyBuiltinDefaults(uid_property_set_t *out);
 

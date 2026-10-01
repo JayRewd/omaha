@@ -27,11 +27,13 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "uid_binding.h"
 #include "uid_collection.h"
 #include "uid_modal.h"
+#include "uid_profile.h"
 
 #include "uid_opt.h"
 #include "uid_value.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -41,6 +43,7 @@ uid_rect_t UID_ScrollbarChromeClip(const uid_node_def_t *container, const uid_no
 
 namespace {
 
+/* Stage 6b jump: log classic HUD fill spacer + bottom chrome geometry (on change only). */
 const char *PropCStr(const uid_node_def_t &node, const char *name, const char *fallback)
 {
 	const char *v = node.properties.GetCStr(name, nullptr);
@@ -201,11 +204,19 @@ bool EnsureStates(uid_document_t *doc)
 	if (!doc) {
 		return false;
 	}
-	if (doc->states.size() != doc->nodes.size()) {
-		doc->states.resize(doc->nodes.size());
-		for (uid_node_state_t &st : doc->states) {
-			UID_InitNodeState(&st);
-		}
+	const size_t n = doc->nodes.size();
+	const size_t old = doc->states.size();
+	if (old == n) {
+		return true;
+	}
+	/* Added in Omaha: never re-init surviving states — that wiped Stage 2 layout caches. */
+	if (old > n) {
+		doc->states.resize(n);
+		return true;
+	}
+	doc->states.resize(n);
+	for (size_t i = old; i < n; ++i) {
+		UID_InitNodeState(&doc->states[i]);
 	}
 	return true;
 }
@@ -244,7 +255,7 @@ bool IsLayoutKind(uid_node_kind_t kind)
 	case UID_NODE_SELECT:
 	case UID_NODE_KEYBIND:
 	case UID_NODE_SHAPE_INSTANCE:
-	case UID_NODE_IMAGE: /* Added in OPM: leaf bitmap */
+	case UID_NODE_IMAGE: /* Added in Omaha: leaf bitmap */
 	case UID_NODE_MODEL:
 	case UID_NODE_SERVER_LIST:
 	case UID_NODE_FOREACH:
@@ -263,7 +274,7 @@ bool IsInteractiveKind(uid_node_kind_t kind)
 	case UID_NODE_SLIDER:
 	case UID_NODE_SELECT:
 	case UID_NODE_KEYBIND:
-	case UID_NODE_SERVER_LIST: /* Added in OPM: host region receives pointer */
+	case UID_NODE_SERVER_LIST: /* Added in Omaha: host region receives pointer */
 		return true;
 	default:
 		return false;
@@ -271,7 +282,7 @@ bool IsInteractiveKind(uid_node_kind_t kind)
 }
 
 /*
- * Added in OPM: leaf <image> aspect from measured texels (fallback 1).
+ * Added in Omaha: leaf <image> aspect from measured texels (fallback 1).
  * Returns true when outAspect is usable (> 0).
  */
 bool LeafImageAspect(
@@ -373,7 +384,7 @@ float MeasureText(
 
 	const float uiPxScale = (doc && doc->lastUiPxScale > 0.0f) ? doc->lastUiPxScale : 1.0f;
 	const float useFb = fbScale > 0.0f ? fbScale : 1.0f;
-	/* Added in OPM: FNV-1a key matching uid_widget HashTextCacheKey. */
+	/* Added in Omaha: FNV-1a key matching uid_widget HashTextCacheKey. */
 	auto hashMeasureKey = [&]() -> uint64_t {
 		uint64_t h = 14695981039346656037ull;
 		auto mix = [&](const char *s) {
@@ -683,7 +694,7 @@ void LayoutNode(
 	uid_diag_list_t *diags
 );
 
-/* Added in OPM: find role=relative-panel under modal root. */
+/* Added in Omaha: find role=relative-panel under modal root. */
 uid_node_id_t FindRelativePanel(const uid_document_t *doc, uid_node_id_t id)
 {
 	const uid_node_def_t *node = UID_GetNode(doc, id);
@@ -702,7 +713,7 @@ uid_node_id_t FindRelativePanel(const uid_document_t *doc, uid_node_id_t id)
 	return UID_INVALID_NODE_ID;
 }
 
-/* Added in OPM: place type=relative modal panel against modalOpenerNode. */
+/* Added in Omaha: place type=relative modal panel against modalOpenerNode. */
 void PlaceRelativeModalPanel(
 	uid_document_t *doc,
 	float fbScale,
@@ -747,7 +758,7 @@ void PlaceRelativeModalPanel(
 		return;
 	}
 	/*
-	 * Fixed in OPM: the measure pass uses height=auto so content fills the box and
+	 * Fixed in Omaha: the measure pass uses height=auto so content fills the box and
 	 * LayoutChildren clamps scrollY to 0. Capture scroll before that wipe.
 	 */
 	const float savedScrollY = pst->scrollY;
@@ -787,7 +798,7 @@ void PlaceRelativeModalPanel(
 	);
 
 	/*
-	 * Fixed in OPM: height=auto ignores the placed clamp for scroll purposes unless we
+	 * Fixed in Omaha: height=auto ignores the placed clamp for scroll purposes unless we
 	 * temporarily force an explicit px height for this layout pass.
 	 */
 	uid_node_def_t *panelNode = UID_GetNode(doc, panelId);
@@ -852,6 +863,7 @@ void ClearNodeGeometry(uid_node_state_t *st)
 	std::memset(&st->effectiveClip, 0, sizeof(st->effectiveClip));
 	st->contentExtentW = 0.0f;
 	st->contentExtentH = 0.0f;
+	st->layoutInputsValid = false;
 }
 
 float IntrinsicBorderSize(
@@ -865,7 +877,7 @@ float IntrinsicBorderSize(
 );
 
 /*
- * Added in OPM: flex child sum/max along main/cross axis (no padding).
+ * Added in Omaha: flex child sum/max along main/cross axis (no padding).
  * Shared by containers and buttons with nested layout children.
  */
 float IntrinsicFlexChildrenContentSize(
@@ -966,7 +978,29 @@ void ApplySelfBoxes(
 	const float mt = ResolveSidePx(doc, margin.top, percentBaseH);
 	const float mb = ResolveSidePx(doc, margin.bottom, percentBaseH);
 
-	/* Added in OPM: post-flow translate (does not affect sibling packing). */
+	/*
+	 * Added in Omaha: Stage 2 — cache LayoutNode-equivalent inputs here.
+	 * Most nodes are placed by LayoutChildren/Overlap via ApplySelfBoxes, not
+	 * LayoutNode; caching only in LayoutNode left valid=1 (root) after full layout.
+	 */
+	st->layoutMarginX = borderX - ml;
+	st->layoutMarginY = borderY - mt;
+	st->layoutMarginW = borderW + ml + mr;
+	st->layoutMarginH = borderH + mt + mb;
+	st->layoutPercentBaseW = percentBaseW;
+	st->layoutPercentBaseH = percentBaseH;
+	st->layoutParentClip = parentClip;
+	st->layoutInputsValid = true;
+	{
+		const uid_length_t width = PropLength(*node, "width", UID_LENGTH_AUTO);
+		const uid_length_t height = PropLength(*node, "height", UID_LENGTH_AUTO);
+		st->layoutSizedW = (width.unit == UID_LENGTH_PX || width.unit == UID_LENGTH_PERCENT
+							|| width.unit == UID_LENGTH_FILL);
+		st->layoutSizedH = (height.unit == UID_LENGTH_PX || height.unit == UID_LENGTH_PERCENT
+							|| height.unit == UID_LENGTH_FILL);
+	}
+
+	/* Added in Omaha: post-flow translate (does not affect sibling packing). */
 	{
 		const uid_length_t txLen = PropLength(*node, "translate-x", UID_LENGTH_PX);
 		const uid_length_t tyLen = PropLength(*node, "translate-y", UID_LENGTH_PX);
@@ -983,7 +1017,7 @@ void ApplySelfBoxes(
 	float pt = ResolveSidePx(doc, padding.top, percentBaseH);
 	float pb = ResolveSidePx(doc, padding.bottom, percentBaseH);
 
-	/* Added in OPM: authored size includes stroke when stroke-layout (default true). */
+	/* Added in Omaha: authored size includes stroke when stroke-layout (default true). */
 	{
 		const float strokePad = IntrinsicStrokePad(doc, *node);
 		if (strokePad > 0.0f) {
@@ -1022,10 +1056,10 @@ void ApplySelfBoxes(
 	st->contentExtentH = st->contentBox.h;
 }
 
-/* Added in OPM: stroke width on both sides when stroke-layout is true (default). */
+/* Added in Omaha: stroke width on both sides when stroke-layout is true (default). */
 float IntrinsicStrokePad(const uid_document_t *doc, const uid_node_def_t &node)
 {
-	/* Changed in OPM: stroke-layout=false keeps stroke paint-only (no layout pad). */
+	/* Changed in Omaha: stroke-layout=false keeps stroke paint-only (no layout pad). */
 	if (!PropBool(node, "stroke-layout", true)) {
 		return 0.0f;
 	}
@@ -1053,7 +1087,7 @@ bool ContainerMainAxisIsHorizontal(const uid_node_def_t &node)
 	return axis == UID_AXIS_HORIZONTAL;
 }
 
-/* Added in OPM: direct child with fill on this container's flex main axis. */
+/* Added in Omaha: direct child with fill on this container's flex main axis. */
 bool ContainerHasFillOnMainAxis(uid_document_t *doc, const uid_node_def_t &node)
 {
 	if (node.kind != UID_NODE_CONTAINER && node.kind != UID_NODE_FOREACH) {
@@ -1142,8 +1176,8 @@ float IntrinsicBorderSize(
 		return ClampAxisToMax(doc, *node, forWidth, size, percentBaseW, percentBaseH);
 	}
 
-	/* Added in OPM: leaf <image> — natural DIP size from texel measure.
-	 * Fixed in OPM: when one axis is fixed and the other is auto, derive the
+	/* Added in Omaha: leaf <image> — natural DIP size from texel measure.
+	 * Fixed in Omaha: when one axis is fixed and the other is auto, derive the
 	 * auto axis from texel aspect (same rule as the place pass). Parents that
 	 * size from IntrinsicBorderSize (killfeed foreach/overlap) must not lock to
 	 * full natural tex width while height="20px" width="auto". */
@@ -1151,6 +1185,7 @@ float IntrinsicBorderSize(
 		float texW = 32.0f;
 		float texH = 32.0f;
 		std::string imageId;
+		std::string vfs;
 		if (!node->properties.Get("src", &imageId) || imageId.empty()) {
 			(void)node->properties.Get("background-image", &imageId);
 		}
@@ -1161,7 +1196,6 @@ float IntrinsicBorderSize(
 					imageId = resolved;
 				}
 			}
-			std::string vfs;
 			const auto iit = doc->definitions.images.find(imageId);
 			if (iit != doc->definitions.images.end()) {
 				vfs = iit->second.src;
@@ -1193,7 +1227,7 @@ float IntrinsicBorderSize(
 		return ClampAxisToMax(doc, *node, forWidth, size, percentBaseW, percentBaseH);
 	}
 
-	/* Added in OPM: leaf controls sized by width/height attrs; fallback like empty box */
+	/* Added in Omaha: leaf controls sized by width/height attrs; fallback like empty box */
 	if (node->kind == UID_NODE_MODEL || node->kind == UID_NODE_SERVER_LIST) {
 		return ClampAxisToMax(doc, *node, forWidth, 32.0f, percentBaseW, percentBaseH);
 	}
@@ -1238,7 +1272,7 @@ float IntrinsicBorderSize(
 	} else if (node->kind == UID_NODE_BUTTON || node->kind == UID_NODE_SELECT || node->kind == UID_NODE_KEYBIND) {
 		contentW = std::max(contentW, 24.0f);
 	}
-	/* Added in OPM: icon/shape children contribute to auto width/height alongside text. */
+	/* Added in Omaha: icon/shape children contribute to auto width/height alongside text. */
 	if (node->kind == UID_NODE_BUTTON && !node->children.empty()) {
 		contentW = std::max(
 			contentW,
@@ -1249,7 +1283,7 @@ float IntrinsicBorderSize(
 			IntrinsicFlexChildrenContentSize(doc, *node, false, percentBaseW, percentBaseH, fbScale, backend)
 		);
 	}
-	/* Added in OPM: cyclic select body = value + ticks + padding (~HTML 2.15rem). */
+	/* Added in Omaha: cyclic select body = value + ticks + padding (~HTML 2.15rem). */
 	if (node->kind == UID_NODE_SELECT && node->appearance == "cyclic") {
 		contentW = std::max(contentW, UID_ScaleAuthoredPx(doc, 240.0f));
 		const float padY = UID_ScaleAuthoredPx(doc, 6.0f);
@@ -1330,7 +1364,7 @@ float PartLengthPx(
 }
 
 /*
- * Added in OPM: browser-style scrollbar thumb length along the scroll axis.
+ * Added in Omaha: browser-style scrollbar thumb length along the scroll axis.
  * thumbAlong = clamp(trackAlong * (viewport / content), minPx, trackAlong).
  * Min is 20 authored px (scaled); max is the track. Never exceeds trackAlong.
  */
@@ -1370,7 +1404,7 @@ void PlaceSliderPart(
 }
 
 /*
- * Added in OPM: position track/range/thumb inside the slider content box.
+ * Added in Omaha: position track/range/thumb inside the slider content box.
  * Not flex — value drives range width and thumb X.
  */
 void LayoutSliderParts(uid_document_t *doc, uid_node_id_t sliderId, bool parentEnabled)
@@ -1728,6 +1762,18 @@ void LayoutNode(
 		return;
 	}
 
+	/* Added in Omaha: cache LayoutNode inputs for Stage 2 scoped re-layout. */
+	st->layoutMarginX = marginX;
+	st->layoutMarginY = marginY;
+	st->layoutMarginW = marginW;
+	st->layoutMarginH = marginH;
+	st->layoutPercentBaseW = percentBaseW;
+	st->layoutPercentBaseH = percentBaseH;
+	st->layoutParentClip = parentClip;
+	st->layoutAncestorVisible = ancestorVisible;
+	st->layoutAncestorEnabled = ancestorEnabled;
+	st->layoutInputsValid = true;
+
 	const uid_sides_t margin = PropSides(*node, "margin");
 	const float ml = ResolveSidePx(doc, margin.left, percentBaseW);
 	const float mr = ResolveSidePx(doc, margin.right, percentBaseW);
@@ -1739,6 +1785,10 @@ void LayoutNode(
 
 	const uid_length_t width = PropLength(*node, "width", UID_LENGTH_AUTO);
 	const uid_length_t height = PropLength(*node, "height", UID_LENGTH_AUTO);
+	st->layoutSizedW = (width.unit == UID_LENGTH_PX || width.unit == UID_LENGTH_PERCENT
+						|| width.unit == UID_LENGTH_FILL);
+	st->layoutSizedH = (height.unit == UID_LENGTH_PX || height.unit == UID_LENGTH_PERCENT
+						|| height.unit == UID_LENGTH_FILL);
 
 	float bw;
 	float bh;
@@ -1754,7 +1804,13 @@ void LayoutNode(
 			}
 		}
 	} else {
-		bw = ResolveLengthPx(doc, width, borderAvailW, borderAvailW, borderAvailW);
+		/*
+		 * Fixed in Omaha: percent must use the containing block (percentBase*), not
+		 * borderAvail (assigned box). Scoped layout re-enters LayoutNode on a
+		 * width=50% boundary with borderAvail=previous border — 50% of that halves
+		 * the box (HUD score row shifts left when scoreboard dirties the column).
+		 */
+		bw = ResolveLengthPx(doc, width, percentBaseW, borderAvailW, borderAvailW);
 	}
 
 	if (height.unit == UID_LENGTH_FILL) {
@@ -1769,7 +1825,7 @@ void LayoutNode(
 			}
 		}
 	} else {
-		bh = ResolveLengthPx(doc, height, borderAvailH, borderAvailH, borderAvailH);
+		bh = ResolveLengthPx(doc, height, percentBaseH, borderAvailH, borderAvailH);
 	}
 
 	/* Added in Omaha: max-width / max-height after authored/intrinsic/fill resolve. */
@@ -1781,7 +1837,7 @@ void LayoutNode(
 	if (node->kind == UID_NODE_CONTAINER || node->kind == UID_NODE_FOREACH) {
 		LayoutChildren(doc, id, enabled, fbScale, backend, diags);
 	} else if (node->kind == UID_NODE_BUTTON && !node->children.empty()) {
-		/* Added in OPM: icon/shape children inside buttons fill the content box. */
+		/* Added in Omaha: icon/shape children inside buttons fill the content box. */
 		LayoutChildren(doc, id, enabled, fbScale, backend, diags);
 	} else if (node->kind == UID_NODE_SLIDER) {
 		LayoutSliderParts(doc, id, enabled);
@@ -1855,7 +1911,7 @@ void LayoutOverlapChildren(
 			bw = IntrinsicBorderSize(doc, c, true, pctW, pctH, fbScale, backend);
 		} else {
 			/*
-			 * Fixed in OPM: percentage size is relative to the containing
+			 * Fixed in Omaha: percentage size is relative to the containing
 			 * block, not the space left after margins.  The old calculation
 			 * compounded URC percentage offsets (x + width), shrinking every
 			 * absolutely placed pause-menu rect.
@@ -1882,7 +1938,7 @@ void LayoutOverlapChildren(
 				}
 			}
 		} else if (cn->kind == UID_NODE_IMAGE) {
-			/* Added in OPM: leaf <image> preserves texel aspect when one axis is auto. */
+			/* Added in Omaha: leaf <image> preserves texel aspect when one axis is auto. */
 			float aspect = 1.0f;
 			if (LeafImageAspect(doc, *cn, backend, &aspect)) {
 				if (wLen.unit == UID_LENGTH_AUTO && hLen.unit != UID_LENGTH_AUTO && hLen.unit != UID_LENGTH_FILL) {
@@ -1906,6 +1962,8 @@ void LayoutOverlapChildren(
 		const bool childEnabled = parentEnabled && PropBool(*cn, "enabled", true);
 		if (cstWrite) {
 			cstWrite->effectivelyEnabled = childEnabled;
+			cstWrite->layoutAncestorVisible = true;
+			cstWrite->layoutAncestorEnabled = childEnabled;
 		}
 		if (cn->kind == UID_NODE_CONTAINER || cn->kind == UID_NODE_FOREACH) {
 			LayoutChildren(doc, c, childEnabled, fbScale, backend, diags);
@@ -1957,6 +2015,21 @@ void LayoutChildren(
 
 	const uid_align_t mainAlign = horiz ? halign : valign;
 	const uid_align_t crossAlign = horiz ? valign : halign;
+
+	/*
+	 * Fixed in Omaha: end/center keep their anchor when children overflow, like
+	 * overlap children (AlignCross) and CSS flex. Flooring free space at 0 turned
+	 * an overflowing halign=end row into start-aligned, spilling it past the
+	 * parent's end edge. Scroll containers keep the floor so content stays
+	 * reachable from the scroll origin.
+	 */
+	uid_overflow_t parentOverflow = UID_OVERFLOW_NONE;
+	UID_ParseOverflow(PropCStr(*parent, "overflow", "none"), &parentOverflow, nullptr);
+	const bool parentScrolls = (parentOverflow == UID_OVERFLOW_SCROLL);
+	const bool mainKeepsAnchor =
+		!parentScrolls && (mainAlign == UID_ALIGN_END || mainAlign == UID_ALIGN_CENTER);
+	const bool crossKeepsAnchor =
+		!parentScrolls && (crossAlign == UID_ALIGN_END || crossAlign == UID_ALIGN_CENTER);
 
 	if (crossAlign == UID_ALIGN_EQUAL_SPACING && diags) {
 		diags->Error(parent->source, "equal-spacing is only valid on the main axis");
@@ -2014,7 +2087,7 @@ void LayoutChildren(
 		const uid_length_t crossLen = PropLength(*cn, horiz ? "height" : "width", UID_LENGTH_AUTO);
 		g.fillMain = (mainLen.unit == UID_LENGTH_FILL);
 		/*
-		 * Fixed in OPM: only promote auto→fill when the child's flex main axis
+		 * Fixed in Omaha: only promote auto→fill when the child's flex main axis
 		 * matches the parent's. A horizontal row with width=fill children must
 		 * not become height=fill inside a vertical parent (authored height=auto).
 		 */
@@ -2085,7 +2158,7 @@ void LayoutChildren(
 				}
 			}
 		} else if (cn->kind == UID_NODE_IMAGE) {
-			/* Added in OPM: leaf <image> preserves texel aspect when one axis is auto. */
+			/* Added in Omaha: leaf <image> preserves texel aspect when one axis is auto. */
 			float aspect = 1.0f;
 			if (LeafImageAspect(doc, *cn, backend, &aspect)) {
 				const uid_length_t wLen = PropLength(*cn, "width", UID_LENGTH_AUTO);
@@ -2179,12 +2252,12 @@ void LayoutChildren(
 		usedMain += g.margin0 + g.borderMain + g.margin1;
 	}
 	float freeMain = contentMain - usedMain;
-	if (freeMain < 0.0f) {
+	if (freeMain < 0.0f && !mainKeepsAnchor) {
 		freeMain = 0.0f;
 	}
 
 	float mainCursor = horiz ? pst->contentBox.x : pst->contentBox.y;
-	/* Added in OPM: windowed foreach keeps rows glued to the viewport; scrollY only
+	/* Added in Omaha: windowed foreach keeps rows glued to the viewport; scrollY only
 	 * drives collectionScrollOffset + scrollbar thumb (synthetic contentExtentH). */
 	const bool windowedScroll = !horiz && UID_ScrollParentHasWindowedForeach(doc, parentId);
 	const float layoutScrollX = windowedScroll ? 0.0f : pst->scrollX;
@@ -2225,7 +2298,7 @@ void LayoutChildren(
 
 		const float crossAvail = contentCross - g.crossM0 - g.crossM1;
 		float crossFree = crossAvail - g.borderCross;
-		if (crossFree < 0.0f) {
+		if (crossFree < 0.0f && !crossKeepsAnchor) {
 			crossFree = 0.0f;
 		}
 		if (crossAlign == UID_ALIGN_CENTER) {
@@ -2254,13 +2327,15 @@ void LayoutChildren(
 		const bool childEnabled = parentEnabled && cn && PropBool(*cn, "enabled", true);
 		if (cstWrite) {
 			cstWrite->effectivelyEnabled = childEnabled;
+			cstWrite->layoutAncestorVisible = true;
+			cstWrite->layoutAncestorEnabled = childEnabled;
 		}
 		if (cn && (cn->kind == UID_NODE_CONTAINER || cn->kind == UID_NODE_FOREACH)) {
 			LayoutChildren(doc, g.id, childEnabled, fbScale, backend, diags);
 		} else if (cn && cn->kind == UID_NODE_BUTTON && !cn->children.empty()) {
 			LayoutChildren(doc, g.id, childEnabled, fbScale, backend, diags);
 		} else if (cn && cn->kind == UID_NODE_SLIDER) {
-			/* Added in OPM: compose track/range/thumb after host box is known. */
+			/* Added in Omaha: compose track/range/thumb after host box is known. */
 			LayoutSliderParts(doc, g.id, childEnabled);
 		}
 
@@ -2288,7 +2363,7 @@ void LayoutChildren(
 	pst->contentExtentW = horiz ? extentMain : std::max(extentCross, pst->contentBox.w);
 	pst->contentExtentH = horiz ? std::max(extentCross, pst->contentBox.h) : extentMain;
 
-	/* Added in OPM: fake full-list height so scrollbar thumb matches collection count. */
+	/* Added in Omaha: fake full-list height so scrollbar thumb matches collection count. */
 	if (!horiz) {
 		const float synthetic = UID_WindowedForeachSyntheticExtentH(doc, parentId);
 		if (synthetic >= 0.0f) {
@@ -2384,7 +2459,7 @@ uid_rect_t UID_ScrollbarChromeClip(const uid_node_def_t *container, const uid_no
 
 float UID_ScaleAuthoredPx(const uid_document_t *doc, float px)
 {
-	/* Added in OPM: authored px × lastUiPxScale (reference-resolution scale). */
+	/* Added in Omaha: authored px × lastUiPxScale (reference-resolution scale). */
 	const float s = (doc && doc->lastUiPxScale > 0.0f) ? doc->lastUiPxScale : 1.0f;
 	return px * s;
 }
@@ -2415,7 +2490,7 @@ uid_overlay_placement_t UID_PlaceOverlayInViewport(
 	const float vpBottom = viewport.y + viewport.h;
 
 	panelW = std::max(0.0f, panelW);
-	/* Added in OPM: soft cap so long option lists scroll instead of covering the menu. */
+	/* Added in Omaha: soft cap so long option lists scroll instead of covering the menu. */
 	float panelH = out.contentH;
 	if (maxPanelH > 0.0f) {
 		panelH = std::min(panelH, maxPanelH);
@@ -2568,6 +2643,257 @@ uid_node_id_t UID_HitTest(const uid_document_t *doc, float x, float y, bool over
 	return UID_INVALID_NODE_ID;
 }
 
+/* Added in Omaha: Stage 2 scoped layout gate (ui_layout_scoped). */
+static int g_layoutScoped = 1;
+
+void UID_SetLayoutScoped(int enabled)
+{
+	g_layoutScoped = enabled ? 1 : 0;
+}
+
+int UID_LayoutScopedEnabled(void)
+{
+	return g_layoutScoped;
+}
+
+static bool LengthIsExplicitSize(uid_length_unit_t unit)
+{
+	/* PX/% size from author/parent; FILL takes parent avail — neither sizes from content. */
+	return unit == UID_LENGTH_PX || unit == UID_LENGTH_PERCENT || unit == UID_LENGTH_FILL;
+}
+
+/*
+ * Bound width/height (cvar/expr) change without a parent reflow. Treating those
+ * nodes as scoped-layout boundaries trapped the classic HUD ammo stack: a bad
+ * height was applied, hud_body fill went to 0, then later height corrections only
+ * re-laid the ammo node in place and left the bottom row mid-screen until a
+ * forced full layout (e.g. firing). Stage 2 boundaries must be stable sizes.
+ */
+static bool NodeHasDataBoundSize(const uid_node_def_t *node)
+{
+	if (!node) {
+		return false;
+	}
+	if (node->exprBoundProps.find("width") != node->exprBoundProps.end()
+		|| node->exprBoundProps.find("height") != node->exprBoundProps.end()) {
+		return true;
+	}
+	if (node->cvarBoundProps.find("width") != node->cvarBoundProps.end()
+		|| node->cvarBoundProps.find("height") != node->cvarBoundProps.end()) {
+		return true;
+	}
+	return false;
+}
+
+static bool NodeIsLayoutBoundary(const uid_document_t *doc, uid_node_id_t id)
+{
+	const uid_node_def_t *node = UID_GetNode(doc, id);
+	if (!node) {
+		return false;
+	}
+	if (NodeHasDataBoundSize(node)) {
+		return false;
+	}
+	const uid_length_t width = PropLength(*node, "width", UID_LENGTH_AUTO);
+	const uid_length_t height = PropLength(*node, "height", UID_LENGTH_AUTO);
+	if (LengthIsExplicitSize(width.unit) && LengthIsExplicitSize(height.unit)) {
+		return true;
+	}
+	/* Prefer last successful layout's resolved sized axes (survives prop churn). */
+	const uid_node_state_t *st = StateC(doc, id);
+	return st && st->layoutInputsValid && st->layoutSizedW && st->layoutSizedH;
+}
+
+static std::vector<uid_node_id_t> BuildLayoutParentMap(const uid_document_t *doc)
+{
+	std::vector<uid_node_id_t> parents(doc ? doc->nodes.size() : 0, UID_INVALID_NODE_ID);
+	if (!doc) {
+		return parents;
+	}
+	for (size_t i = 0; i < doc->nodes.size(); ++i) {
+		for (uid_node_id_t c : doc->nodes[i].children) {
+			if (c >= 0 && static_cast<size_t>(c) < parents.size()) {
+				parents[static_cast<size_t>(c)] = static_cast<uid_node_id_t>(i);
+			}
+		}
+	}
+	return parents;
+}
+
+static uid_node_id_t FindNearestLayoutBoundary(
+	const uid_document_t *doc,
+	uid_node_id_t from,
+	const std::vector<uid_node_id_t> &parents
+)
+{
+	if (!doc || from < 0 || static_cast<size_t>(from) >= doc->nodes.size()) {
+		return doc ? doc->rootNode : UID_INVALID_NODE_ID;
+	}
+	for (uid_node_id_t id = from; id != UID_INVALID_NODE_ID;
+		 id = (static_cast<size_t>(id) < parents.size()) ? parents[static_cast<size_t>(id)]
+														 : UID_INVALID_NODE_ID) {
+		if (id == doc->rootNode) {
+			return id;
+		}
+		/*
+		 * Added in Omaha: only stop at a boundary that has cached LayoutNode inputs.
+		 * Prop-sized but never-laid-out / remapped-fresh nodes cannot be scoped roots.
+		 */
+		if (!NodeIsLayoutBoundary(doc, id)) {
+			continue;
+		}
+		const uid_node_state_t *st = StateC(doc, id);
+		if (st && st->layoutInputsValid) {
+			return id;
+		}
+	}
+	return doc->rootNode;
+}
+
+static bool NodeIsAncestorOf(
+	uid_node_id_t ancestor,
+	uid_node_id_t descendant,
+	const std::vector<uid_node_id_t> &parents
+)
+{
+	if (ancestor < 0 || descendant < 0) {
+		return false;
+	}
+	for (uid_node_id_t id = descendant; id != UID_INVALID_NODE_ID;
+		 id = (static_cast<size_t>(id) < parents.size()) ? parents[static_cast<size_t>(id)]
+														 : UID_INVALID_NODE_ID) {
+		if (id == ancestor) {
+			return true;
+		}
+	}
+	return false;
+}
+
+uid_result_t UID_LayoutScoped(
+	uid_document_t *doc,
+	float fbScale,
+	const uid_backend_t *backend,
+	uid_diag_list_t *diags
+)
+{
+	if (!doc) {
+		return UID_ERR_INVALID_ARG;
+	}
+	if (doc->dirtyLayoutNodes.empty()) {
+		return UID_ERR_NOT_READY;
+	}
+	/* Modal placement has canvas-relative side effects; keep the full path. */
+	if (UID_IsModalActive(doc)) {
+		return UID_ERR_NOT_READY;
+	}
+	if (doc->rootNode == UID_INVALID_NODE_ID) {
+		doc->dirtyLayoutNodes.clear();
+		doc->dirty = static_cast<uid_dirty_flags_t>(doc->dirty & ~UID_DIRTY_LAYOUT);
+		return UID_OK;
+	}
+	if (doc->lastLogicalW < 0 || doc->lastLogicalH < 0) {
+		return UID_ERR_NOT_READY;
+	}
+
+	EnsureStates(doc);
+	doc->pendingTranslateDeltas.clear();
+	if (fbScale > 0.0f) {
+		doc->lastFbScale = fbScale;
+	}
+
+	const std::vector<uid_node_id_t> parents = BuildLayoutParentMap(doc);
+	std::vector<uid_node_id_t> boundaries;
+	boundaries.reserve(doc->dirtyLayoutNodes.size());
+
+	for (uid_node_id_t dirtyId : doc->dirtyLayoutNodes) {
+		const uid_node_id_t boundary = FindNearestLayoutBoundary(doc, dirtyId, parents);
+		if (boundary == UID_INVALID_NODE_ID) {
+			return UID_ERR_NOT_READY;
+		}
+		bool already = false;
+		for (uid_node_id_t existing : boundaries) {
+			if (existing == boundary) {
+				already = true;
+				break;
+			}
+		}
+		if (!already) {
+			boundaries.push_back(boundary);
+		}
+	}
+
+	/* Prefer outermost boundaries so nested dirty sets are covered once. */
+	std::vector<uid_node_id_t> roots;
+	roots.reserve(boundaries.size());
+	for (uid_node_id_t candidate : boundaries) {
+		bool covered = false;
+		for (uid_node_id_t other : boundaries) {
+			if (other == candidate) {
+				continue;
+			}
+			if (NodeIsAncestorOf(other, candidate, parents)) {
+				covered = true;
+				break;
+			}
+		}
+		if (!covered) {
+			roots.push_back(candidate);
+		}
+	}
+
+	/*
+	 * Root-only "scoped" is a full tree walk — fall back so callers profile it as
+	 * full layout and so LayoutDocument can refresh viewport/scale + modal.
+	 */
+	bool anyNonRoot = false;
+	for (uid_node_id_t rootId : roots) {
+		if (rootId != doc->rootNode) {
+			anyNonRoot = true;
+			break;
+		}
+	}
+	if (!anyNonRoot) {
+		return UID_ERR_NOT_READY;
+	}
+
+	const float useFb = doc->lastFbScale > 0.0f ? doc->lastFbScale : 1.0f;
+
+	for (uid_node_id_t rootId : roots) {
+		if (rootId == doc->rootNode) {
+			return UID_ERR_NOT_READY;
+		}
+		const uid_node_state_t *st = StateC(doc, rootId);
+		if (!st || !st->layoutInputsValid) {
+			return UID_ERR_NOT_READY;
+		}
+	}
+
+	for (uid_node_id_t rootId : roots) {
+		uid_node_state_t *st = State(doc, rootId);
+		LayoutNode(
+			doc,
+			rootId,
+			st->layoutMarginX,
+			st->layoutMarginY,
+			st->layoutMarginW,
+			st->layoutMarginH,
+			st->layoutPercentBaseW,
+			st->layoutPercentBaseH,
+			st->layoutParentClip,
+			st->layoutAncestorVisible,
+			st->layoutAncestorEnabled,
+			useFb,
+			backend,
+			diags
+		);
+	}
+
+	doc->dirtyLayoutNodes.clear();
+	doc->dirty = static_cast<uid_dirty_flags_t>(doc->dirty & ~UID_DIRTY_LAYOUT);
+	doc->dirty = static_cast<uid_dirty_flags_t>(doc->dirty | UID_DIRTY_PAINT);
+	return UID_OK;
+}
+
 uid_result_t UID_LayoutDocument(
 	uid_document_t *doc,
 	int logicalW,
@@ -2586,6 +2912,7 @@ uid_result_t UID_LayoutDocument(
 	}
 
 	EnsureStates(doc);
+	doc->pendingTranslateDeltas.clear();
 	doc->lastFbScale = fbScale > 0.0f ? fbScale : 1.0f;
 	doc->lastUiPxScale = uiPxScale > 0.0f ? uiPxScale : 1.0f;
 	doc->lastLogicalW = logicalW;
@@ -2606,7 +2933,7 @@ uid_result_t UID_LayoutDocument(
 		const uid_node_id_t modalRoot = UID_GetModalRoot(doc);
 		if (modalRoot != UID_INVALID_NODE_ID) {
 			/*
-			 * Fixed in OPM: height=auto relative panels fill their content during this
+			 * Fixed in Omaha: height=auto relative panels fill their content during this
 			 * pass, which clamps scrollY to 0. Preserve scroll for PlaceRelativeModalPanel.
 			 */
 			float savedRelativeScrollY = 0.0f;
@@ -2640,12 +2967,114 @@ uid_result_t UID_LayoutDocument(
 				}
 			}
 
-			/* Added in OPM: type=relative panels anchor to modalOpenerNode. */
+			/* Added in Omaha: type=relative panels anchor to modalOpenerNode. */
 			PlaceRelativeModalPanel(doc, doc->lastFbScale, backend, diags);
 		}
 	}
 
 	doc->dirty = static_cast<uid_dirty_flags_t>(doc->dirty & ~UID_DIRTY_LAYOUT);
 	doc->dirty = static_cast<uid_dirty_flags_t>(doc->dirty | UID_DIRTY_PAINT);
+	doc->dirtyLayoutNodes.clear();
+
 	return UID_OK;
+}
+
+
+/* Added in Omaha: translate-only box shift (paint dirty); re-intersect effectiveClip with parent. */
+void UID_ShiftSubtreeBoxes(uid_document_t *doc, uid_node_id_t id, float dx, float dy, const uid_rect_t &parentClip)
+{
+	uid_node_def_t *node = UID_GetNode(doc, id);
+	uid_node_state_t *st = State(doc, id);
+	if (!node || !st) {
+		return;
+	}
+
+
+	st->borderBox.x += dx;
+	st->borderBox.y += dy;
+	st->marginBox.x += dx;
+	st->marginBox.y += dy;
+	st->contentBox.x += dx;
+	st->contentBox.y += dy;
+	st->scrollbarTrackRect.x += dx;
+	st->scrollbarTrackRect.y += dy;
+	st->scrollbarThumbRect.x += dx;
+	st->scrollbarThumbRect.y += dy;
+
+	uid_overflow_t overflow = UID_OVERFLOW_NONE;
+	{
+		int ovEnum = static_cast<int>(UID_OVERFLOW_NONE);
+		if (node->properties.GetEnumCached("overflow", UID_PROP_ENUM_OVERFLOW, &ovEnum)) {
+			overflow = static_cast<uid_overflow_t>(ovEnum);
+		} else {
+			UID_ParseOverflow(PropCStr(*node, "overflow", "none"), &overflow, nullptr);
+		}
+	}
+	if (overflow == UID_OVERFLOW_HIDDEN || overflow == UID_OVERFLOW_SCROLL) {
+		st->effectiveClip = IntersectRect(parentClip, st->contentBox);
+	} else {
+		st->effectiveClip = parentClip;
+	}
+
+	for (uid_node_id_t child : node->children) {
+		UID_ShiftSubtreeBoxes(doc, child, dx, dy, st->effectiveClip);
+	}
+}
+
+void UID_RebuildParentMap(uid_document_t *doc)
+{
+	if (!doc) {
+		return;
+	}
+	doc->parentOf.assign(doc->nodes.size(), UID_INVALID_NODE_ID);
+	for (size_t i = 0; i < doc->nodes.size(); ++i) {
+		for (uid_node_id_t c : doc->nodes[i].children) {
+			if (c >= 0 && static_cast<size_t>(c) < doc->parentOf.size()) {
+				doc->parentOf[static_cast<size_t>(c)] = static_cast<uid_node_id_t>(i);
+			}
+		}
+	}
+}
+
+void UID_ApplyPendingTranslateDeltas(uid_document_t *doc)
+{
+	if (!doc || doc->pendingTranslateDeltas.empty()) {
+		return;
+	}
+	EnsureStates(doc);
+
+	if (doc->parentOf.size() != doc->nodes.size()) {
+		UID_RebuildParentMap(doc);
+	}
+
+	const float lw = static_cast<float>(doc->lastLogicalW > 0 ? doc->lastLogicalW : 0);
+	const float lh = static_cast<float>(doc->lastLogicalH > 0 ? doc->lastLogicalH : 0);
+	const uid_rect_t canvasClip = MakeRect(0.0f, 0.0f, lw, lh);
+
+	for (const uid_document_t::translate_delta_t &d : doc->pendingTranslateDeltas) {
+		if (d.nodeId < 0 || static_cast<size_t>(d.nodeId) >= doc->nodes.size()) {
+			continue;
+		}
+		if (std::fabs(d.dx) < 1e-6f && std::fabs(d.dy) < 1e-6f) {
+			continue;
+		}
+		uid_rect_t parentClip = canvasClip;
+		uid_node_id_t parentId = UID_INVALID_NODE_ID;
+		if (static_cast<size_t>(d.nodeId) < doc->parentOf.size()) {
+			parentId = doc->parentOf[static_cast<size_t>(d.nodeId)];
+		}
+		if (parentId != UID_INVALID_NODE_ID) {
+			if (const uid_node_state_t *pst = State(doc, parentId)) {
+				parentClip = pst->effectiveClip;
+			}
+		}
+		UID_ShiftSubtreeBoxes(doc, d.nodeId, d.dx, d.dy, parentClip);
+	}
+
+	/*
+	 * Bound translate motion shifts boxes only. Retained paint-list stays valid:
+	 * LIVE_SUBTREE cmds re-paint those nodes with current boxes on replay.
+	 */
+
+	doc->pendingTranslateDeltas.clear();
 }

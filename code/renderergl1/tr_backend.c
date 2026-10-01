@@ -210,6 +210,125 @@ void GL_TexEnv( int env )
 	}
 }
 
+#ifndef GL_FRAMEBUFFER
+#define GL_FRAMEBUFFER 0x8D40
+#endif
+#ifndef GL_READ_FRAMEBUFFER
+#define GL_READ_FRAMEBUFFER 0x8CA8
+#endif
+#ifndef GL_DRAW_FRAMEBUFFER
+#define GL_DRAW_FRAMEBUFFER 0x8CA9
+#endif
+
+/*
+** GL_Scissor / GL_ScissorEnable / GL_MultisampleEnable / GL_BindFramebuffer
+** Added in Omaha: software-tracked GL state so UI paths never call glGet/glIsEnabled.
+*/
+/* Added in Omaha: Phase 3 debug — which subsystem issued the scissor (see RE_UI_SCISSOR_*). */
+int re_uiScissorSite;
+
+void GL_Scissor( int x, int y, int w, int h )
+{
+	if ( glState.scissorBox[0] == x && glState.scissorBox[1] == y &&
+	     glState.scissorBox[2] == w && glState.scissorBox[3] == h ) {
+		return;
+	}
+	glState.scissorBox[0] = x;
+	glState.scissorBox[1] = y;
+	glState.scissorBox[2] = w;
+	glState.scissorBox[3] = h;
+	qglScissor( x, y, w, h );
+	tr_uiStats.scissorCalls++;
+	switch ( re_uiScissorSite ) {
+	case 1:
+		tr_uiStats.scissorLayer++;
+		break;
+	case 2:
+		tr_uiStats.scissorClip++;
+		break;
+	case 3:
+		tr_uiStats.scissorStencil++;
+		break;
+	case 4:
+		tr_uiStats.scissorSet2d++;
+		break;
+	default:
+		tr_uiStats.scissorOther++;
+		break;
+	}
+}
+
+void GL_ScissorEnable( qboolean enable )
+{
+	if ( glState.scissorEnabled == enable ) {
+		return;
+	}
+	glState.scissorEnabled = enable;
+	if ( enable ) {
+		qglEnable( GL_SCISSOR_TEST );
+	} else {
+		qglDisable( GL_SCISSOR_TEST );
+	}
+}
+
+void GL_MultisampleEnable( qboolean enable )
+{
+#ifdef GL_MULTISAMPLE
+	if ( glState.multisampleEnabled == enable ) {
+		return;
+	}
+	glState.multisampleEnabled = enable;
+	if ( enable ) {
+		qglEnable( GL_MULTISAMPLE );
+	} else {
+		qglDisable( GL_MULTISAMPLE );
+	}
+#else
+	(void)enable;
+#endif
+}
+
+void GL_BindFramebuffer( GLenum target, GLuint fbo )
+{
+	if ( !qglBindFramebuffer ) {
+		return;
+	}
+
+	if ( glState.fboKnown ) {
+		if ( target == GL_FRAMEBUFFER ) {
+			if ( glState.fboDraw == fbo && glState.fboRead == fbo ) {
+				return;
+			}
+		} else if ( target == GL_DRAW_FRAMEBUFFER ) {
+			if ( glState.fboDraw == fbo ) {
+				return;
+			}
+		} else if ( target == GL_READ_FRAMEBUFFER ) {
+			if ( glState.fboRead == fbo ) {
+				return;
+			}
+		}
+	}
+
+	qglBindFramebuffer( target, fbo );
+	tr_uiStats.fboBinds++;
+
+	if ( target == GL_FRAMEBUFFER ) {
+		glState.fboDraw = fbo;
+		glState.fboRead = fbo;
+	} else if ( target == GL_DRAW_FRAMEBUFFER ) {
+		glState.fboDraw = fbo;
+	} else if ( target == GL_READ_FRAMEBUFFER ) {
+		glState.fboRead = fbo;
+	}
+	glState.fboKnown = qtrue;
+}
+
+void GL_InvalidateFramebufferBinding( void )
+{
+	glState.fboKnown = qfalse;
+}
+
 /*
 ** GL_State
 **
@@ -318,6 +437,20 @@ void GL_State( unsigned long stateBits )
 
 			qglEnable( GL_BLEND );
 			qglBlendFunc( srcFactor, dstFactor );
+			/*
+			 * Fixed in Omaha: glBlendFunc sets RGB and alpha together and clobbers the
+			 * UI FBO's BlendFuncSeparate(alpha=ONE). Scoreboard→HUD left score cards
+			 * with straight-alpha destination alpha → brighter composite flash.
+			 */
+			if ( RE_UI2DTargetIsActive() && qglBlendFuncSeparate &&
+			     srcFactor == GL_SRC_ALPHA && dstFactor == GL_ONE_MINUS_SRC_ALPHA ) {
+				qglBlendFuncSeparate(
+					GL_SRC_ALPHA,
+					GL_ONE_MINUS_SRC_ALPHA,
+					GL_ONE,
+					GL_ONE_MINUS_SRC_ALPHA
+				);
+			}
 		}
 		else
 		{
@@ -584,7 +717,8 @@ static void SetViewportAndScissor( void ) {
 	// set the window clipping
 	qglViewport( backEnd.viewParms.viewportX, backEnd.viewParms.viewportY, 
 		backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight );
-	qglScissor( backEnd.viewParms.viewportX, backEnd.viewParms.viewportY, 
+	/* Changed in Omaha: route through tracked scissor wrapper. */
+	GL_Scissor( backEnd.viewParms.viewportX, backEnd.viewParms.viewportY,
 		backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight );
 }
 
@@ -1123,6 +1257,11 @@ const void *RB_StretchPic ( const void *data ) {
 
 	if ( !backEnd.in2D ) {
 		RB_SetGL2D();
+	}
+
+	/* Added in Omaha: Phase 2 — stretch pics into UI FBO force full resolve. */
+	if ( RE_UI2DTargetIsActive() ) {
+		RE_UI2D_MarkFullResolve();
 	}
 
 	shader = cmd->shader;

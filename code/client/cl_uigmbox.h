@@ -73,6 +73,8 @@ public:
     void MoveInEvent(Event *ev);
     void DecayEvent(Event *ev);
     void Draw(void) override;
+    /* Added in Omaha: Phase 1 — modern HUD only publishes rows; skip Set2DWindow. */
+    void Display(const UIRect2D& drawframe, float parent_alpha) override;
     void setRealShow(bool b);
     void Clear(void);
 };
