@@ -232,9 +232,33 @@ qboolean CG_SpectateFP_CalcEye(vec3_t outOrigin, vec3_t outAngles)
 	outOrigin[2] += viewHeight;
 
 	if (cg.spectateFp.leanAngle != 0.0f) {
+		trace_t trace;
+		vec3_t  leanEnd;
+
 		AngleVectors(outAngles, NULL, right, NULL);
-		VectorMA(outOrigin, cg.spectateFp.leanAngle * 0.35f, right, outOrigin);
+		VectorMA(outOrigin, cg.spectateFp.leanAngle * 0.35f, right, leanEnd);
 		outAngles[ROLL] += cg.spectateFp.leanAngle * 0.25f;
+
+		/*
+		 * Fixed in Omaha: the lean offset went straight through walls. Sweep the
+		 * same 6-unit eye box as CG_OffsetFirstPersonView so the renderer near
+		 * plane stays clear of geometry.
+		 */
+		VectorSet(mins, -6, -6, -6);
+		VectorSet(maxs, 6, 6, 6);
+		CG_Trace(
+			&trace,
+			outOrigin,
+			mins,
+			maxs,
+			leanEnd,
+			cg.spectateFp.clientNum,
+			MASK_PLAYERSOLID,
+			qfalse,
+			qtrue,
+			"SpectateFP Lean"
+		);
+		VectorCopy(trace.endpos, outOrigin);
 	}
 
 	return qtrue;
