@@ -973,7 +973,7 @@ const void	*RB_DrawSurfs( const void *data ) {
 		FBO_t *oldFbo = glState.currentFBO;
 		vec4_t viewInfo;
 
-		VectorSet4(viewInfo, backEnd.viewParms.zFar / r_znear->value, backEnd.viewParms.zFar, 0.0, 0.0);
+		VectorSet4(viewInfo, backEnd.viewParms.zFar / backEnd.viewParms.zNear, backEnd.viewParms.zFar, 0.0, 0.0);
 
 		backEnd.depthFill = qtrue;
 		qglColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
@@ -1716,7 +1716,7 @@ const void *RB_PostProcess(const void *data)
 		GL_State(GLS_DEPTHTEST_DISABLE);
 
 
-		VectorSet4(viewInfo, backEnd.viewParms.zFar / r_znear->value, backEnd.viewParms.zFar, 0.0, 0.0);
+		VectorSet4(viewInfo, backEnd.viewParms.zFar / backEnd.viewParms.zNear, backEnd.viewParms.zFar, 0.0, 0.0);
 
 		viewInfo[2] = scale / (float)(tr.quarterImage[0]->width);
 		viewInfo[3] = scale / (float)(tr.quarterImage[0]->height);

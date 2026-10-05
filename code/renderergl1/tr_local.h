@@ -746,6 +746,7 @@ typedef struct {
 	int			viewportX, viewportY, viewportWidth, viewportHeight;
 	float		fovX, fovY;
 	float		projectionMatrix[16];
+	float		weaponProjectionMatrix[16];	// added in Omaha - uncapped near plane for RF_DEPTHHACK
 	cplane_t	frustum[5];
 	vec3_t		visBounds[2];
 	float		zFar;

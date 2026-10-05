@@ -552,13 +552,56 @@ static void SetFarClip( void )
 
 /*
 ===============
+R_BuildProjection
+===============
+*/
+static void R_BuildProjection( float *m, float zNear, float zFar, float tanX, float tanY ) {
+	float	xmin, xmax, ymin, ymax;
+	float	width, height, depth;
+
+	ymax = zNear * tanY;
+	ymin = -ymax;
+
+	xmax = zNear * tanX;
+	xmin = -xmax;
+
+	width = xmax - xmin;
+	height = ymax - ymin;
+	depth = zFar - zNear;
+
+	m[0] = 2 * zNear / width;
+	m[4] = 0;
+	m[8] = ( xmax + xmin ) / width;	// normally 0
+	m[12] = 0;
+
+	m[1] = 0;
+	m[5] = 2 * zNear / height;
+	m[9] = ( ymax + ymin ) / height;	// normally 0
+	m[13] = 0;
+
+	m[2] = 0;
+	m[6] = 0;
+	m[10] = -( zFar + zNear ) / depth;
+	m[14] = -2 * zFar * zNear / depth;
+
+	m[3] = 0;
+	m[7] = 0;
+	m[11] = -1;
+	m[15] = 0;
+}
+
+// Must stay below the 6-unit half-size of the box cgame sweeps the
+// first-person eye with, so the near plane never reaches past a wall.
+#define R_NEARPLANE_RADIUS 5.875f
+
+/*
+===============
 R_SetupProjection
 ===============
 */
 void R_SetupProjection( void ) {
-	float	xmin, xmax, ymin, ymax;
-	float	width, height, depth;
-	float	zNear, zFar;
+	float	tanX, tanY;
+	float	zNear, zFar, maxNear;
 
 	// dynamically compute far clip plane distance
 	SetFarClip();
@@ -566,38 +609,24 @@ void R_SetupProjection( void ) {
 	//
 	// set up projection matrix
 	//
+	tanX	= tan( tr.refdef.fov_x * M_PI / 360.0f );
+	tanY	= tan( tr.refdef.fov_y * M_PI / 360.0f );
 	zNear	= r_znear->value;
 	zFar	= tr.viewParms.zFar;
 
-	ymax = zNear * tan( tr.refdef.fov_y * M_PI / 360.0f );
-	ymin = -ymax;
+	//
+	// Fixed in Omaha
+	//  Wide fovs push the near plane corners further than the eye clearance,
+	//  letting the view see through walls when leaning; pull the plane in
+	maxNear = R_NEARPLANE_RADIUS / sqrt( 1.0f + tanX * tanX + tanY * tanY );
+	if ( zNear > maxNear ) {
+		zNear = maxNear;
+	}
 
-	xmax = zNear * tan( tr.refdef.fov_x * M_PI / 360.0f );
-	xmin = -xmax;
+	R_BuildProjection( tr.viewParms.projectionMatrix, zNear, zFar, tanX, tanY );
 
-	width = xmax - xmin;
-	height = ymax - ymin;
-	depth = zFar - zNear;
-
-	tr.viewParms.projectionMatrix[0] = 2 * zNear / width;
-	tr.viewParms.projectionMatrix[4] = 0;
-	tr.viewParms.projectionMatrix[8] = ( xmax + xmin ) / width;	// normally 0
-	tr.viewParms.projectionMatrix[12] = 0;
-
-	tr.viewParms.projectionMatrix[1] = 0;
-	tr.viewParms.projectionMatrix[5] = 2 * zNear / height;
-	tr.viewParms.projectionMatrix[9] = ( ymax + ymin ) / height;	// normally 0
-	tr.viewParms.projectionMatrix[13] = 0;
-
-	tr.viewParms.projectionMatrix[2] = 0;
-	tr.viewParms.projectionMatrix[6] = 0;
-	tr.viewParms.projectionMatrix[10] = -( zFar + zNear ) / depth;
-	tr.viewParms.projectionMatrix[14] = -2 * zFar * zNear / depth;
-
-	tr.viewParms.projectionMatrix[3] = 0;
-	tr.viewParms.projectionMatrix[7] = 0;
-	tr.viewParms.projectionMatrix[11] = -1;
-	tr.viewParms.projectionMatrix[15] = 0;
+	// Added in Omaha: view model keeps the configured near plane
+	R_BuildProjection( tr.viewParms.weaponProjectionMatrix, r_znear->value, zFar, tanX, tanY );
 }
 
 /*

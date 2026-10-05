@@ -880,6 +880,10 @@ void R_SetupProjection(viewParms_t *dest, float zProj, float zFar, qboolean comp
 		R_SetupFrustum(dest, xmin, xmax, ymax, zProj, zFar, stereoSep);
 }
 
+// Must stay below the 6-unit half-size of the box cgame sweeps the
+// first-person eye with, so the near plane never reaches past a wall.
+#define R_NEARPLANE_RADIUS 5.875f
+
 /*
 ===============
 R_SetupProjectionZ
@@ -890,9 +894,22 @@ Sets the z-component transformation part in the projection matrix
 void R_SetupProjectionZ(viewParms_t *dest)
 {
 	float zNear, zFar, depth;
+	float tanX, tanY, maxNear;
 	
 	zNear = r_znear->value;
 	zFar	= dest->zFar;
+
+	//
+	// Fixed in Omaha
+	//  Wide fovs push the near plane corners further than the eye clearance,
+	//  letting the view see through walls when leaning; pull the plane in
+	tanX = tan(dest->fovX * M_PI / 360.0f);
+	tanY = tan(dest->fovY * M_PI / 360.0f);
+	maxNear = R_NEARPLANE_RADIUS / sqrt(1.0f + tanX * tanX + tanY * tanY);
+	if (zNear > maxNear)
+		zNear = maxNear;
+
+	dest->zNear = zNear;
 
 	depth	= zFar - zNear;
 

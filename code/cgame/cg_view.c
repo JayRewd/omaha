@@ -143,14 +143,15 @@ static void CG_OffsetThirdPersonView(void)
     new_vieworg[2] += cg_cameraverticaldisplacement->value;
 
     // Create a bounding box for our camera
+    // Changed in Omaha: match the first-person eye clearance the renderer near plane relies on
 
-    min[0] = -5;
-    min[1] = -5;
-    min[2] = -5;
+    min[0] = -6;
+    min[1] = -6;
+    min[2] = -6;
 
-    max[0] = 5;
-    max[1] = 5;
-    max[2] = 5;
+    max[0] = 6;
+    max[1] = 6;
+    max[2] = 6;
 
     // Make sure camera does not collide with anything
     CG_Trace(&trace, cg.playerHeadPos, min, max, new_vieworg, 0, MASK_CAMERASOLID, qfalse, qtrue, "ThirdPersonTrace 1");
