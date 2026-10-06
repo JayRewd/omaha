@@ -24,6 +24,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 
 #include "cg_hitmarker.h"
 
+#include "cg_crosshair.h"
 #include "cg_local.h"
 
 #include <math.h>
@@ -302,17 +303,16 @@ void CG_Hitmarker_OnLocalFire(void)
 
 static void CG_Hitmarker_ApplyRecoilOffset(float *cx, float *cy)
 {
-	cvar_t *recoil;
-	float   kickScale;
+	float dx;
+	float dy;
 
-	recoil = cgi.Cvar_Find("cg_crosshair_recoil");
-	if (!recoil || !recoil->integer) {
+	if (!cx || !cy) {
 		return;
 	}
 
-	kickScale = 4.0f * cgs.uiHiResScale[1];
-	*cy += cg.viewkick[0] * kickScale;
-	*cx += cg.viewkick[1] * kickScale * cgs.uiHiResScale[0] / cgs.uiHiResScale[1];
+	CG_Crosshair_FireMeanOffset((float)cgs.glconfig.vidWidth, (float)cgs.glconfig.vidHeight, &dx, &dy);
+	*cx += dx;
+	*cy += dy;
 }
 
 static void CG_Hitmarker_DrawSegment(

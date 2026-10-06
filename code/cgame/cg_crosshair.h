@@ -36,8 +36,13 @@ qboolean CG_Crosshair_ModeEnabled(void);
 
 void CG_DrawModernCrosshair(qboolean friendTarget);
 
-/* Added in Omaha: live hipfire config for UIR overlay paint. */
-qboolean CG_ModernCrosshairLive(xhair_config_t *cfg, float *recoilDx, float *recoilDy, float logicalHeight);
+/* Added in Omaha: fire-mean HUD offset in viewport pixels (currently 0; camera includes kick). */
+void CG_Crosshair_FireMeanOffset(float screenW, float screenH, float *dx, float *dy);
+
+/* Added in Omaha: live hipfire config for UIR overlay paint. recoilDx/Dy are overlay px. */
+qboolean CG_ModernCrosshairLive(
+	xhair_config_t *cfg, float *recoilDx, float *recoilDy, float logicalWidth, float logicalHeight
+);
 
 #ifdef __cplusplus
 }

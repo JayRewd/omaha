@@ -2264,7 +2264,7 @@ static void cl_uir_paint_ingame_crosshair(void)
 
 	recoilDx = 0.0f;
 	recoilDy = 0.0f;
-	if (!cge->CG_ModernCrosshairLive(&cfg, &recoilDx, &recoilDy, lh)) {
+	if (!cge->CG_ModernCrosshairLive(&cfg, &recoilDx, &recoilDy, lw, lh)) {
 		return;
 	}
 	if (cfg.mode == XHAIR_MODE_NONE) {
@@ -2276,8 +2276,9 @@ static void cl_uir_paint_ingame_crosshair(void)
 		scale = 1.0f;
 	}
 
-	cx = lw * 0.5f + recoilDx * scale;
-	cy = lh * 0.5f + recoilDy * scale;
+	/* Recoil is overlay px (FOV projection); shape still uses uiPxScale. */
+	cx = lw * 0.5f + recoilDx;
+	cy = lh * 0.5f + recoilDy;
 	XHair_BuildFrame(&cfg, cx, cy, scale, scale, &frame);
 	cl_uir_xhair_set_raster(&frame);
 

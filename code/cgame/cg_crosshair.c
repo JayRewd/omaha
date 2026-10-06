@@ -329,7 +329,28 @@ static void CG_Crosshair_ApplyFriendTint(xhair_config_t *cfg, qboolean friendTar
 	cfg->b = 0.2f;
 }
 
-qboolean CG_ModernCrosshairLive(xhair_config_t *cfg, float *recoilDx, float *recoilDy, float logicalHeight)
+/*
+ * Fixed in Omaha: hipfire follow-recoil is a no-op extra HUD offset. The camera
+ * already includes server/tik kick, and local impacts sit on screen center.
+ * Do not undo viewkick (that pins the reticle to the first hole) and do not
+ * add predicted-vs-camera or bullet spread.
+ */
+void CG_Crosshair_FireMeanOffset(float screenW, float screenH, float *dx, float *dy)
+{
+	(void)screenW;
+	(void)screenH;
+
+	if (dx) {
+		*dx = 0.0f;
+	}
+	if (dy) {
+		*dy = 0.0f;
+	}
+}
+
+qboolean CG_ModernCrosshairLive(
+	xhair_config_t *cfg, float *recoilDx, float *recoilDy, float logicalWidth, float logicalHeight
+)
 {
 	qboolean dynamicEnabled;
 	qboolean movementEnabled;
@@ -392,33 +413,32 @@ qboolean CG_ModernCrosshairLive(xhair_config_t *cfg, float *recoilDx, float *rec
 		cfg->dynamicSpreadPx = 0.0f;
 	}
 
+	if (!(logicalWidth > 0.0f)) {
+		logicalWidth = (float)cgs.glconfig.vidWidth;
+	}
+	if (!(logicalHeight > 0.0f)) {
+		logicalHeight = (float)cgs.glconfig.vidHeight;
+	}
+
 	CG_Crosshair_ApplyFriendTint(cfg, CG_Crosshair_FriendUnderAim());
 
-	if (recoilDx && recoilDy) {
-		if (cg_crosshair_recoil && cg_crosshair_recoil->integer) {
-			/* Changed in Omaha: UI px (client applies uiPxScale); not FB uiHiResScale. */
-			*recoilDx = cg.viewkick[1] * 4.0f;
-			*recoilDy = cg.viewkick[0] * 4.0f;
-		} else {
-			*recoilDx = 0.0f;
-			*recoilDy = 0.0f;
-		}
-	}
+	CG_Crosshair_FireMeanOffset(logicalWidth, logicalHeight, recoilDx, recoilDy);
 
 	return qtrue;
 }
 
 static void CG_Crosshair_ApplyRecoilOffset(float *cx, float *cy)
 {
-	float kickScale;
+	float dx;
+	float dy;
 
-	if (!cg_crosshair_recoil || !cg_crosshair_recoil->integer) {
+	if (!cx || !cy) {
 		return;
 	}
 
-	kickScale = 4.0f * cgs.uiHiResScale[1];
-	*cy += cg.viewkick[0] * kickScale;
-	*cx += cg.viewkick[1] * kickScale * cgs.uiHiResScale[0] / cgs.uiHiResScale[1];
+	CG_Crosshair_FireMeanOffset((float)cgs.glconfig.vidWidth, (float)cgs.glconfig.vidHeight, &dx, &dy);
+	*cx += dx;
+	*cy += dy;
 }
 
 static void CG_Crosshair_DrawRects(const xhair_rect_t *rects, int count)
