@@ -385,6 +385,46 @@ static void test_recoil_offset(void)
 	expect_true(frame.cx == 100.0f && frame.cy == 200.0f, "frame preserves draw center");
 }
 
+static void test_disc_raster_px(void)
+{
+	xhair_config_t cfg;
+	xhair_frame_t  frame;
+	xhair_rect_t   rects[XHAIR_MAX_RECTS];
+	int            count;
+	int            i;
+	int            sawHalf = 0;
+
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.mode = XHAIR_MODE_DOT;
+	cfg.dotRadius = 4.0f;
+	cfg.r = cfg.g = cfg.b = 1.0f;
+	cfg.a = 1.0f;
+
+	XHair_BuildFrame(&cfg, 100.0f, 100.0f, 1.0f, 1.0f, &frame);
+	frame.rasterPx = 0.5f;
+	count = XHair_EmitRects(&frame, XHAIR_PASS_FILL, rects, XHAIR_MAX_RECTS);
+	expect_true(count > 0, "rasterPx fill emits rects");
+	for (i = 0; i < count; i++) {
+		if (rects[i].h > 0.49f && rects[i].h < 0.51f) {
+			sawHalf = 1;
+			break;
+		}
+	}
+	expect_true(sawHalf, "rasterPx 0.5 emits half-unit fill rows");
+	{
+		int sawSoft = 0;
+
+		count = XHair_EmitRects(&frame, XHAIR_PASS_FILL, rects, XHAIR_MAX_RECTS);
+		for (i = 0; i < count; i++) {
+			if (rects[i].a > 0.05f && rects[i].a < 0.95f) {
+				sawSoft = 1;
+				break;
+			}
+		}
+		expect_true(sawSoft, "rasterPx coverage includes partial fill edges");
+	}
+}
+
 int main(void)
 {
 	test_open_rect_count();
@@ -396,6 +436,7 @@ int main(void)
 	test_dynamic_split_rect_count();
 	test_color_preset();
 	test_recoil_offset();
+	test_disc_raster_px();
 
 	if (g_failures > 0) {
 		fprintf(stderr, "%d crosshair_draw test(s) failed\n", g_failures);

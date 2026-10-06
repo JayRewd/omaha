@@ -93,6 +93,8 @@ typedef struct {
 	float splitOuterAlphaMod;
 	float dynamicSpreadPx;
 	float dynamicScale;
+	/* 0 = 1 draw unit per raster cell. Else size of one FB pixel in draw space (vp->invX). */
+	float rasterPx;
 } xhair_frame_t;
 
 typedef struct {
@@ -106,7 +108,7 @@ typedef struct {
 	float a;
 } xhair_rect_t;
 
-#define XHAIR_MAX_RECTS 64
+#define XHAIR_MAX_RECTS 512
 
 xhair_mode_t XHair_ParseMode(const char *mode);
 

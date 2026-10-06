@@ -296,20 +296,39 @@ static int xhair_push_rect_direct(
 	return count + 1;
 }
 
+/* Linear coverage across one raster cell (same Euclidean radius for fill and outline). */
+static float xhair_disc_cover(float dist, float radius, float cell)
+{
+	float cover;
+
+	if (cell < 1e-6f) {
+		return (dist <= radius) ? 1.0f : 0.0f;
+	}
+	cover = (radius - dist) / cell + 0.5f;
+	if (cover < 0.0f) {
+		return 0.0f;
+	}
+	if (cover > 1.0f) {
+		return 1.0f;
+	}
+	return cover;
+}
+
 /*
- * Fixed in Omaha: crisp disc = two concentric Euclidean circles (outer outline
- * disc, inner fill disc). Emit outline as the ring only; paint order is still
- * outline pass then fill pass.
+ * Fixed in Omaha: two concentric Euclidean circles (outer outline disc, inner
+ * fill disc). Outline is the ring; paint order is outline then fill.
  *
- * Diameter S = 2*fillR (cg_crosshair_dot_size, FB px after scale):
+ * Diameter S = 2*fillR (cg_crosshair_dot_size after scale):
  *   fill:    d <= S/2
  *   outline: S/2 < d <= S/2 + T
  *
  * Center parity (same as classic bitmap circles):
  *   odd  S → snap to a pixel center  (floor(c)+0.5)  e.g. size 5
  *   even S → snap to a pixel corner  (round c)         e.g. size 4
- * Always using pixel centers made even diameters into a plus; always using
- * corners made odd diameters into solid squares.
+ *
+ * Changed in Omaha: rasterPx is one FB pixel in draw space. Tests leave it 0
+ * (binary cells). In-game sets it so both circles are coverage-sampled on the
+ * same pixel grid — fill and outline stay the same Euclidean disc.
  */
 static int xhair_emit_crisp_disc(
 	xhair_rect_t *out,
@@ -332,6 +351,9 @@ static int xhair_emit_crisp_disc(
 	float fillR2;
 	float outerR2;
 	float diam;
+	float cell;
+	float pad;
+	int   useAA;
 	int   idiam;
 	int   x0;
 	int   x1;
@@ -339,21 +361,24 @@ static int xhair_emit_crisp_disc(
 	int   y1;
 	int   py;
 
-	if (fillR < 0.5f) {
-		fillR = 0.5f;
+	useAA = (frame && frame->rasterPx > 1e-6f) ? 1 : 0;
+	cell = useAA ? frame->rasterPx : 1.0f;
+
+	if (fillR < 0.5f * cell) {
+		fillR = 0.5f * cell;
 	}
 
-	diam = fillR * 2.0f;
+	diam = fillR * 2.0f / cell;
 	idiam = (int)floorf(diam + 0.5f);
 	if (idiam < 1) {
 		idiam = 1;
 	}
 	if (idiam & 1) {
-		cx = floorf(cx) + 0.5f;
-		cy = floorf(cy) + 0.5f;
+		cx = (floorf(cx / cell) + 0.5f) * cell;
+		cy = (floorf(cy / cell) + 0.5f) * cell;
 	} else {
-		cx = floorf(cx + 0.5f);
-		cy = floorf(cy + 0.5f);
+		cx = floorf(cx / cell + 0.5f) * cell;
+		cy = floorf(cy / cell + 0.5f) * cell;
 	}
 
 	outlineW = 0.0f;
@@ -362,8 +387,8 @@ static int xhair_emit_crisp_disc(
 			return count;
 		}
 		outlineW = frame->outline * frame->scaleX;
-		if (outlineW < 1.0f) {
-			outlineW = 1.0f;
+		if (outlineW < cell) {
+			outlineW = cell;
 		}
 		r = 0.0f;
 		g = 0.0f;
@@ -380,66 +405,88 @@ static int xhair_emit_crisp_disc(
 	fillR2 = fillR * fillR;
 	outerR2 = outerR * outerR;
 
-	x0 = (int)floorf(cx - outerR);
-	x1 = (int)ceilf(cx + outerR) - 1;
-	y0 = (int)floorf(cy - outerR);
-	y1 = (int)ceilf(cy + outerR) - 1;
+	pad = useAA ? cell : 0.0f;
+	x0 = (int)floorf((cx - outerR - pad) / cell);
+	x1 = (int)ceilf((cx + outerR + pad) / cell) - 1;
+	y0 = (int)floorf((cy - outerR - pad) / cell);
+	y1 = (int)ceilf((cy + outerR + pad) / cell) - 1;
 	if (x1 < x0 || y1 < y0) {
 		return count;
 	}
 
 	for (py = y0; py <= y1; py++) {
-		const float dy = ((float)py + 0.5f) - cy;
+		const float y = (float)py * cell;
+		const float dy = (y + cell * 0.5f) - cy;
 		const float dy2 = dy * dy;
 		int         runStart = -1;
+		int         runCoverQ = -1;
+		float       runCover = 0.0f;
 		int         px;
 
-		for (px = x0; px <= x1; px++) {
-			const float dx = ((float)px + 0.5f) - cx;
-			const float d2 = dx * dx + dy2;
-			int         on;
+		for (px = x0; px <= x1 + 1; px++) {
+			float cover = 0.0f;
+			int   coverQ = -1;
 
-			if (pass == XHAIR_PASS_OUTLINE) {
-				on = (d2 > fillR2 && d2 <= outerR2) ? 1 : 0;
-			} else {
-				on = (d2 <= fillR2) ? 1 : 0;
+			if (px <= x1) {
+				const float x = (float)px * cell;
+				const float dx = (x + cell * 0.5f) - cx;
+				const float d2 = dx * dx + dy2;
+
+				if (useAA) {
+					const float dist = sqrtf(d2);
+
+					if (pass == XHAIR_PASS_OUTLINE) {
+						cover = xhair_disc_cover(dist, outerR, cell) - xhair_disc_cover(dist, fillR, cell);
+					} else {
+						cover = xhair_disc_cover(dist, fillR, cell);
+					}
+					if (cover < 1.0f / 255.0f) {
+						cover = 0.0f;
+					} else if (cover > 1.0f) {
+						cover = 1.0f;
+					}
+				} else if (pass == XHAIR_PASS_OUTLINE) {
+					cover = (d2 > fillR2 && d2 <= outerR2) ? 1.0f : 0.0f;
+				} else {
+					cover = (d2 <= fillR2) ? 1.0f : 0.0f;
+				}
+				if (cover > 0.0f) {
+					coverQ = (int)(cover * 255.0f + 0.5f);
+					if (coverQ < 1) {
+						coverQ = 1;
+					}
+					if (coverQ > 255) {
+						coverQ = 255;
+					}
+				}
 			}
 
-			if (on) {
-				if (runStart < 0) {
-					runStart = px;
-				}
-			} else if (runStart >= 0) {
+			if (coverQ >= 0 && coverQ == runCoverQ) {
+				continue;
+			}
+			if (runStart >= 0) {
 				count = xhair_push_rect_direct(
 					out,
 					maxOut,
 					count,
-					(float)runStart,
-					(float)py,
-					(float)(px - runStart),
-					1.0f,
+					(float)runStart * cell,
+					y,
+					(float)(px - runStart) * cell,
+					cell,
 					r,
 					g,
 					b,
-					a
+					a * runCover
 				);
-				runStart = -1;
 			}
-		}
-		if (runStart >= 0) {
-			count = xhair_push_rect_direct(
-				out,
-				maxOut,
-				count,
-				(float)runStart,
-				(float)py,
-				(float)(x1 - runStart + 1),
-				1.0f,
-				r,
-				g,
-				b,
-				a
-			);
+			if (coverQ >= 0 && px <= x1) {
+				runStart = px;
+				runCoverQ = coverQ;
+				runCover = cover;
+			} else {
+				runStart = -1;
+				runCoverQ = -1;
+			}
 		}
 	}
 

@@ -2150,16 +2150,56 @@ static bool uid_get_framebuffer_size(int *width, int *height)
 	return fw > 0 && fh > 0;
 }
 
+static void cl_uir_paint_xhair_rects(const xhair_rect_t *rects, int count)
+{
+	float color[4];
+	int   i;
+
+	if (count <= 0) {
+		return;
+	}
+
+	/*
+	 * Changed in Omaha: flush HUD batch then DrawBox (GL_MULTISAMPLE off), same
+	 * as the old hipfire path, so fill/outline stay pixel-crisp.
+	 */
+	UIR_BatchFlush();
+	for (i = 0; i < count; i++) {
+		if (rects[i].w <= 0.0f || rects[i].h <= 0.0f) {
+			continue;
+		}
+		color[0] = rects[i].r;
+		color[1] = rects[i].g;
+		color[2] = rects[i].b;
+		color[3] = rects[i].a;
+		uir_set_color(color);
+		uir_draw_box(rects[i].x, rects[i].y, rects[i].w, rects[i].h);
+	}
+	uir_set_color(NULL);
+}
+
+static void cl_uir_xhair_set_raster(xhair_frame_t *frame)
+{
+	const uir_viewport_t *vp;
+
+	if (!frame) {
+		return;
+	}
+	vp = UIR_CompositorViewport();
+	if (vp && vp->invX > 1e-6f) {
+		/* Sample dots on the FB pixel grid while drawing in logical space. */
+		frame->rasterPx = vp->invX;
+	}
+}
+
 static void cl_uir_paint_crosshair_preview(float x, float y, float w, float h)
 {
 	xhair_config_t cfg;
 	xhair_frame_t  frame;
 	xhair_rect_t   rects[XHAIR_MAX_RECTS];
-	uir_color_t    color;
 	const float    scaleX = 1.0f;
 	const float    scaleY = 1.0f;
 	int            count;
-	int            i;
 
 	if (w <= 0.0f || h <= 0.0f) {
 		return;
@@ -2172,24 +2212,80 @@ static void cl_uir_paint_crosshair_preview(float x, float y, float w, float h)
 
 	cfg.dynamicSpreadPx = 0.0f;
 	XHair_BuildFrame(&cfg, x + w * 0.5f, y + h * 0.5f, scaleX, scaleY, &frame);
+	cl_uir_xhair_set_raster(&frame);
 
 	count = XHair_EmitRects(&frame, XHAIR_PASS_OUTLINE, rects, XHAIR_MAX_RECTS);
-	for (i = 0; i < count; i++) {
-		color.r = rects[i].r;
-		color.g = rects[i].g;
-		color.b = rects[i].b;
-		color.a = rects[i].a;
-		UIR_DrawSolidRect(rects[i].x, rects[i].y, rects[i].w, rects[i].h, &color);
-	}
+	cl_uir_paint_xhair_rects(rects, count);
 
 	count = XHair_EmitRects(&frame, XHAIR_PASS_FILL, rects, XHAIR_MAX_RECTS);
-	for (i = 0; i < count; i++) {
-		color.r = rects[i].r;
-		color.g = rects[i].g;
-		color.b = rects[i].b;
-		color.a = rects[i].a;
-		UIR_DrawSolidRect(rects[i].x, rects[i].y, rects[i].w, rects[i].h, &color);
+	cl_uir_paint_xhair_rects(rects, count);
+}
+
+/* Added in Omaha: hipfire in UIR logical space (same overlay as sniper). */
+static void cl_uir_paint_ingame_crosshair(void)
+{
+	xhair_config_t        cfg;
+	xhair_frame_t         frame;
+	xhair_rect_t          rects[XHAIR_MAX_RECTS];
+	const uir_viewport_t *vp;
+	float                 lw;
+	float                 lh;
+	float                 cx;
+	float                 cy;
+	float                 recoilDx;
+	float                 recoilDy;
+	float                 scale;
+	int                   count;
+
+	if (CL_UIVar_Integer("ui_om_hud_sniper_zoom") != 0
+	    && Cvar_VariableIntegerValue("cg_crosshair_sniper_modern") != 0) {
+		return;
 	}
+	if (!cge || !cge->CG_ModernCrosshairLive) {
+		return;
+	}
+
+	vp = UIR_CompositorViewport();
+	if (!vp) {
+		return;
+	}
+
+	lw = vp->orthoR - vp->orthoL;
+	lh = vp->orthoB - vp->orthoT;
+	if (lw < 0.0f) {
+		lw = -lw;
+	}
+	if (lh < 0.0f) {
+		lh = -lh;
+	}
+	if (lw <= 0.0f || lh <= 0.0f) {
+		return;
+	}
+
+	recoilDx = 0.0f;
+	recoilDy = 0.0f;
+	if (!cge->CG_ModernCrosshairLive(&cfg, &recoilDx, &recoilDy, lh)) {
+		return;
+	}
+	if (cfg.mode == XHAIR_MODE_NONE) {
+		return;
+	}
+
+	scale = g_lastUiPxScale;
+	if (!(scale > 0.0f) || scale != scale) {
+		scale = 1.0f;
+	}
+
+	cx = lw * 0.5f + recoilDx * scale;
+	cy = lh * 0.5f + recoilDy * scale;
+	XHair_BuildFrame(&cfg, cx, cy, scale, scale, &frame);
+	cl_uir_xhair_set_raster(&frame);
+
+	count = XHair_EmitRects(&frame, XHAIR_PASS_OUTLINE, rects, XHAIR_MAX_RECTS);
+	cl_uir_paint_xhair_rects(rects, count);
+
+	count = XHair_EmitRects(&frame, XHAIR_PASS_FILL, rects, XHAIR_MAX_RECTS);
+	cl_uir_paint_xhair_rects(rects, count);
 }
 
 /* Added in Omaha: black sniper arms from region edges inward to gap (no fixed length). */
@@ -6168,6 +6264,8 @@ static void CL_UIR_HudOverlayCallback(void *userdata)
 {
 	(void)userdata;
 	CL_UIMenu_PaintOverlayUpTo(4);
+	/* Added in Omaha: hipfire above HUD chrome, in overlay (not retained chrome). */
+	cl_uir_paint_ingame_crosshair();
 }
 
 static void CL_UIR_SetDesignLayerCallbacks(qboolean enable)

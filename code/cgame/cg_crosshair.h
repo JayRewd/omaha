@@ -23,6 +23,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #pragma once
 
 #include "q_shared.h"
+#include "crosshair_draw.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -34,6 +35,9 @@ void CG_Crosshair_SyncClAliases(void);
 qboolean CG_Crosshair_ModeEnabled(void);
 
 void CG_DrawModernCrosshair(qboolean friendTarget);
+
+/* Added in Omaha: live hipfire config for UIR overlay paint. */
+qboolean CG_ModernCrosshairLive(xhair_config_t *cfg, float *recoilDx, float *recoilDy, float logicalHeight);
 
 #ifdef __cplusplus
 }

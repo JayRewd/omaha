@@ -28,6 +28,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "../renderercommon/tr_types.h"
 #include "../client/cl_scoreboard_host.h"
 #include "../client/cl_objectives_host.h"
+#include "../qcommon/crosshair_draw.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -478,6 +479,8 @@ functions exported to the main executable
         void (*CG_GetRendererConfig)(void);
         void (*CG_Draw2D)(void);
         void (*CG_DrawZoomOverlay)(void); /* Added in Omaha: PK3 / retail zoom under modern HUD */
+        /* Added in Omaha: hipfire paint state for UIR overlay (logical UI px). */
+        qboolean (*CG_ModernCrosshairLive)(xhair_config_t *cfg, float *recoilDx, float *recoilDy, float logicalHeight);
         void (*CG_SyncModernHudCvars)(void);
         void (*CG_EyePosition)(vec3_t *eyePos);
         void (*CG_EyeOffset)(vec3_t *eyeOffset);

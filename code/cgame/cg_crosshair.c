@@ -252,6 +252,73 @@ qboolean CG_Crosshair_ModeEnabled(void)
 	return Q_stricmp(cg_crosshair_mode->string, "none") ? qtrue : qfalse;
 }
 
+static qboolean CG_Crosshair_FriendUnderAim(void)
+{
+	centity_t *friendEnt;
+	vec3_t     forward;
+	vec3_t     end;
+	vec3_t     mins, maxs;
+	trace_t    trace;
+	int        myFlags;
+
+	if (cgs.gametype == GT_FFA || !cg.snap) {
+		return qfalse;
+	}
+
+	AngleVectorsLeft(cg.refdefViewAngles, forward, NULL, NULL);
+	VectorMA(cg.refdef.vieworg, 8192, forward, end);
+	VectorClear(mins);
+	VectorClear(maxs);
+	CG_Trace(&trace, cg.refdef.vieworg, mins, maxs, end, 9999, MASK_SOLID, qfalse, qtrue, "CG_DrawCrosshair");
+
+	if (trace.entityNum == ENTITYNUM_NONE || trace.entityNum == ENTITYNUM_WORLD
+	    || trace.entityNum == cg.snap->ps.clientNum) {
+		return qfalse;
+	}
+
+	friendEnt = &cg_entities[trace.entityNum];
+	if (cgs.gametype != GT_SINGLE_PLAYER) {
+		myFlags = cg_entities[cg.snap->ps.clientNum].currentState.eFlags & EF_ANY_TEAM;
+	} else {
+		myFlags = EF_ALLIES;
+	}
+
+	if (((myFlags & EF_ALLIES) && (friendEnt->currentState.eFlags & EF_ALLIES))
+	    || ((myFlags & EF_AXIS) && (friendEnt->currentState.eFlags & EF_AXIS))) {
+		return qtrue;
+	}
+	return qfalse;
+}
+
+static qboolean CG_Crosshair_InSniperScope(void)
+{
+	int         inZoom;
+	int         spectateZoom;
+	const char *wpn;
+
+	if (!cg.snap) {
+		return qfalse;
+	}
+
+	inZoom = cg.snap->ps.stats[STAT_INZOOM];
+	spectateZoom = CG_SpectateFP_InZoom() ? CG_SpectateFP_ZoomFov() : 0;
+	if (!((inZoom > 0 && inZoom <= 30) || (spectateZoom > 0 && spectateZoom <= 30))) {
+		return qfalse;
+	}
+
+	wpn = "";
+	if (cg.snap->ps.activeItems[ITEM_WEAPON] >= 0) {
+		wpn = CG_ConfigString(CS_WEAPONS + cg.snap->ps.activeItems[ITEM_WEAPON]);
+	}
+	if (!wpn) {
+		wpn = "";
+	}
+	if (!Q_stricmp(wpn, "Spy Camera") || !Q_stricmp(wpn, "Binoculars")) {
+		return qfalse;
+	}
+	return qtrue;
+}
+
 static void CG_Crosshair_ApplyFriendTint(xhair_config_t *cfg, qboolean friendTarget)
 {
 	if (!friendTarget || !cg_crosshair_friendly_warning || !cg_crosshair_friendly_warning->integer) {
@@ -260,6 +327,85 @@ static void CG_Crosshair_ApplyFriendTint(xhair_config_t *cfg, qboolean friendTar
 	cfg->r = 0.2f;
 	cfg->g = 0.85f;
 	cfg->b = 0.2f;
+}
+
+qboolean CG_ModernCrosshairLive(xhair_config_t *cfg, float *recoilDx, float *recoilDy, float logicalHeight)
+{
+	qboolean dynamicEnabled;
+	qboolean movementEnabled;
+	qboolean isSpectating;
+	qboolean inScopeZoom;
+
+	if (!cfg) {
+		return qfalse;
+	}
+
+	if (!cg_hud || !cg_hud->integer || !ui_crosshair || !ui_crosshair->integer) {
+		return qfalse;
+	}
+	if (!cg.snap) {
+		return qfalse;
+	}
+	if ((cg.snap->ps.pm_flags & PMF_NO_HUD) || (cg.snap->ps.pm_flags & PMF_INTERMISSION)) {
+		return qfalse;
+	}
+	if (!CG_Crosshair_ModeEnabled()) {
+		return qfalse;
+	}
+
+	isSpectating = ((cg.snap->ps.pm_flags & PMF_SPECTATING) != 0
+	                || cg.snap->ps.stats[STAT_TEAM] == TEAM_SPECTATOR)
+	                   ? qtrue
+	                   : qfalse;
+	inScopeZoom = ((cg.snap->ps.stats[STAT_INZOOM] && cg.snap->ps.stats[STAT_INZOOM] <= 30)
+	               || (CG_SpectateFP_InZoom() && CG_SpectateFP_ZoomFov() <= 30))
+	                  ? qtrue
+	                  : qfalse;
+
+	if (!cg.snap->ps.stats[STAT_CROSSHAIR] && !(isSpectating && !inScopeZoom) && !inScopeZoom) {
+		return qfalse;
+	}
+	if (CG_Crosshair_InSniperScope()) {
+		return qfalse;
+	}
+
+	CG_Crosshair_ReadConfig(cfg);
+	if (cfg->mode == XHAIR_MODE_NONE) {
+		return qfalse;
+	}
+
+	dynamicEnabled = cg_xhair_cvar_bool(cg_crosshair_dynamic, qfalse);
+	movementEnabled = cg_xhair_cvar_bool(cg_crosshair_dynamic_movement, qtrue);
+	cfg->dynamicEnabled = dynamicEnabled;
+	if (dynamicEnabled) {
+		float fovX;
+
+		fovX = cg.refdef.fov_x;
+		if (fovX <= 0.0f) {
+			fovX = cg_xhair_cvar_float(cg_fov, 80.0f);
+		}
+		if (!(logicalHeight > 0.0f)) {
+			logicalHeight = (float)cgs.glconfig.vidHeight;
+		}
+		cfg->dynamicSpreadPx = CG_CrosshairSpread_Update(dynamicEnabled, movementEnabled, fovX, logicalHeight);
+	} else {
+		cfg->dynamicSpreadPx = 0.0f;
+	}
+
+	CG_Crosshair_ApplyFriendTint(cfg, CG_Crosshair_FriendUnderAim());
+
+	if (recoilDx && recoilDy) {
+		if (cg_crosshair_recoil && cg_crosshair_recoil->integer) {
+			/* Changed in Omaha: UI px (client applies uiPxScale); not FB uiHiResScale. */
+			*recoilDx = cg.viewkick[1] * 4.0f;
+			*recoilDy = cg.viewkick[0] * 4.0f;
+		} else {
+			*recoilDx = 0.0f;
+			*recoilDy = 0.0f;
+		}
+	}
+
+	return qtrue;
 }
 
 static void CG_Crosshair_ApplyRecoilOffset(float *cx, float *cy)

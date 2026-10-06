@@ -842,6 +842,7 @@ clientGameExport_t *GetCGameAPI(void)
     cge.CG_GetRendererConfig        = CG_GetRendererConfig;
     cge.CG_Draw2D                   = CG_Draw2D;
     cge.CG_DrawZoomOverlay          = CG_DrawZoomOverlay; /* Added in Omaha */
+    cge.CG_ModernCrosshairLive      = CG_ModernCrosshairLive; /* Added in Omaha */
     cge.CG_SyncModernHudCvars       = CG_SyncModernHudCvars;
     cge.CG_EyePosition              = CG_EyePosition;
     cge.CG_EyeOffset                = CG_EyeOffset;

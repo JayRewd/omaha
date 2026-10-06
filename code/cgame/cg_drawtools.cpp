@@ -1426,58 +1426,8 @@ void CG_DrawCrosshair()
         }
     }
 
-    /* Added in Omaha: procedural crosshair for modern HUD packs. */
+    /* Added in Omaha: procedural crosshair is painted in uirender overlay. */
     if (CG_UseModernHudPack()) {
-        qboolean friendTarget = qfalse;
-        const int inZoom = cg.snap->ps.stats[STAT_INZOOM];
-
-        /*
-         * Added in Omaha: sniper zoom uses scope reticle (modern or PK3); skip short crosshair.
-         * Same gate as the HUD host: FOV <= 30, excluding Spy Camera / Binoculars.
-         */
-        if (inZoom > 0 && inZoom <= 30) {
-            const char *wpn = "";
-            if (cg.snap->ps.activeItems[ITEM_WEAPON] >= 0) {
-                wpn = CG_ConfigString(CS_WEAPONS + cg.snap->ps.activeItems[ITEM_WEAPON]);
-            }
-            if (!wpn) {
-                wpn = "";
-            }
-            if (Q_stricmp(wpn, "Spy Camera") && Q_stricmp(wpn, "Binoculars")) {
-                return;
-            }
-        }
-
-        if (cgs.gametype != GT_FFA) {
-            AngleVectorsLeft(cg.refdefViewAngles, forward, NULL, NULL);
-
-            VectorMA(cg.refdef.vieworg, 8192, forward, end);
-            VectorClear(mins);
-            VectorClear(maxs);
-
-            CG_Trace(
-                &trace, cg.refdef.vieworg, mins, maxs, end, 9999, MASK_SOLID, qfalse, qtrue, "CG_DrawCrosshair"
-            );
-
-            if ((trace.entityNum != ENTITYNUM_NONE && trace.entityNum != ENTITYNUM_WORLD)
-                && trace.entityNum != cg.snap->ps.clientNum) {
-                int myFlags;
-
-                friendEnt = &cg_entities[trace.entityNum];
-                if (cgs.gametype != GT_SINGLE_PLAYER) {
-                    myFlags = cg_entities[cg.snap->ps.clientNum].currentState.eFlags & EF_ANY_TEAM;
-                } else {
-                    myFlags = EF_ALLIES;
-                }
-
-                if (((myFlags & EF_ALLIES) && (friendEnt->currentState.eFlags & EF_ALLIES))
-                    || ((myFlags & EF_AXIS) && (friendEnt->currentState.eFlags & EF_AXIS))) {
-                    friendTarget = qtrue;
-                }
-            }
-        }
-
-        CG_DrawModernCrosshair(friendTarget);
         return;
     }
 
