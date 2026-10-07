@@ -634,6 +634,15 @@ extern "C" {
     qboolean CG_FrustumCullSphere(const vec3_t vPos, float fRadius);
     qboolean CG_SimpleDistanceCull(const vec3_t origin, float maxDist);
     void  CG_OffsetFirstPersonView(refEntity_t *pREnt, qboolean bUseWorldPosition);
+    /* Added in Omaha: shared FP lean arc + ±6 eye clearance (play + spectate FP). */
+    void  CG_FirstPersonApplyLean(vec3_t eyeOrigin, const vec3_t viewAngles, float leanAngle);
+    void  CG_FirstPersonApplyEyeClearance(
+        vec3_t       eyeOrigin,
+        const vec3_t bodyOrigin,
+        float        viewheight,
+        int          passEntityNum,
+        int          contentmask
+    );
     void  CG_DrawActiveFrame(int serverTime, int frameTime, stereoFrame_t stereoView, qboolean demoPlayback);
 
     //

@@ -228,6 +228,79 @@ static void CG_OffsetThirdPersonView(void)
 
 /*
 ===============
+CG_FirstPersonApplyLean
+
+Added in Omaha: same lean arc as CG_OffsetFirstPersonView (28.7 pivot about view forward).
+Shared by live FP and client spectate FP so lean placement cannot diverge.
+===============
+*/
+void CG_FirstPersonApplyLean(vec3_t eyeOrigin, const vec3_t viewAngles, float leanAngle)
+{
+    vec3_t vPivotPoint;
+    vec3_t vForward;
+    vec3_t vStart, vEnd, vDelta;
+
+    if (leanAngle == 0.0f) {
+        return;
+    }
+
+    vPivotPoint[0] = viewAngles[0];
+    vPivotPoint[1] = viewAngles[1];
+    vPivotPoint[2] = 0.0f;
+    AngleVectorsLeft(vPivotPoint, vForward, NULL, NULL);
+
+    VectorCopy(eyeOrigin, vStart);
+    vStart[2] -= 28.7f;
+
+    VectorSubtract(eyeOrigin, vStart, vDelta);
+    RotatePointAroundVector(vEnd, vForward, vDelta, leanAngle);
+    VectorAdd(vStart, vEnd, eyeOrigin);
+}
+
+/*
+===============
+CG_FirstPersonApplyEyeClearance
+
+Added in Omaha: ±6 AABB height then lateral eye stop (same as live FP).
+===============
+*/
+void CG_FirstPersonApplyEyeClearance(
+    vec3_t       eyeOrigin,
+    const vec3_t bodyOrigin,
+    float        viewheight,
+    int          passEntityNum,
+    int          contentmask
+)
+{
+    vec3_t  vMins, vMaxs;
+    vec3_t  vStart, vEnd;
+    trace_t trace;
+
+    VectorSet(vMins, -6, -6, -6);
+    VectorSet(vMaxs, 6, 6, 6);
+
+    vStart[0] = bodyOrigin[0];
+    vStart[1] = bodyOrigin[1];
+    vStart[2] = bodyOrigin[2] + viewheight;
+    vEnd[0]   = bodyOrigin[0];
+    vEnd[1]   = bodyOrigin[1];
+    vEnd[2]   = eyeOrigin[2];
+
+    CG_Trace(
+        &trace, vStart, vMins, vMaxs, vEnd, passEntityNum, contentmask, qfalse, qtrue, "FirstPerson Height Check"
+    );
+
+    VectorCopy(trace.endpos, vStart);
+    vEnd[0] = eyeOrigin[0];
+    vEnd[1] = eyeOrigin[1];
+    vEnd[2] = trace.endpos[2];
+    CG_Trace(&trace, vStart, vMins, vMaxs, vEnd, passEntityNum, contentmask, qfalse, qtrue, "FirstPerson Lateral Check");
+
+    VectorCopy(trace.endpos, eyeOrigin);
+}
+
+/*
+===============
 CG_OffsetFirstPersonView
 
 ===============
@@ -243,12 +316,9 @@ void CG_OffsetFirstPersonView(refEntity_t *pREnt, qboolean bUseWorldPosition)
     vec3_t     vDelta;
     float      mat[3][3];
     vec3_t     vOldOrigin;
-    vec3_t     vStart, vEnd, vMins, vMaxs;
+    vec3_t     vStart, vEnd;
     vec3_t     vVelocity;
-    trace_t    trace;
-
-    VectorSet(vMins, -6, -6, -6);
-    VectorSet(vMaxs, 6, 6, 6);
+    vec3_t     bodyOrigin;
 
     //
     //
@@ -315,6 +385,8 @@ void CG_OffsetFirstPersonView(refEntity_t *pREnt, qboolean bUseWorldPosition)
         VectorClear(vVelocity);
     }
 
+    VectorCopy(cg.predicted_player_state.origin, bodyOrigin);
+
     if (bUseWorldPosition) {
         iMask = MASK_VIEWSOLID;
     } else {
@@ -375,14 +447,8 @@ void CG_OffsetFirstPersonView(refEntity_t *pREnt, qboolean bUseWorldPosition)
         RotatePointAroundVector(vEnd, vLeft, vDelta, cg.refdefViewAngles[0] * 0.4);
         VectorAdd(vStart, vEnd, origin);
 
-        if (cg.predicted_player_state.fLeanAngle) {
-            VectorCopy(origin, vStart);
-            vStart[2] -= 28.7f;
-
-            VectorSubtract(origin, vStart, vDelta);
-            RotatePointAroundVector(vEnd, vForward, vDelta, cg.predicted_player_state.fLeanAngle);
-            VectorAdd(vStart, vEnd, origin);
-        }
+        /* Changed in Omaha: lean via shared helper (spectate FP uses the same path). */
+        CG_FirstPersonApplyLean(origin, cg.refdefViewAngles, cg.predicted_player_state.fLeanAngle);
 
         if (cg.predicted_player_state.walking) {
             fVel   = VectorLength(vVelocity);
@@ -435,24 +501,15 @@ void CG_OffsetFirstPersonView(refEntity_t *pREnt, qboolean bUseWorldPosition)
         iMask = MASK_PLAYERSOLID;
     }
 
-    vStart[0] = cg.predicted_player_state.origin[0];
-    vStart[1] = cg.predicted_player_state.origin[1];
-    vStart[2] = cg.predicted_player_state.origin[2] + cg.predicted_player_state.viewheight;
-    vEnd[0]   = cg.predicted_player_state.origin[0];
-    vEnd[1]   = cg.predicted_player_state.origin[1];
-    vEnd[2]   = origin[2];
-
-    CG_Trace(
-        &trace, vStart, vMins, vMaxs, vEnd, cg.snap->ps.clientNum, iMask, qfalse, qtrue, "FirstPerson Height Check"
+    /* Changed in Omaha: clearance via shared helper. */
+    CG_FirstPersonApplyEyeClearance(
+        origin,
+        bodyOrigin,
+        (float)cg.predicted_player_state.viewheight,
+        cg.snap->ps.clientNum,
+        iMask
     );
 
-    VectorCopy(trace.endpos, vStart);
-    vEnd[0] = origin[0];
-    vEnd[1] = origin[1];
-    vEnd[2] = trace.endpos[2];
-    CG_Trace(&trace, vStart, vMins, vMaxs, vEnd, cg.snap->ps.clientNum, iMask, 0, 1, "FirstPerson Lateral Check");
-
-    VectorCopy(trace.endpos, origin);
     VectorSubtract(origin, vOldOrigin, vDelta);
     VectorAdd(pREnt->origin, vDelta, pREnt->origin);
 

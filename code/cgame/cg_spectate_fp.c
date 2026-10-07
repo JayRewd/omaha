@@ -192,12 +192,47 @@ void CG_SpectateFP_Update(void)
 	}
 }
 
+/*
+===============
+CG_SpectateFP_SnapOrigin
+
+Added in Omaha: server snapshot origin of the followed player, blended between
+current/next snaps. Do not use lerpOrigin — with cg_smoothClients that pose
+runs ahead by velocity for up to cg_smoothClientsTime, and remote prediction
+pushes it further. Either path can put the spectate eye through a wall the
+server never placed the player inside. Live play is unchanged.
+===============
+*/
+static void CG_SpectateFP_SnapOrigin(const centity_t *cent, vec3_t out)
+{
+	float f;
+	int   i;
+
+	if (!cent->interpolate || !cg.nextSnap) {
+		VectorCopy(cent->currentState.origin, out);
+		return;
+	}
+
+	f = cg.frameInterpolation;
+	if (f < 0.0f) {
+		f = 0.0f;
+	} else if (f > 1.0f) {
+		f = 1.0f;
+	}
+
+	for (i = 0; i < 3; i++) {
+		out[i] = cent->currentState.origin[i]
+		         + f * (cent->nextState.origin[i] - cent->currentState.origin[i]);
+	}
+}
+
 qboolean CG_SpectateFP_CalcEye(vec3_t outOrigin, vec3_t outAngles)
 {
 	centity_t *cent;
-	vec3_t     right;
 	vec3_t     mins, maxs;
+	vec3_t     bodyOrigin;
 	float      viewHeight;
+	float      lean;
 
 	if (!CG_SpectateFP_Active()) {
 		return qfalse;
@@ -215,6 +250,12 @@ qboolean CG_SpectateFP_CalcEye(vec3_t outOrigin, vec3_t outAngles)
 	 */
 #define CG_SPECFP_PITCH_BIAS 2.0f
 	outAngles[PITCH] -= CG_SPECFP_PITCH_BIAS;
+	/*
+	 * Fixed in Omaha: chase camera_angles wrap pitch into ~350 for slight look-up.
+	 * Normalize so view direction matches CG_OffsetThirdPersonView (and lean uses
+	 * a sane pitch). Spectate no longer applies live-FP pitch pivot on this value.
+	 */
+	outAngles[PITCH] = AngleNormalize180(outAngles[PITCH]);
 
 	/*
 	 * Fixed in Omaha: use origin + stand/crouch viewheight instead of eyes bone.
@@ -228,13 +269,45 @@ qboolean CG_SpectateFP_CalcEye(vec3_t outOrigin, vec3_t outAngles)
 		viewHeight = (float)DEFAULT_VIEWHEIGHT;
 	}
 
-	VectorCopy(cent->lerpOrigin, outOrigin);
+	/*
+	 * Fixed in Omaha: snap origins only — not lerpOrigin (smoothClients velocity
+	 * lead and/or remote prediction). Clearance still starts from this body pose.
+	 */
+	CG_SpectateFP_SnapOrigin(cent, bodyOrigin);
+
+	VectorCopy(bodyOrigin, outOrigin);
 	outOrigin[2] += viewHeight;
 
-	if (cg.spectateFp.leanAngle != 0.0f) {
-		AngleVectors(outAngles, NULL, right, NULL);
-		VectorMA(outOrigin, cg.spectateFp.leanAngle * 0.35f, right, outOrigin);
-		outAngles[ROLL] += cg.spectateFp.leanAngle * 0.25f;
+	/*
+	 * Removed in Omaha: stock live-FP pitch pivot was applied here using chase
+	 * camera_angles. That pivot assumes real look pitch; chase pitch is already
+	 * biased down, so the eye dropped and aim looked below the followed player's
+	 * fire. Restore pre-adc66aa6 spectate placement (flat viewheight) before lean.
+	 * Lean arc + eye clearance below are unchanged.
+	 */
+
+	lean = cg.spectateFp.leanAngle;
+
+	/*
+	 * Changed in Omaha: identical lean path as live FP — stock lean arc then the
+	 * same ±6 eye clearance so the FP spectate eye cannot enter walls.
+	 */
+	CG_FirstPersonApplyLean(outOrigin, outAngles, lean);
+	CG_FirstPersonApplyEyeClearance(
+		outOrigin, bodyOrigin, viewHeight, cg.spectateFp.clientNum, MASK_PLAYERSOLID
+	);
+
+	/*
+	 * Match live FP roll: CalcViewValues uses *0.1; OffsetFirstPersonView adds
+	 * *0.2 (TA+) or *0.3 (base) when eyes bone exists (normal case).
+	 */
+	if (lean != 0.0f) {
+		outAngles[ROLL] += lean * 0.1f;
+		if (cg_target_game >= TG_MOHTA) {
+			outAngles[ROLL] += lean * 0.2f;
+		} else {
+			outAngles[ROLL] += lean * 0.3f;
+		}
 	}
 
 	return qtrue;
