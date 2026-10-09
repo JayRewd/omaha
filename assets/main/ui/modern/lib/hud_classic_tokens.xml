@@ -25,5 +25,9 @@
 		<var id="fill-input" value="#00000059"/>
 		<var id="fill-objective-divider" value="#FFFFFF66"/>
 		<var id="fill-vote-panel" value="#00000066"/>
+		<!-- Match modern panel chrome for grenade charge track / fill. -->
+		<var id="fill-panel" value="#0C0E12C7"/>
+		<var id="fill-divider" value="#FFFFFF1A"/>
+		<var id="fill-hud-stopwatch" value="#1A6FD4AA"/>
 	</vars>
 </ui-library>

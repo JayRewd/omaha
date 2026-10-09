@@ -276,6 +276,8 @@
 								     visible="{cvar.cg_hud != 0}"/>
 								<use template="settings-on-off-row" label="Enable scoreboard cursor" bind="cvar:ui_om_scoreboard_disable_cursor" commit="change" off-value="1" on-value="0"/>
 								<use template="settings-on-off-row" label="Show HUD" bind="cvar:cg_hud" commit="change"/>
+								<use template="settings-on-off-row" label="Grenade charge bar" bind="cvar:cg_grenade_charge_bar" commit="change"
+								     visible="{cvar.cg_hud != 0}"/>
 								<use template="settings-section-header" label="GAMEPLAY"/>
 								<use template="settings-slider-row" label="Field of View" bind="cvar:cg_fov" min="65" max="120" step="1" commit="change"/>
 								<use template="settings-on-off-row" label="Always run" bind="cvar:cl_run" commit="change"/>

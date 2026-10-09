@@ -2792,6 +2792,7 @@ static const char *const g_uidSettingsDraftCvars[] = {
 	"cg_hitmarker",
 	"cg_hitmarker_mode",
 	"cg_hitmarker_sound",
+	"cg_grenade_charge_bar",
 	"cg_remotePrediction",
 	"cg_remotePredictionMaxLead",
 	"cg_rain",
@@ -6345,6 +6346,8 @@ static void CL_UIR_RegisterSettingsCvars(void)
 	Cvar_Get("cg_hitmarker", "1", CVAR_ARCHIVE); /* Changed in Omaha: on by default */
 	Cvar_Get("cg_hitmarker_mode", "server", CVAR_ARCHIVE);
 	Cvar_Get("cg_hitmarker_sound", "classic", CVAR_ARCHIVE); /* Changed in Omaha */
+	/* Added in Omaha: HUD grenade charge bar (on by default). */
+	Cvar_Get("cg_grenade_charge_bar", "1", CVAR_ARCHIVE);
 	/* Added in Omaha: remote prediction enable (0/2) + MaxLead ceiling. */
 	{
 		cvar_t *rpLead;

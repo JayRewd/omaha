@@ -78,6 +78,13 @@ static int      g_modernLastGunClip = 0;
 static int      g_modernLastGunAmmo = 0;
 /* Added in Omaha: sticky grenade inventory count (ammo pool can read 0 while unequipped). */
 static int      g_modernGrenadeCount = 0;
+/*
+ * Added in Omaha: client-local grenade charge timer for HUD (not networked).
+ * Rising edge of VM_ANIM_CHARGE while grenade equipped starts the clock.
+ */
+static qboolean g_grenadeChargeActive = qfalse;
+static int      g_grenadeChargeStartMs = 0;
+static qboolean g_grenadeChargeSecondary = qfalse;
 /* Added in Omaha: -2 = playing; -1 = free spectate; else followed client. */
 static int      g_modernFollowClient = -2;
 
@@ -853,6 +860,9 @@ static void UIR_Hud_ClearModernWeaponsSticky(void)
 	g_modernLastGunClip = 0;
 	g_modernLastGunAmmo = 0;
 	g_modernGrenadeCount = 0;
+	g_grenadeChargeActive = qfalse;
+	g_grenadeChargeStartMs = 0;
+	g_grenadeChargeSecondary = qfalse;
 	g_modernPrevOwnSidearm = -1;
 	g_modernPrevOwnPrimary = -1;
 }
@@ -1230,6 +1240,58 @@ void UIR_Hud_Sync(void)
 		UIR_Hud_SetCvarInt("ui_om_hud_grenade_count", g_modernGrenadeCount);
 	}
 
+	/*
+	 * Added in Omaha: grenade charge current/min/max for HUD bars (client-only).
+	 * Retail scripts: primary 0.6–4.0s, secondary 0.5–1.5s (M2 + Stielhandgranate).
+	 */
+	{
+		static const float kGrenadeChargeMinPrimary = 0.6f;
+		static const float kGrenadeChargeMaxPrimary = 4.0f;
+		static const float kGrenadeChargeMinSecondary = 0.5f;
+		static const float kGrenadeChargeMaxSecondary = 1.5f;
+
+		const qboolean equipGrenade =
+			(cl.snap.ps.stats[STAT_EQUIPPED_WEAPON] & WEAPON_CLASS_GRENADE) != 0;
+		const qboolean charging =
+			equipGrenade && cl.snap.ps.iViewModelAnim == VM_ANIM_CHARGE;
+		float chargeMin = kGrenadeChargeMinPrimary;
+		float chargeMax = kGrenadeChargeMaxPrimary;
+		float chargeCur = 0.0f;
+
+		if (charging) {
+			if (!g_grenadeChargeActive) {
+				int buttons = 0;
+				if (cl.cmdNumber > 0) {
+					buttons = cl.cmds[cl.cmdNumber & CMD_MASK].buttons;
+				}
+				g_grenadeChargeActive = qtrue;
+				g_grenadeChargeStartMs = cl.serverTime;
+				g_grenadeChargeSecondary =
+					(buttons & BUTTON_ATTACKRIGHT) != 0 && (buttons & BUTTON_ATTACKLEFT) == 0;
+			}
+			if (g_grenadeChargeSecondary) {
+				chargeMin = kGrenadeChargeMinSecondary;
+				chargeMax = kGrenadeChargeMaxSecondary;
+			}
+			chargeCur = (float)(cl.serverTime - g_grenadeChargeStartMs) / 1000.0f;
+			if (chargeCur < 0.0f) {
+				chargeCur = 0.0f;
+			} else if (chargeCur > chargeMax) {
+				chargeCur = chargeMax;
+			}
+		} else {
+			g_grenadeChargeActive = qfalse;
+			g_grenadeChargeStartMs = 0;
+			g_grenadeChargeSecondary = qfalse;
+		}
+
+		Com_sprintf(buf, sizeof(buf), "%.3f", chargeCur);
+		UIR_Hud_SetCvar("ui_om_hud_grenade_charge", buf);
+		Com_sprintf(buf, sizeof(buf), "%.3f", chargeMin);
+		UIR_Hud_SetCvar("ui_om_hud_grenade_charge_min", buf);
+		Com_sprintf(buf, sizeof(buf), "%.3f", chargeMax);
+		UIR_Hud_SetCvar("ui_om_hud_grenade_charge_max", buf);
+	}
 
 	UIR_Hud_SyncCompassCvars();
 

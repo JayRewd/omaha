@@ -106,6 +106,44 @@
 			</container>
 		</template>
 
+		<!--
+		  Added in Omaha: grenade charge bar (same framed track as modern HUD).
+		  Four ticks divide the track into five equal segments (middle centered).
+		-->
+		<template id="classic-grenade-charge-bar">
+			<container type="overlap" width="300px" height="24px"
+			           fill="{var.fill-panel}"
+			           stroke="{var.fill-divider}" stroke-width="1px" crisp="true"
+			           halign="center" valign="center"
+			           visible="{cvar.ui_om_hud_show and cvar.cg_grenade_charge_bar and cvar.ui_om_hud_weap_grenade_state == 2 and cvar.ui_om_hud_grenade_charge > 0}">
+				<container type="horizontal"
+				           width="{300 * clamp((cvar.ui_om_hud_grenade_charge - cvar.ui_om_hud_grenade_charge_min) / (cvar.ui_om_hud_grenade_charge_max - cvar.ui_om_hud_grenade_charge_min), 0, 1)}px"
+				           height="100%"
+				           fill="{var.fill-hud-stopwatch}"
+				           halign="center" valign="center"/>
+				<!-- 4 ticks at 60/120/180/240px — five equal 60px segments (middle centered). -->
+				<foreach count="4" type="overlap" width="100%" height="100%">
+					<container width="1px" height="100%" fill="{var.fill-divider}" crisp="true"
+					           halign="start" valign="center"
+					           margin="0 0 0 {(item.index + 1) * 60}px"/>
+				</foreach>
+				<!--
+				  Added in Omaha: practice release marks. Fill grows from center, so two
+				  ticks sit on the left/right edges of the target width (150*(1-t) inset).
+				-->
+				<container width="3px" height="100%" fill="{var.color-white}" crisp="true"
+				           stroke="#F0C020FF" stroke-width="1px"
+				           halign="start" valign="center"
+				           visible="{cvar.cg_practice_nade_release >= 0}"
+				           margin="0 0 0 {150 * (1 - clamp((cvar.cg_practice_nade_release * cvar.ui_om_hud_grenade_charge_max - cvar.ui_om_hud_grenade_charge_min) / (cvar.ui_om_hud_grenade_charge_max - cvar.ui_om_hud_grenade_charge_min), 0, 1))}px"/>
+				<container width="3px" height="100%" fill="{var.color-white}" crisp="true"
+				           stroke="#F0C020FF" stroke-width="1px"
+				           halign="end" valign="center"
+				           visible="{cvar.cg_practice_nade_release >= 0}"
+				           margin="0 {150 * (1 - clamp((cvar.cg_practice_nade_release * cvar.ui_om_hud_grenade_charge_max - cvar.ui_om_hud_grenade_charge_min) / (cvar.ui_om_hud_grenade_charge_max - cvar.ui_om_hud_grenade_charge_min), 0, 1))}px 0 0"/>
+			</container>
+		</template>
+
 		<template id="classic-score-label">
 			<container type="vertical" width="auto" height="auto" halign="end" valign="start" gap="2.5px">
 				<label font="body" font-size="{var.text-body}" color="{var.color-score-gold}" halign="end"

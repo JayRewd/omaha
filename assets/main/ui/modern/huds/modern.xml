@@ -174,7 +174,8 @@
 			</container>
 			<container id="hud_stopwatch_parent" type="vertical" width="100%" height="100%" halign="center" valign="center" padding="16px">
 				<container id="hud_stopwatch_container_top" type="vertical" width="100%" height="50%" halign="center" valign="center"/>
-				<container id="hud_stopwatch_container_bottom" type="vertical" width="100%" height="50%" halign="center" valign="center">
+				<container id="hud_stopwatch_container_bottom" type="vertical" width="100%" height="50%" gap="8px" halign="center" valign="center">
+					<use template="modern-grenade-charge-bar"/>
 					<!-- Plant / stopwatch: translucent blue bar shrinks 300px → 0 as time runs out. -->
 					<container type="horizontal" width="{300 * cvar.ui_om_hud_stopwatch_frac}px" height="24px"
 							margin="0 0 0 0" halign="center" valign="center"
