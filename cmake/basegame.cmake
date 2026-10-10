@@ -53,6 +53,7 @@ set(UI_QVM_SOURCES)
 set(GAME_MODULE_SHARED_SOURCES
     ${SOURCE_DIR}/qcommon/q_math.c
     ${SOURCE_DIR}/qcommon/q_shared.c
+    ${SOURCE_DIR}/qcommon/practice_scenario.cpp
     ${SCRIPT_SYSTEM_SOURCES}
 )
 

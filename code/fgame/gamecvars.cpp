@@ -294,6 +294,13 @@ cvar_t *g_bot_instamsg_delay;
 cvar_t *g_bot_initial_spawn_delay;
 cvar_t *g_bot_manualmove;
 
+// Added in Omaha
+cvar_t *g_practice;
+cvar_t *g_practice_file;
+cvar_t *g_practice_edit;
+cvar_t *g_practice_difficulty;
+cvar_t *g_practice_maxalive;
+
 cvar_t *g_rankedserver;
 cvar_t *g_spectatefollow_firstperson;
 
@@ -719,6 +726,15 @@ void CVAR_Init(void)
     g_bot_initial_spawn_delay = gi.Cvar_Get("g_bot_initial_spawn_delay", "", 0);
 
     g_bot_manualmove = gi.Cvar_Get("g_bot_manualmove", "0", 0);
+
+    // Added in Omaha: practice session (local listen server).
+    g_practice            = gi.Cvar_Get("g_practice", "0", CVAR_LATCH);
+    g_practice_file       = gi.Cvar_Get("g_practice_file", "", CVAR_LATCH);
+    // Changed in Omaha: LATCH so mid-map set cannot arm editor writes.
+    g_practice_edit       = gi.Cvar_Get("g_practice_edit", "0", CVAR_LATCH);
+    g_practice_difficulty = gi.Cvar_Get("g_practice_difficulty", "medium", 0);
+    // 0 = use scenario maxAlive; >0 overrides how many angle bots may be alive at once.
+    g_practice_maxalive   = gi.Cvar_Get("g_practice_maxalive", "0", 0);
 
     g_teambalance = gi.Cvar_Get("g_teambalance", "0", 0);
 

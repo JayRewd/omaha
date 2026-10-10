@@ -25,6 +25,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "entity.h"
 #include "playerbot.h"
 #include "g_bot.h"
+#include "g_practice.h"
 
 static saved_bot_t *saved_bots     = NULL;
 static unsigned int num_saved_bots = 0;
@@ -961,6 +962,11 @@ void G_SpawnBots()
 
     if (g_gametype->integer == GT_SINGLE_PLAYER) {
         // No bot on single-player
+        return;
+    }
+
+    // Added in Omaha: practice manager owns bot spawning.
+    if (Practice_IsActive()) {
         return;
     }
 

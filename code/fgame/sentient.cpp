@@ -42,6 +42,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "object.h"
 #include "../corepp/tiki.h"
 #include "weapturret.h"
+#include "g_practice.h"
 
 Event EV_Sentient_ReloadWeapon
 (
@@ -1408,8 +1409,11 @@ void Sentient::ArmorDamage(Event *ev)
         return;
     }
 
-    if ((!isClient() || g_gametype->integer != GT_SINGLE_PLAYER)
-        && (location > HITLOC_GENERAL && location < NUMBODYLOCATIONS)) {
+    // Added in Omaha: practice bots deal flat damage regardless of hit location.
+    if (attacker && Practice_IsPracticeBot(attacker)) {
+        damage = Practice_BotShotDamage();
+    } else if ((!isClient() || g_gametype->integer != GT_SINGLE_PLAYER)
+               && (location > HITLOC_GENERAL && location < NUMBODYLOCATIONS)) {
         damage *= m_fDamageMultipliers[location];
     } else if (isClient() && attacker && attacker->IsSubclassOfActor() && g_gametype->integer == GT_SINGLE_PLAYER) {
         damage *= AIDamageMult->value;

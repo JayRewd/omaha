@@ -327,6 +327,12 @@ extern cvar_t *g_bot_initial_spawn_delay;
  */
 extern cvar_t *g_bot_manualmove;
 
+extern cvar_t *g_practice;
+extern cvar_t *g_practice_file;
+extern cvar_t *g_practice_edit;
+extern cvar_t *g_practice_difficulty;
+extern cvar_t *g_practice_maxalive;
+
 extern cvar_t *g_rankedserver;
 extern cvar_t *g_spectatefollow_firstperson;
 

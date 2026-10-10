@@ -33,6 +33,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "weaputils.h"
 #include "windows.h"
 #include "g_bot.h"
+#include "g_practice.h"
 
 // We assume that we have limited access to the server-side
 // and that most logic come from the playerstate_s structure
@@ -1312,7 +1313,14 @@ Player *BotController::getControlledEntity() const
 
 BotController *BotControllerManager::createController(Player *player)
 {
-    BotController *controller = new BotController();
+    BotController *controller;
+
+    // Added in Omaha: practice bots use a frozen pose controller.
+    if (Practice_WantsPracticeController()) {
+        controller = new PracticeBotController();
+    } else {
+        controller = new BotController();
+    }
     controller->setControlledEntity(player);
 
     controllers.AddObject(controller);

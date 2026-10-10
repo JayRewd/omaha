@@ -38,6 +38,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "smokesprite.h"
 #include "playerbot.h"
 #include "g_bot.h"
+#include "g_practice.h"
 #include "navigation_recast_load.h"
 
 #include "../corepp/tiki.h"
@@ -278,6 +279,7 @@ void G_InitGame(int levelTime, int randomSeed)
     Director.Reset();
     Actor::Init();
     G_BotInit();
+    Practice_Init();
 
     sv_numtraces   = 0;
     sv_numpmtraces = 0;
@@ -351,6 +353,7 @@ void G_ShutdownGame()
     // write all the client session data so we can get it back
     G_WriteSessionData();
 
+    Practice_Shutdown();
     ClosePlayerLogFile();
 
     level.CleanUp();
@@ -594,6 +597,7 @@ void G_RunFrame(int levelTime, int frameTime)
         }
 
         G_BotFrame();
+        Practice_Frame();
 
         for (edict = active_edicts.next; edict != &active_edicts; edict = edict->next) {
             for (num = edict->s.parent; num != ENTITYNUM_NONE; num = g_entities[num].s.parent) {

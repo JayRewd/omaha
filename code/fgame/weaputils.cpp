@@ -31,6 +31,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "decals.h"
 #include "weapon.h"
 #include "player.h"
+#include "g_practice.h"
 #include "VehicleCollisionEntity.h"
 #include "weapturret.h"
 #include "vehicleturret.h"
@@ -889,6 +890,9 @@ void Projectile::Explode(Event *ev)
     if (owner->IsDead() || owner == world) {
         weap = NULL;
     }
+
+    // Added in Omaha
+    Practice_OnProjectileExplode(this);
 
     health     = 0;
     deadflag   = DEAD_DEAD;
@@ -1967,6 +1971,9 @@ Projectile *ProjectileAttack(
     proj->setSize(proj->mins, proj->maxs);
     proj->setOrigin(start);
     proj->origin.copyTo(proj->edict->s.origin2);
+
+    // Changed in Omaha: notify practice after setOrigin so nadecam has a real start pos.
+    Practice_OnProjectileSpawned(proj, owner);
 
     if (proj->m_beam) {
         proj->m_beam->setOrigin(start);

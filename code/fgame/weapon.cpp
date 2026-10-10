@@ -37,6 +37,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "actor.h"
 #include "weaputils.h"
 #include "player.h"
+#include "g_practice.h"
 #include "vehicleturret.h"
 #include "debuglines.h"
 #include "g_spawn.h"
@@ -1442,6 +1443,11 @@ void Weapon::Shoot(Event *ev)
                         vSpread += bulletspread[mode] * fSpreadFactor;
                         vSpread *= m_fFireSpreadMult[mode] + 1.0f;
 
+                        // Added in Omaha: practice bots fire without random spread.
+                        if (Practice_ZeroSpread(owner)) {
+                            vSpread = vec_zero;
+                        }
+
                         if (m_iZoom) {
                             if (player->IsSubclassOfPlayer() && player->IsZoomed()) {
                                 vSpread *= 1.0f + fSpreadFactor * (m_fZoomSpreadMult - 1.0f);
@@ -1515,6 +1521,11 @@ void Weapon::Shoot(Event *ev)
                         fSpreadFactor = 1.0f - fSpreadFactor;
                         vSpread += bulletspread[mode] * fSpreadFactor;
                         vSpread *= m_fFireSpreadMult[mode] + 1.0f;
+
+                        // Added in Omaha: practice bots fire without random spread.
+                        if (Practice_ZeroSpread(owner)) {
+                            vSpread = vec_zero;
+                        }
 
                         if (m_iZoom) {
                             if (player->IsSubclassOfPlayer() && player->IsZoomed()) {
@@ -1722,6 +1733,11 @@ int Weapon::AmmoAvailable(firemode_t mode)
 qboolean Weapon::UnlimitedAmmo(firemode_t mode)
 {
     if (!owner) {
+        return true;
+    }
+
+    // Added in Omaha: intentional while Practice_IsActive — infinite reserve (clips still empty; reload always works).
+    if (Practice_IsActive()) {
         return true;
     }
 

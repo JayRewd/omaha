@@ -45,7 +45,9 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "characterstate.h"
 #include "weaputils.h"
 #include "dm_manager.h"
+#include "g_practice.h"
 #include "parm.h"
+
 #include "body.h"
 #include "playerstart.h"
 #include "camera.h"
@@ -2671,6 +2673,11 @@ void Player::InitView(void)
 
 void Player::ChooseSpawnPoint(void)
 {
+    // Added in Omaha: practice start / bot spots.
+    if (Practice_TrySpawnPlayer(this)) {
+        return;
+    }
+
     // set up the player's spawn location
     PlayerStart *p = SelectSpawnPoint(this);
     setOrigin(p->origin + Vector(0, 0, 1));
@@ -3232,6 +3239,9 @@ void Player::Killed(Event *ev)
     scriptedEvents[SE_KILL].Trigger(event);
 
     Unregister(STRING_DEATH);
+
+    // Added in Omaha
+    Practice_OnPlayerKilled(this);
 }
 
 void Player::EventDMDeathDrop(Event *ev)
@@ -3239,6 +3249,12 @@ void Player::EventDMDeathDrop(Event *ev)
     Weapon   *weapon = GetActiveWeapon(WEAPON_MAIN);
     SpawnArgs args;
     ClassDef *cls;
+
+    // Added in Omaha: intentional while Practice_IsActive — never drop weapons or health packs.
+    if (Practice_IsActive()) {
+        FreeInventory();
+        return;
+    }
 
     if (!m_bDontDropWeapons && weapon && weapon->IsSubclassOfWeapon()) {
         weapon->Drop();
@@ -4492,6 +4508,9 @@ void Player::ClientThink(void)
         Spectator();
     }
 
+    // Added in Omaha: practice editor turns weapon fire into edit actions.
+    Practice_FilterEditorInput(this, current_ucmd, current_eyeinfo);
+
     last_ucmd = *current_ucmd;
 
     new_buttons = current_ucmd->buttons & ~buttons;
@@ -4733,7 +4752,10 @@ void Player::Think(void)
         TickTeamSpawn();
 
         if (deadflag == DEAD_DEAD && level.time > respawn_time) {
-            if (dmManager.AllowRespawn() && AllowTeamRespawn()) {
+            // Added in Omaha: practice bots must not stock-respawn (causes parked spawn-sound batches).
+            if (Practice_BlockStockRespawn(this)) {
+                // stay dead until PlaceBots / AssignNextSpot posts a practice respawn
+            } else if (dmManager.AllowRespawn() && AllowTeamRespawn()) {
                 if (((server_new_buttons & BUTTON_ATTACKLEFT) || (server_new_buttons & BUTTON_ATTACKRIGHT))
                     || (g_forcerespawn->integer > 0 && level.time > g_forcerespawn->integer + respawn_time)) {
                     // 2.0
@@ -8786,6 +8808,9 @@ void Player::InitDeathmatch(void)
     ChooseSpawnPoint();
     EquipWeapons();
 
+    // Added in Omaha
+    Practice_OnPlayerSpawned(this);
+
     if (current_team) {
         current_team->m_bHasSpawnedPlayers = qtrue;
     }
@@ -10290,6 +10315,11 @@ void Player::EventPrimaryDMWeapon(Event *ev)
 void Player::DeadBody(Event *ev)
 {
     Body *body;
+
+    // Added in Omaha: practice fast-respawn must not leave corpse models behind.
+    if (Practice_IsActive()) {
+        return;
+    }
 
     if (knockdown) {
         return;

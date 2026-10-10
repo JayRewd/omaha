@@ -163,9 +163,14 @@ public:
 private:
     static botfunc_t botfuncs[];
 
+protected:
     BotMovement movement;
     BotRotation rotation;
+    usercmd_t   m_botCmd;
+    usereyes_t  m_botEyes;
+    SafePtr<Player> controlledEnt;
 
+private:
     // States
     int    m_iCuriousTime;
     int    m_iAttackTime;
@@ -186,10 +191,6 @@ private:
     int               m_iEnemyEyesTag;
 
     // Input
-    usercmd_t  m_botCmd;
-    usereyes_t m_botEyes;
-
-    // States
     int               m_StateCount;
     unsigned int      m_StateFlags;
     ScriptThreadLabel m_RunLabel;
@@ -254,15 +255,15 @@ public:
     CLASS_PROTOTYPE(BotController);
 
     BotController();
-    ~BotController();
+    virtual ~BotController();
 
     static void Init(void);
 
-    void GetEyeInfo(usereyes_t *eyeinfo);
-    void GetUsercmd(usercmd_t *ucmd);
+    void    GetEyeInfo(usereyes_t *eyeinfo);
+    void    GetUsercmd(usercmd_t *ucmd);
 
-    void UpdateBotStates(void);
-    void CheckReload(void);
+    virtual void UpdateBotStates(void);
+    void         CheckReload(void);
 
     void AimAtAimNode(void);
 
@@ -273,20 +274,17 @@ public:
 
     void Think();
 
-    void Spawned(void);
+    virtual void Spawned(void);
 
-    void Killed(const Event& ev);
-    void GotKill(const Event& ev);
-    void EventStuffText(const str& text);
+    virtual void Killed(const Event& ev);
+    void         GotKill(const Event& ev);
+    void         EventStuffText(const str& text);
 
     BotMovement& GetMovement();
 
 public:
     void    setControlledEntity(Player *player);
     Player *getControlledEntity() const;
-
-private:
-    SafePtr<Player> controlledEnt;
 };
 
 class BotControllerManager : public Listener
