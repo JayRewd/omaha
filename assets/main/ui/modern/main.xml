@@ -193,6 +193,8 @@
 										<use template="settings-keybind-row" label="Scoreboard Cursor" binding="toggle_scoreboard_cursor"/>
 										<use template="settings-keybind-row" label="Cycle Scoreboard Sort" binding="cycle_scoreboard_sort"/>
 										<use template="settings-keybind-row" label="Toggle Demo Playback Overlay" binding="demooverlay"/>
+										<use template="settings-keybind-row" label="Screenshot PNG" binding="screenshotPNG"/>
+										<use template="settings-keybind-row" label="Screenshot JPEG" binding="screenshotJPEG"/>
 								</container>
 								<container type="vertical" width="fill" height="auto" gap="8px" padding="0 0 0 4px">
 									<use template="settings-section-header" label="MOUSE"/>

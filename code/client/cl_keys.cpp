@@ -1240,7 +1240,7 @@ void CL_KeyEvent(int key, qboolean down, unsigned time)
         /*
          * Changed in Omaha: when modern owns input (or capturing), include menubound
          * keys so F-keys reach design before bound-command dispatch.
-         * Fixed in Omaha: do not swallow menubound binds (e.g. F12 screenshotJPEG)
+         * Fixed in Omaha: do not swallow menubound binds (e.g. F12 screenshotPNG)
          * after UI handling — only non-menubound keys stay UI-exclusive.
          */
         const qboolean modernOwns =

@@ -4791,6 +4791,17 @@ static void CL_UIR_MigrateScoreboardCursorBinds(void)
 	}
 }
 
+/* Added in Omaha: default F12 to screenshotPNG (migrate JPEG/TGA screenshot binds). */
+static void CL_UIR_MigrateScreenshotBinds(void)
+{
+	const char *binding = Key_GetBinding(K_F12);
+
+	if (!binding || !binding[0] || !Q_stricmp(binding, "screenshotJPEG")
+	    || !Q_stricmp(binding, "screenshot")) {
+		Key_SetBinding(K_F12, "screenshotPNG");
+	}
+}
+
 static bool invoke_toggle_server_favorite(void *userdata)
 {
 	const char *ip;
@@ -7244,6 +7255,7 @@ void CL_UIR_Init(void)
 	Cmd_AddCommand("cycle_scoreboard_sort", CL_UIR_CycleScoreboardSort_f);
 	Cmd_AddCommand("toggle_scoreboard_cursor", CL_UIR_ToggleScoreboardCursor_f);
 	CL_UIR_MigrateScoreboardCursorBinds();
+	CL_UIR_MigrateScreenshotBinds();
 	CL_UIR_RegisterBakeCommands();
 	CL_UIPerf_Init();
 	CL_ModernBrowser_Init();

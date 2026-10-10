@@ -2516,3 +2516,46 @@ void RE_SavePNG(const char *filename, int width, int height, const byte *rgba)
 	ri.FS_WriteFile(filename, pngData, (int)pngLen);
 	STBIW_FREE(pngData);
 }
+
+/*
+=================
+RE_SavePNGFromRGB
+
+Added in Omaha: convert OpenGL bottom-up RGB (+ padding) to top-down RGBA and write PNG.
+=================
+*/
+void RE_SavePNGFromRGB(const char *filename, int width, int height, const byte *rgb, int padding)
+{
+	byte *rgba;
+	int   x, y;
+	int   srcStride;
+	int   dstStride;
+
+	if (!filename || !filename[0] || width <= 0 || height <= 0 || !rgb) {
+		return;
+	}
+
+	srcStride = width * 3 + padding;
+	dstStride = width * 4;
+	rgba = ri.Hunk_AllocateTempMemory(dstStride * height);
+	if (!rgba) {
+		return;
+	}
+
+	for (y = 0; y < height; y++) {
+		const byte *src = rgb + (height - 1 - y) * srcStride;
+		byte       *dst = rgba + y * dstStride;
+
+		for (x = 0; x < width; x++) {
+			dst[0] = src[0];
+			dst[1] = src[1];
+			dst[2] = src[2];
+			dst[3] = 255;
+			src += 3;
+			dst += 4;
+		}
+	}
+
+	RE_SavePNG(filename, width, height, rgba);
+	ri.Hunk_FreeTempMemory(rgba);
+}

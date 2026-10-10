@@ -86,6 +86,7 @@ static const char *whiteListedCommands[] = {
     "-moveup",
     "screenshot",
     "screenshotJPEG",
+    "screenshotPNG", // Added in Omaha
     "levelshot",
     "`stufftext" // Stufftext detection from Reborn, the player gets kicked without it
 };

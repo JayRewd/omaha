@@ -3390,6 +3390,13 @@ typedef struct {
 	int		numDrawSurfs;
 } drawSurfsCommand_t;
 
+/* Changed in Omaha: TGA / JPEG / PNG screenshot formats. */
+typedef enum {
+	SCREENSHOT_TGA = 0,
+	SCREENSHOT_JPEG,
+	SCREENSHOT_PNG
+} screenshotFormat_t;
+
 typedef struct {
 	int commandId;
 	int x;
@@ -3397,7 +3404,7 @@ typedef struct {
 	int width;
 	int height;
 	char *fileName;
-	qboolean jpeg;
+	screenshotFormat_t format;
 } screenshotCommand_t;
 
 typedef struct {
