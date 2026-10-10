@@ -4589,6 +4589,8 @@ void UI_ServerLoaded(void)
      * — mapReady flipped true ~1s later and pushmenu_weaponselect opened over the
      * Continue art. Force the loading menu current and wait whenever it has a
      * continuebutton.
+     * Changed in Omaha: multiplayer skips the Continue click — finish as soon as
+     * the map is ready (SP still waits on the button).
      */
     if (menuManager.CurrentMenu() != ui_pLoadingMenu) {
         UI_ForceMenuOff(true);
@@ -4598,7 +4600,8 @@ void UI_ServerLoaded(void)
     pCurrentMenu = menuManager.CurrentMenu();
 
     if (!pCurrentMenu || pCurrentMenu != ui_pLoadingMenu
-        || !ui_pLoadingMenu->GetNamedWidget("continuebutton")) {
+        || !ui_pLoadingMenu->GetNamedWidget("continuebutton")
+        || (cg_gametype && cg_gametype->integer > 0)) {
         UI_FinishLoadingScreen_f();
         return;
     }
