@@ -6822,6 +6822,8 @@ static void CL_UIR_PushUiPxScale(void)
 		}
 	}
 	CL_UIMenu_ApplyUiPxScale(uiPxScale);
+	/* Added in Omaha: settings-slider drags re-lay out open FAKK consoles immediately. */
+	UI_ApplyFakkOverlayUiScale();
 }
 
 /*

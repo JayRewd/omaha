@@ -52,4 +52,6 @@ public:
     void MoveInEvent(Event *ev);
     void Draw(void) override;
     void setRealShow(bool b);
+    /* Added in Omaha: applies ui_scale. */
+    const vec2_t& getHighResScale() const override;
 };

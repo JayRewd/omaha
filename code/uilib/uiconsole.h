@@ -93,6 +93,8 @@ public:
     void     CharEvent(int ch) override;
     qboolean KeyEvent(int key, unsigned int time) override;
     void     OnSizeChanged(Event *ev);
+    /* Added in Omaha: applies ui_scale. */
+    const vec2_t& getHighResScale() const override;
 };
 
 class UIFloatingConsole : public UIFloatingWindow
@@ -119,6 +121,9 @@ public:
     void OnClosePressed(Event *ev);
     void setConsoleBackground(const UColor& color, float alpha);
     void setConsoleColor(const UColor& color);
+    /* Added in Omaha: applies ui_scale; re-lays out chrome after it changes. */
+    const vec2_t& getHighResScale() const override;
+    void          ApplyUiScale(void);
 };
 
 class UIDMConsole : public UIConsole
@@ -173,4 +178,7 @@ public:
     void     SetQuickMessageMode(qboolean bQuickMessage);
     int      GetMessageMode(void);
     void     SetMessageMode(int iMode);
+    /* Added in Omaha: applies ui_scale; re-lays out chrome after it changes. */
+    const vec2_t& getHighResScale() const override;
+    void          ApplyUiScale(void);
 };

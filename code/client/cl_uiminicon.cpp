@@ -115,6 +115,11 @@ void FakkMiniconsole::OnSizeChanged(Event *ev)
     m_maxlines = m_frame.size.height / m_font->getHeight(getHighResScale());
 }
 
+const vec2_t& FakkMiniconsole::getHighResScale() const
+{
+    return getUserHighResScale(UI_GetUserUiScale());
+}
+
 void FakkMiniconsole::MoveInEvent(Event *ev)
 {
     ChangeBoxState(boxstate_t::box_moving_in);

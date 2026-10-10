@@ -336,7 +336,13 @@ void UIGMBox::Print(const char *text)
 
 void UIGMBox::OnSizeChanged(Event *ev)
 {
-    s_gmboxWidth = m_frame.size.width;
+    // Changed in Omaha: the frame grows with ui_scale, wrap width in font units does not
+    s_gmboxWidth = m_frame.size.width / UI_GetMessageBoxUiScale();
+}
+
+const vec2_t& UIGMBox::getHighResScale() const
+{
+    return getUserHighResScale(UI_GetMessageBoxUiScale());
 }
 
 void UIGMBox::Create(const UIRect2D& rect, const UColor& fore, const UColor& back, float alpha)
@@ -473,7 +479,7 @@ void UIGMBox::Draw(void)
 
     for (i = 1; i < m_numitems; i++) {
         fsY += DrawItem(&m_items[i], s_gmboxOffsetX, fsY, alphaScale);
-        if (fsY > m_frame.size.height) {
+        if (fsY * UI_GetMessageBoxUiScale() > m_frame.size.height) {
             if (EventPending(EV_GMBox_Decay)) {
                 CancelEventsOfType(EV_GMBox_Decay);
             }

@@ -62,6 +62,10 @@ void        CL_EndRegistration(void);
 qboolean    CL_IsBeginRegistrationActive(void);
 float       UI_GetObjectivesTop(void);
 void        UI_GetHighResolutionScale(vec2_t scale);
+/* Added in Omaha: ui_scale for legacy gmbox/dmbox (1 while a modern HUD pack paints them). */
+float       UI_GetMessageBoxUiScale(void);
+/* Added in Omaha: re-lay out code-built FAKK overlays when the effective ui_scale changes. */
+void        UI_ApplyFakkOverlayUiScale(void);
 
 //
 // menu

@@ -77,4 +77,6 @@ public:
     void Display(const UIRect2D& drawframe, float parent_alpha) override;
     void setRealShow(bool b);
     void Clear(void);
+    /* Added in Omaha: applies ui_scale on the legacy HUD path. */
+    const vec2_t& getHighResScale() const override;
 };

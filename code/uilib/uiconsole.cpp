@@ -138,8 +138,9 @@ void UIConsole::DrawBottomLine(void)
 	topScaled   = top / getHighResScale()[1];
 	m_font->Print(0.0, topScaled, prompt.c_str(), -1, getHighResScale());
 
-	iXPos           = promptwidth + 1;
-	iMaxStringWidth = m_frame.size.width - iXPos - m_scroll->getSize().width;
+	iXPos = promptwidth + 1;
+	// Fixed in Omaha: glyph widths are unscaled, the frame is in screen pixels
+	iMaxStringWidth = (m_frame.size.width - m_scroll->getSize().width) / getHighResScale()[0] - iXPos;
 
 	if (m_caret > m_currentline.length()) {
 		// Make sure to not overflow
@@ -335,12 +336,15 @@ void UIConsole::CalcLineBreaks(item& theItem)
 	str         sofar, checking;
 	int         lensofar, lenchecking, len_of_space;
 	const char *remaining;
+	float       maxwidth;
 
 	lensofar      = 0;
 	lenchecking   = 0;
 	len_of_space  = m_font->getCharWidth(' ');
 	theItem.lines = 0;
 	remaining     = theItem.string.c_str();
+	// Fixed in Omaha: glyph widths are unscaled, the frame is in screen pixels
+	maxwidth = (m_frame.size.width - m_scroll->getSize().width) / getHighResScale()[0];
 
 	for (i = 0; remaining[i]; i++) {
 		if (remaining[i] == ' ') {
@@ -350,7 +354,7 @@ void UIConsole::CalcLineBreaks(item& theItem)
 			lenchecking = 0;
 		} else {
 			int charlen = m_font->getCharWidth(remaining[i]);
-			if (m_frame.size.width - m_scroll->getSize().width < (charlen + lenchecking + lensofar)) {
+			if (maxwidth < (charlen + lenchecking + lensofar)) {
 				if (lensofar) {
 					lensofar                      = lenchecking;
 					theItem.breaks[theItem.lines] = sofar.length();
@@ -773,6 +777,35 @@ void UIConsole::OnSizeChanged(Event *ev)
 	}
 }
 
+const vec2_t& UIConsole::getHighResScale() const
+{
+	return getUserHighResScale(UI_GetUserUiScale());
+}
+
+/*
+====================
+UI_ApplyFloatingWindowUiScale
+
+Added in Omaha: re-lay out title chrome and status bar after the effective
+high-res scale changed (outer frame size is unchanged).
+====================
+*/
+static bool UI_ApplyFloatingWindowUiScale(UIFloatingWindow *window, UIStatusBar *status)
+{
+	if (window->IsMinimized()) {
+		return false;
+	}
+
+	window->SizeChanged(NULL);
+
+	if (status) {
+		status->AlignBar(alignment_t::WND_ALIGN_BOTTOM, 20.0 * window->getHighResScale()[1]);
+		status->ParentSized(NULL);
+	}
+
+	return true;
+}
+
 CLASS_DECLARATION(UIFloatingWindow, UIFloatingConsole, NULL) {
 	{&W_Console_ChildSizeChanged,        &UIFloatingConsole::OnChildSizeChanged},
 	{&UIFloatingConsole::W_ClosePressed, &UIFloatingConsole::OnClosePressed    },
@@ -892,6 +925,21 @@ void UIFloatingConsole::setConsoleColor(const UColor& color)
 	if (m_status) {
 		m_status->setForegroundColor(color);
 	}
+}
+
+const vec2_t& UIFloatingConsole::getHighResScale() const
+{
+	return getUserHighResScale(UI_GetUserUiScale());
+}
+
+void UIFloatingConsole::ApplyUiScale(void)
+{
+	if (!m_console || !UI_ApplyFloatingWindowUiScale(this, m_status)) {
+		return;
+	}
+
+	OnChildSizeChanged(NULL);
+	m_console->OnSizeChanged(NULL);
 }
 
 CLASS_DECLARATION(UIConsole, UIDMConsole, NULL) {
@@ -1262,6 +1310,21 @@ void UIFloatingDMConsole::OnChildSizeChanged(Event *ev)
 	} else {
 		m_console->setFrame(UIRect2D(UIPoint2D(0, 0), childSpaceSize));
 	}
+}
+
+const vec2_t& UIFloatingDMConsole::getHighResScale() const
+{
+	return getUserHighResScale(UI_GetUserUiScale());
+}
+
+void UIFloatingDMConsole::ApplyUiScale(void)
+{
+	if (!m_console || !UI_ApplyFloatingWindowUiScale(this, m_status)) {
+		return;
+	}
+
+	OnChildSizeChanged(NULL);
+	m_console->OnSizeChanged(NULL);
 }
 
 void UIFloatingDMConsole::AddText(const char *text, const UColor *pColor)

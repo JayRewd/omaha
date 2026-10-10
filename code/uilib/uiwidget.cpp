@@ -2410,13 +2410,53 @@ const vec2_t& UIWidget::getVirtualScale() const
     if (m_bVirtual) {
         return m_vVirtualScale;
     } else {
-        return uid.scaleRes;
+        // Changed in Omaha: dispatch so overlay overrides also scale title text
+        return getHighResScale();
     }
 }
 
 const vec2_t& UIWidget::getHighResScale() const
 {
     return uid.scaleRes;
+}
+
+const vec2_t& UIWidget::getUserHighResScale(float scale) const
+{
+    m_vUserHighResScale[0] = uid.scaleRes[0] * scale;
+    m_vUserHighResScale[1] = uid.scaleRes[1] * scale;
+    return m_vUserHighResScale;
+}
+
+/*
+====================
+UI_GetUserUiScale
+
+Added in Omaha: same clamp as CL_UIR_PushUiPxScale.
+====================
+*/
+float UI_GetUserUiScale(void)
+{
+    static cvar_t *ui_scale = NULL;
+    float          scale;
+
+    if (!ui_scale) {
+        ui_scale = uii.Cvar_Find("ui_scale");
+        if (!ui_scale) {
+            return 1.0f;
+        }
+    }
+
+    scale = ui_scale->value;
+    if (!(scale == scale)) {
+        return 1.0f;
+    }
+    if (scale < 0.25f) {
+        return 0.25f;
+    }
+    if (scale > 2.0f) {
+        return 2.0f;
+    }
+    return scale;
 }
 
 void UIWidget::SetEnabledCvar(Event *ev)

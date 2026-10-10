@@ -174,6 +174,9 @@ protected:
     //
     float lastShowTime;
 
+    /* Added in Omaha: scratch for overlay getHighResScale overrides (uid.scaleRes x ui_scale). */
+    mutable vec2_t m_vUserHighResScale;
+
 public:
     CLASS_PROTOTYPE(UIWidget);
 
@@ -361,7 +364,12 @@ public:
     UIFont       *getFont() const;
     bool          isVirtual() const;
     const vec2_t& getVirtualScale() const;
-    const vec2_t& getHighResScale() const;
+    /* Changed in Omaha: virtual so code-built overlays can apply ui_scale. */
+    virtual const vec2_t& getHighResScale() const;
+
+protected:
+    /* Added in Omaha: uid.scaleRes multiplied by `scale`. */
+    const vec2_t& getUserHighResScale(float scale) const;
 };
 
 class UIWidgetContainer : public UIWidget
@@ -443,6 +451,9 @@ extern Event EV_Layout_AliasCache;
 extern Event EV_Layout_BGFill;
 extern Event EV_Layout_Fullscreen;
 extern Event EV_Layout_VidMode;
+
+/* Added in Omaha: archived ui_scale clamped to the settings slider range (0.25-2). */
+float UI_GetUserUiScale(void);
 
 void SetColor(const UColor& color, float alpha);
 void DrawBox(const UIRect2D& rect, const UColor& color, float alpha);

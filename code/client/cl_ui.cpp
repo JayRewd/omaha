@@ -1019,7 +1019,8 @@ static UIRect2D getQuickMessageDMConsoleRectangle(void)
         //  Was 38.0 in 1.11 and below
         //  This prevents characters to be seen from the DM console
         //  in the quick message console
-        rect.size.height = 36.0 * uid.scaleRes[1];
+        // Changed in Omaha: title bar and text grow with ui_scale
+        rect.size.height = 36.0 * uid.scaleRes[1] * UI_GetUserUiScale();
     }
 
     return rect;
@@ -1215,12 +1216,19 @@ static UIRect2D getDefaultGMBoxRectangle(void)
     UIRect2D dmRect = getDefaultDMBoxRectangle();
     float    height = uid.vidHeight * ui_compass_scale->value * 0.25f;
     float    y      = dmRect.size.height + dmRect.pos.y;
+    // Added in Omaha: plaque grows with ui_scale, clamped to the screen
+    float    scale  = UI_GetMessageBoxUiScale();
+    float    w      = (getScreenWidth() - 20) * uid.scaleRes[0] * scale;
 
     if (height < y) {
         height = y;
     }
 
-    return UIRect2D(20.0f, height, (getScreenWidth() - 20) * uid.scaleRes[0], 128.0f * uid.scaleRes[1]);
+    if (w > uid.vidWidth - 20.0f) {
+        w = uid.vidWidth - 20.0f;
+    }
+
+    return UIRect2D(20.0f, height, w, 128.0f * uid.scaleRes[1] * scale);
 }
 
 /*
@@ -1232,10 +1240,80 @@ static UIRect2D getDefaultDMBoxRectangle(void)
 {
     float width;
     float screenWidth = getScreenWidth();
+    // Added in Omaha: plaque grows with ui_scale, clamped to the screen
+    float scale = UI_GetMessageBoxUiScale();
+    float w;
 
     width = screenWidth * uid.scaleRes[0] * ui_compass_scale->value * 0.2f;
+    w     = (screenWidth - (width + 192.0f)) * uid.scaleRes[0] * scale;
+    if (w > uid.vidWidth - width) {
+        w = uid.vidWidth - width;
+    }
 
-    return UIRect2D(width, 0, (screenWidth - (width + 192.0f)) * uid.scaleRes[0], 120.0f * uid.scaleRes[1]);
+    return UIRect2D(width, 0, w, 120.0f * uid.scaleRes[1] * scale);
+}
+
+/*
+====================
+UI_GetMessageBoxUiScale
+====================
+*/
+float UI_GetMessageBoxUiScale(void)
+{
+    if (CL_UIR_UseModernHudPack()) {
+        return 1.0f;
+    }
+
+    return UI_GetUserUiScale();
+}
+
+/*
+====================
+UI_ApplyFakkOverlayUiScale
+
+Added in Omaha: cheap per-frame check; re-lays out consoles, chat,
+miniconsole and message boxes only when their effective scale changed.
+====================
+*/
+void UI_ApplyFakkOverlayUiScale(void)
+{
+    static float s_lastUserScale       = -1.0f;
+    static float s_lastMessageBoxScale = -1.0f;
+    const float  userScale             = UI_GetUserUiScale();
+    const float  messageBoxScale       = UI_GetMessageBoxUiScale();
+
+    if (fabsf(userScale - s_lastUserScale) > 0.001f) {
+        s_lastUserScale = userScale;
+
+        if (fakk_console) {
+            fakk_console->ApplyUiScale();
+        }
+        if (developer_console) {
+            developer_console->ApplyUiScale();
+        }
+        if (dm_console) {
+            if (dm_console->GetQuickMessageMode()) {
+                dm_console->setFrame(getQuickMessageDMConsoleRectangle());
+            }
+            dm_console->ApplyUiScale();
+        }
+        if (mini_console) {
+            mini_console->OnSizeChanged(NULL);
+        }
+    }
+
+    if (fabsf(messageBoxScale - s_lastMessageBoxScale) > 0.001f) {
+        s_lastMessageBoxScale = messageBoxScale;
+
+        if (gmbox) {
+            gmbox->setFrame(getDefaultGMBoxRectangle());
+            gmbox->OnSizeChanged(NULL);
+        }
+        if (dmbox) {
+            dmbox->setFrame(getDefaultDMBoxRectangle());
+            dmbox->OnSizeChanged(NULL);
+        }
+    }
 }
 
 /*
@@ -2081,6 +2159,8 @@ void UI_Update(void)
 
     re.SetRenderTime(cls.realtime);
     CL_FillUIDef();
+    /* Added in Omaha: legacy-only sessions never reach CL_UIR_PushUiPxScale. */
+    UI_ApplyFakkOverlayUiScale();
     /*
      * Fixed in Omaha: arm Continue only after MOUSE1 is up so Enable+leftover
      * release cannot stuff finishloadingscreen.
