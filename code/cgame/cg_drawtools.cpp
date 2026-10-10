@@ -1923,7 +1923,12 @@ void CG_SyncModernHudCvars(void)
         CG_HudSetCached("ui_om_hud_im_image", "");
     }
 
-    CG_HudSetCached("ui_om_hud_pause_icon", paused->integer ? "1" : "0");
+    /*
+     * Changed in Omaha: modern HUD shows the SP "PAUSED" banner only for real
+     * pause (paused==1). Menu FakePause (paused==2) must not paint it under the
+     * connected main / dm_pause overlays. Legacy CG_DrawPauseIcon is unchanged.
+     */
+    CG_HudSetCached("ui_om_hud_pause_icon", paused->integer == 1 ? "1" : "0");
     if (cg.predicted_player_state.pm_flags & PMF_LEVELEXIT) {
         CG_HudSetCached("ui_om_hud_level_exit_icon", ((cg.time >> 9) & 1) ? "0" : "1");
     } else {
