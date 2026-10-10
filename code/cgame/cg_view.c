@@ -1136,6 +1136,7 @@ void CG_DrawActiveFrame(int serverTime, int frameTime, stereoFrame_t stereoView,
     CG_AddBulletTracers();
     CG_AddBulletImpacts();
     CG_AddBeams();
+    // Fixed in Omaha: practice labels/help moved to CG_Draw2D (after R_RenderScene).
 
     if (cg_acidtrip->integer) {
         // lol disco

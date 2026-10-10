@@ -2061,6 +2061,8 @@ void CG_Draw2D(void)
         CG_DrawLagometer();
         CG_DrawHitmarker(); /* Added in Omaha: under crosshair layer */
         CG_DrawCrosshair();
+        // Fixed in Omaha: after R_RenderScene so font draws aren't wiped by the 3D pass.
+        CG_Practice_Draw2D();
         return;
     }
 
@@ -2079,4 +2081,6 @@ void CG_Draw2D(void)
     CG_DrawInstantMessageMenu();
     CG_DrawHitmarker(); /* Added in Omaha: under crosshair layer */
     CG_DrawCrosshair();
+    // Fixed in Omaha: after R_RenderScene so font draws aren't wiped by the 3D pass.
+    CG_Practice_Draw2D();
 }

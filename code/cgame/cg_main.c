@@ -763,6 +763,7 @@ void CG_Init(clientGameImport_t *imported, int serverMessageNum, int serverComma
     CG_GameStateReceived();
 
     CG_InitConsoleCommands();
+    CG_Practice_Init();
 
     cg.vEyeOffsetMax[0]         = 40.0f;
     cg.vEyeOffsetMax[1]         = 45.0f;

@@ -669,6 +669,13 @@ extern "C" {
     qboolean    CG_SpectateFP_CalcEye(vec3_t outOrigin, vec3_t outAngles);
 
     //
+    // cg_practice.cpp (Added in Omaha)
+    //
+    void        CG_Practice_Init(void);
+    qboolean    CG_Practice_ServerCommand(void);
+    void        CG_Practice_Draw2D(void);
+
+    //
     // cg_drawtools.c
     //
     void CG_AdjustFrom640(float *x, float *y, float *w, float *h);

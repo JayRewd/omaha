@@ -1,0 +1,242 @@
+<ui-library version="1">
+	<!-- Added in Omaha: practice browser + local/online host panel. -->
+	<templates>
+		<template id="practice-sort-header">
+			<props>
+				<prop name="label" type="string" required="true"/>
+				<prop name="column" type="string" required="true"/>
+				<prop name="width" type="string" required="true"/>
+			</props>
+			<button type="horizontal" width="{template.width}" height="100%" padding="0" gap="4px"
+			        fill="{var.fill-transparent}" hoverfill="{var.fill-chip}" halign="start" valign="center">
+				<label font="control" font-size="{var.text-body}" color="{var.color-muted}">{template.label}</label>
+				<container width="10px" height="12px" visible="{cvar.ui_om_practice_sort == {template.column}}">
+					<container width="8px" height="12px" shape="arrow-left" thickness="3px" fill="{var.color-accent}"
+					           shape-rotation="-90" visible="{cvar.ui_om_practice_sort_asc == 1}"/>
+					<container width="8px" height="12px" shape="arrow-left" thickness="3px" fill="{var.color-accent}"
+					           shape-rotation="90" visible="{cvar.ui_om_practice_sort_asc == 0}"/>
+				</container>
+				<on event="click">
+					<set-cvar name="ui_om_practice_sort" value="{template.column}"/>
+					<invoke name="sort-practice"/>
+				</on>
+			</button>
+		</template>
+
+		<template id="practice-browser">
+			<container type="horizontal" width="100%" height="100%" gap="1.25%" fill="{var.fill-transparent}">
+				<container type="vertical" width="fill" height="100%" fill="{var.fill-panel}" gap="0"
+				           stroke="{var.fill-divider}" stroke-width="1px">
+					<container type="vertical" width="100%" height="48px" gap="0">
+						<container type="horizontal" width="100%" height="fill" fill="{var.fill-input}" gap="0"
+						           padding="0" valign="center"
+						           source="practice-categories" bind="cvar:ui_om_practice_filter_cat">
+							<foreach mode="all" type="horizontal" width="100%" height="100%" gap="0" valign="center">
+								<button set-index="{item.index}"
+								        width="auto" height="100%" padding="0 20px" shape="skew-rect"
+								        skewl="12px" skewr="12px"
+								        fill="{item.selected ? var.color-accent : var.fill-transparent}"
+								        hoverfill="{item.selected ? var.color-accent-hover : var.fill-hover-ghost}"
+								        color="{item.selected ? var.color-white : var.color-muted}"
+								        font="control" font-size="{var.text-control}" letter-spacing="2px">
+									{item.label}
+									<on event="click"><invoke name="refresh-practice"/></on>
+								</button>
+								<container width="2px" height="100%" margin="0 -6px 0 -6px" fill="{var.fill-divider-skew}"
+								           shape="angled-line" offset="12px" heightfactor="0.64"
+								           visible="{!item.last}"/>
+							</foreach>
+						</container>
+						<container width="100%" height="1px" fill="{var.fill-divider}"/>
+					</container>
+
+					<container type="vertical" width="100%" height="fill" source="practice"
+					           bind="cvar:ui_om_practice_file" fill="{var.fill-transparent}">
+						<container type="vertical" width="100%" height="48px" gap="0">
+							<container type="horizontal" width="100%" height="fill" fill="{var.fill-control}" valign="center"
+							           padding="0 16px">
+								<use template="practice-sort-header" label="NAME" column="name" width="30%"/>
+								<use template="practice-sort-header" label="MAP" column="map" width="20%"/>
+								<use template="practice-sort-header" label="MODE" column="category" width="12%"/>
+								<use template="practice-sort-header" label="BEST" column="bestTime" width="20%"/>
+								<use template="practice-sort-header" label="AUTHOR" column="author" width="18%"/>
+							</container>
+							<container width="100%" height="1px" fill="{var.fill-divider}"/>
+						</container>
+						<container type="vertical" width="100%" height="fill" overflow="scroll" scrollbar="scrollbar-default">
+							<foreach mode="window" row-height="36px">
+								<button type="horizontal" width="100%" height="36px" padding="0 16px" valign="center"
+								        set-index="{item.index}"
+								        fill="{item.selected ? #1A6FD448 : var.fill-transparent}"
+								        hoverfill="{var.fill-hover-ghost}" pressed-fill="{var.color-accent}">
+									<on event="dblclick"><invoke name="play-practice"/></on>
+									<label width="30%" text-overflow="ellipsis" font="control" font-size="{var.text-control}"
+									       color="{var.color-primary}">{item.field.name}</label>
+									<label width="20%" text-overflow="ellipsis" font="control" font-size="{var.text-control}"
+									       color="{var.color-primary}">{item.field.map}</label>
+									<label width="12%" font="control" font-size="{var.text-control}"
+									       color="{var.color-primary}">{item.field.category}</label>
+									<label width="20%" text-overflow="ellipsis" font="control" font-size="{var.text-control}"
+									       color="{var.color-primary}">{item.field.bestTime}</label>
+									<label width="18%" text-overflow="ellipsis" font="control" font-size="{var.text-body}"
+									       color="{var.color-muted}">{item.field.author}</label>
+								</button>
+							</foreach>
+						</container>
+					</container>
+
+					<container type="horizontal" width="100%" height="36px"
+					           fill="{var.color-accent}" padding="0 16px" gap="16px" valign="center"
+					           halign="space-between">
+						<label font="control" font-size="{var.text-body}" color="{var.color-white}" letter-spacing="1px"
+						       bind="cvar:ui_om_practice_status"># SCENARIOS</label>
+						<container type="horizontal" width="auto" height="24px" gap="4px" valign="center"
+						           source="practice-difficulty" bind="cvar:ui_om_practice_difficulty">
+							<foreach mode="all" type="horizontal" width="auto" height="24px" gap="4px" valign="center">
+								<button set-index="{item.index}" width="auto" height="24px" padding="0 10px"
+								        fill="{item.selected ? var.fill-panel : var.fill-transparent}"
+								        color="{item.selected ? var.color-white : var.color-muted}"
+								        font="control" font-size="{var.text-body}">{item.label}</button>
+							</foreach>
+						</container>
+					</container>
+
+					<container width="100%" height="1px" fill="{var.fill-chip}"/>
+					<container type="horizontal" width="100%" height="auto"
+					           padding="12px 16px" gap="4px" valign="center" halign="space-between"
+					           fill="{var.fill-input}">
+						<button width="auto" height="auto" padding="10px 26px 10px 20px"
+						        shape="skew-rect" skewl="0" skewr="12px"
+						        fill="{var.fill-hover-ghost}" hoverfill="{var.fill-divider}"
+						        color="{var.color-primary}" font="control" font-size="{var.text-control}" letter-spacing="2px">
+							REFRESH
+							<on event="click"><invoke name="refresh-practice"/></on>
+						</button>
+						<container type="horizontal" width="fill" height="auto" padding="1px"
+						           shape="skew-rect" skewl="12px" skewr="12px" fill="{var.fill-chip}">
+							<input type="text" width="fill" height="auto" padding="8px 16px"
+							       bind="cvar:ui_om_practice_search" commit="change"
+							       placeholder="Search scenarios..."
+							       fill="{var.fill-input}" color="{var.color-white}" font="body" font-size="{var.text-control}"
+							       letter-spacing="1px" halign="start" valign="center">
+								<on event="change"><invoke name="refresh-practice"/></on>
+							</input>
+						</container>
+						<container type="horizontal" width="auto" height="auto" gap="4px" valign="center">
+							<button width="auto" height="auto" padding="10px 18px" shape="skew-rect" skewl="12px" skewr="12px"
+							        fill="{var.fill-hover-ghost}" hoverfill="{var.fill-divider}"
+							        color="{var.color-primary}" font="control" font-size="{var.text-control}" letter-spacing="2px"
+							        visible="{cvar.ui_om_practice_selected == 1}">
+								EDIT
+								<on event="click"><invoke name="edit-practice"/></on>
+							</button>
+							<button width="auto" height="auto" padding="10px 20px 10px 26px" shape="skew-rect" skewl="12px" skewr="0"
+							        fill="{var.color-accent}" hoverfill="{var.color-accent-hover}"
+							        color="{var.color-white}" font="control" font-size="{var.text-control}" letter-spacing="2px">
+								PLAY
+								<on event="click"><invoke name="play-practice"/></on>
+							</button>
+						</container>
+					</container>
+				</container>
+
+				<container type="vertical" width="28%" height="100%" fill="{var.fill-panel}" gap="0"
+				           stroke="{var.fill-divider}" stroke-width="1px">
+					<container type="vertical" width="100%" height="48px" gap="0">
+						<label width="100%" height="fill" padding="0 16px" fill="{var.fill-input}" valign="center"
+						       font="control" font-size="{var.text-heading}" color="{var.color-white}"
+						       letter-spacing="2px">HOST SERVER</label>
+						<container width="100%" height="1px" fill="{var.fill-divider}"/>
+					</container>
+
+					<container type="vertical" width="100%" height="fill" padding="12px 16px" gap="8px">
+						<label font="body" font-size="{var.text-caption}" color="{var.color-muted}" letter-spacing="1px">MAP</label>
+						<container type="vertical" width="100%" height="fill" source="practice-maps"
+						           bind="cvar:ui_om_host_map" fill="{var.fill-input}" overflow="scroll"
+						           scrollbar="scrollbar-default">
+							<foreach mode="window" row-height="28px">
+								<button type="horizontal" width="100%" height="28px" padding="0 8px" valign="center"
+								        set-index="{item.index}"
+								        fill="{item.selected ? #1A6FD448 : var.fill-transparent}"
+								        hoverfill="{var.fill-hover-ghost}">
+									<label width="100%" text-overflow="ellipsis" font="control" font-size="{var.text-body}"
+									       color="{var.color-primary}">{item.label}</label>
+								</button>
+							</foreach>
+						</container>
+
+						<label font="body" font-size="{var.text-caption}" color="{var.color-muted}" letter-spacing="1px">GAMETYPE</label>
+						<container type="horizontal" width="100%" height="28px" source="host-gametypes"
+						           bind="cvar:ui_om_host_gametype" gap="4px">
+							<foreach mode="all" type="horizontal" width="100%" height="100%" gap="4px">
+								<button set-index="{item.index}" width="fill" height="100%"
+								        fill="{item.selected ? var.color-accent : var.fill-chip}"
+								        color="{var.color-white}" font="control" font-size="{var.text-body}">{item.label}</button>
+							</foreach>
+						</container>
+
+						<container type="horizontal" width="100%" height="auto" gap="8px">
+							<container type="vertical" width="fill" gap="4px">
+								<label font="body" font-size="{var.text-caption}" color="{var.color-muted}">TIME</label>
+								<input type="text" width="100%" height="32px" padding="6px" bind="cvar:ui_om_host_timelimit"
+								       fill="{var.fill-chip}" color="{var.color-white}" font="body" font-size="{var.text-control}"/>
+							</container>
+							<container type="vertical" width="fill" gap="4px">
+								<label font="body" font-size="{var.text-caption}" color="{var.color-muted}">FRAGS</label>
+								<input type="text" width="100%" height="32px" padding="6px" bind="cvar:ui_om_host_fraglimit"
+								       fill="{var.fill-chip}" color="{var.color-white}" font="body" font-size="{var.text-control}"/>
+							</container>
+						</container>
+						<container type="horizontal" width="100%" height="auto" gap="8px">
+							<container type="vertical" width="fill" gap="4px">
+								<label font="body" font-size="{var.text-caption}" color="{var.color-muted}">PLAYERS</label>
+								<input type="text" width="100%" height="32px" padding="6px" bind="cvar:ui_om_host_maxclients"
+								       fill="{var.fill-chip}" color="{var.color-white}" font="body" font-size="{var.text-control}"/>
+							</container>
+							<container type="vertical" width="fill" gap="4px">
+								<label font="body" font-size="{var.text-caption}" color="{var.color-muted}">NAME</label>
+								<input type="text" width="100%" height="32px" padding="6px" bind="cvar:ui_om_host_hostname"
+								       fill="{var.fill-chip}" color="{var.color-white}" font="body" font-size="{var.text-control}"/>
+							</container>
+						</container>
+
+						<container type="horizontal" width="100%" height="28px" source="host-online"
+						           bind="cvar:ui_om_host_online" gap="4px">
+							<foreach mode="all" type="horizontal" width="100%" height="100%" gap="4px">
+								<button set-index="{item.index}" width="fill" height="100%"
+								        fill="{item.selected ? var.color-accent : var.fill-chip}"
+								        color="{var.color-white}" font="control" font-size="{var.text-body}">{item.label}</button>
+							</foreach>
+						</container>
+
+						<label font="body" font-size="{var.text-caption}" color="{var.color-muted}" letter-spacing="1px">SCENARIO NAME</label>
+						<input type="text" width="100%" height="32px" padding="6px" bind="cvar:ui_om_practice_new_name"
+						       fill="{var.fill-chip}" color="{var.color-white}" font="body" font-size="{var.text-control}"/>
+						<container type="horizontal" width="100%" height="28px" source="practice-new-category"
+						           bind="cvar:ui_om_practice_new_category" gap="4px">
+							<foreach mode="all" type="horizontal" width="100%" height="100%" gap="4px">
+								<button set-index="{item.index}" width="fill" height="100%"
+								        fill="{item.selected ? var.color-accent : var.fill-chip}"
+								        color="{var.color-white}" font="control" font-size="{var.text-caption}">{item.label}</button>
+							</foreach>
+						</container>
+
+						<label font="body" font-size="{var.text-caption}" color="{var.color-accent}" letter-spacing="1px"
+						       bind="cvar:ui_om_practice_new_status"/>
+						<button width="100%" height="36px" fill="{var.fill-hover-ghost}"
+						        color="{var.color-primary}" font="control" font-size="{var.text-control}" letter-spacing="2px">
+							CREATE SCENARIO
+							<on event="click"><invoke name="new-practice"/></on>
+						</button>
+						<button width="100%" height="40px" fill="{var.color-accent}"
+						        hoverfill="{var.color-accent-hover}" color="{var.color-white}" font="control"
+						        font-size="{var.text-control}" letter-spacing="2px">
+							START SERVER
+							<on event="click"><invoke name="host-local-server"/></on>
+						</button>
+					</container>
+				</container>
+			</container>
+		</template>
+	</templates>
+</ui-library>

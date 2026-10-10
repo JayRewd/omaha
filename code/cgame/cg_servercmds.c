@@ -427,6 +427,11 @@ static void CG_ServerCommand(qboolean modelOnly)
         return;
     }
 
+    /* Added in Omaha */
+    if (CG_Practice_ServerCommand()) {
+        return;
+    }
+
     cgi.Printf("Unknown client game command: %s\n", cmd);
 }
 

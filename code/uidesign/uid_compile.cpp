@@ -940,7 +940,10 @@ bool IsHostCollectionSource(const char *sourceId)
 		std::strcmp(sourceId, "hud-chat") == 0 || std::strcmp(sourceId, "hud-kill-feed") == 0 ||
 		std::strcmp(sourceId, "vote-options") == 0 || /* Added in Omaha: dm_pause vote list. */
 		std::strcmp(sourceId, "demos") == 0 || std::strcmp(sourceId, "demo-players") == 0 || /* Added in Omaha: demo browser. */
-		std::strcmp(sourceId, "demo-frags") == 0; /* Added in Omaha: demo playback overlay. */
+		std::strcmp(sourceId, "demo-frags") == 0 || /* Added in Omaha: demo playback overlay. */
+		std::strcmp(sourceId, "practice") == 0 ||
+		std::strcmp(sourceId, "practice-maps") == 0 || /* Added in Omaha: practice browser. */
+		std::strcmp(sourceId, "practice-nodes") == 0; /* Added in Omaha: practice editor node list. */
 }
 
 bool ValidateCollectionSources(uid_document_t *doc, uid_diag_list_t *diags)

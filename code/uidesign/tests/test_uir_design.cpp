@@ -8010,6 +8010,27 @@ void TestWindowForeachScroll(void)
 	CHECK(doc->states[static_cast<size_t>(scopeId)].collectionScrollOffset
 		  <= doc->states[static_cast<size_t>(scopeId)].collectionSelectedIndex);
 
+	/* Fixed in Omaha: scroll-to-end must expose the last item (overscan must not clamp it away). */
+	doc->states[static_cast<size_t>(scrollId)].scrollY =
+		doc->states[static_cast<size_t>(scrollId)].contentExtentH;
+	UID_SyncBindings(doc, &be);
+	CHECK(UID_LayoutDocument(doc, 200, 100, 1.0f, 1.0f, &be, &diags) == UID_OK);
+	listId = doc->idIndex.count("list") ? doc->idIndex["list"] : UID_INVALID_NODE_ID;
+	CHECK(listId >= 0);
+	/* viewport 100 / row 36 → floor=2 full rows; maxOff = 20 - 2 = 18. */
+	CHECK(doc->states[static_cast<size_t>(scopeId)].collectionScrollOffset == 18);
+	maxIdx = -1;
+	for (uid_node_id_t c : doc->nodes[static_cast<size_t>(listId)].children) {
+		if (c < 0 || static_cast<size_t>(c) >= doc->nodes.size()) {
+			continue;
+		}
+		const int idx = doc->nodes[static_cast<size_t>(c)].foreachItemIndex;
+		if (idx > maxIdx) {
+			maxIdx = idx;
+		}
+	}
+	CHECK(maxIdx == 19);
+
 	UID_DestroyDocument(doc);
 }
 

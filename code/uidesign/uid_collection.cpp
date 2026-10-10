@@ -88,6 +88,17 @@ int UID_CollectionHostIdFromName(const char *source)
 			return UID_COLHOST_VOTE_OPTIONS;
 		}
 		break;
+	case 'p':
+		if (std::strcmp(source, "practice") == 0) {
+			return UID_COLHOST_PRACTICE;
+		}
+		if (std::strcmp(source, "practice-maps") == 0) {
+			return UID_COLHOST_PRACTICE_MAPS;
+		}
+		if (std::strcmp(source, "practice-nodes") == 0) {
+			return UID_COLHOST_PRACTICE_NODES;
+		}
+		break;
 	case 'd':
 		if (std::strcmp(source, "demos") == 0) {
 			return UID_COLHOST_DEMOS;
@@ -308,6 +319,17 @@ float WindowRowHeightPx(const uid_document_t *doc, const uid_node_def_t *fn)
 	return UID_ScaleAuthoredPx(doc, fn->foreachRowHeight);
 }
 
+/* Full rows in the viewport (no overscan) — used for scroll/selection clamping. */
+int WindowViewportRowCount(const uid_document_t *doc, const uid_node_def_t *fn, float viewportH)
+{
+	const float rowH = WindowRowHeightPx(doc, fn);
+	if (rowH > 0.0f && viewportH > 0.0f) {
+		return std::max(1, static_cast<int>(std::floor(static_cast<double>(viewportH / rowH))));
+	}
+	return kWindowFallbackVisible;
+}
+
+/* Instantiated window size: ceil(viewport/row) + overscan for smooth scroll. */
 int WindowVisibleCount(const uid_document_t *doc, const uid_node_def_t *fn, float viewportH)
 {
 	const float rowH = WindowRowHeightPx(doc, fn);
@@ -363,8 +385,9 @@ int WindowOffsetFromOverflowScroll(
 		return -1;
 	}
 	const uid_node_state_t *ovSt = &doc->states[static_cast<size_t>(overflowId)];
-	const int visible = WindowVisibleCount(doc, fn, ovSt->contentBox.h);
-	const int maxOff = std::max(0, scopeSt->collectionItemCount - visible);
+	// Fixed in Omaha: clamp scroll by viewport rows only — overscan must not hide the tail.
+	const int viewportRows = WindowViewportRowCount(doc, fn, ovSt->contentBox.h);
+	const int maxOff = std::max(0, scopeSt->collectionItemCount - viewportRows);
 	int offset = static_cast<int>(std::floor(static_cast<double>(ovSt->scrollY / rowH)));
 	if (offset < 0) {
 		offset = 0;
@@ -484,11 +507,12 @@ void EnsureSelectionInWindow(
 	if (overflowId != UID_INVALID_NODE_ID && static_cast<size_t>(overflowId) < doc->states.size()) {
 		viewportH = doc->states[static_cast<size_t>(overflowId)].contentBox.h;
 	}
-	const int visible = WindowVisibleCount(doc, fn, viewportH);
+	// Fixed in Omaha: keep selection in the real viewport, not only in overscan rows.
+	const int viewportRows = WindowViewportRowCount(doc, fn, viewportH);
 	if (selected < st->collectionScrollOffset) {
 		st->collectionScrollOffset = selected;
-	} else if (selected >= st->collectionScrollOffset + visible) {
-		st->collectionScrollOffset = selected - visible + 1;
+	} else if (selected >= st->collectionScrollOffset + viewportRows) {
+		st->collectionScrollOffset = selected - viewportRows + 1;
 	}
 	if (st->collectionScrollOffset < 0) {
 		st->collectionScrollOffset = 0;

@@ -28,6 +28,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "cl_uirender.h"
 #include "cl_demoscan.h"
 #include "cl_demoplayback.h"
+#include "cl_practice.h"
 #include "../corepp/tiki.h"
 #include "../qcommon/cm_terrain.h"
 #include "../qcommon/localization.h"
@@ -2913,6 +2914,8 @@ void CL_Frame ( int msec ) {
 
 	// Added in Omaha: demo overlay timeline index, seek/export state, UI vars
 	CL_DemoPlayback_Frame();
+	// Added in Omaha: practice editor draft status (unsaved field edits)
+	CL_PracticeEditor_Frame();
 
 	// set the time if we loaded a save
 	if( SV_DoSaveGame() )
@@ -3873,6 +3876,8 @@ void CL_Init( void ) {
 	CL_DemoScan_Init();
 	// Added in Omaha: demo playback overlay
 	CL_DemoPlayback_Init();
+	// Added in Omaha: in-game practice scenario editor commands
+	CL_PracticeEditor_Init();
 	Cmd_AddCommand ("connect", CL_Connect_f);
 	Cmd_AddCommand ("menuconnect", CL_MenuConnect_f);
 	Cmd_AddCommand ("reconnect", CL_Reconnect_f);

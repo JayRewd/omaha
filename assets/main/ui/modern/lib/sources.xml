@@ -8,6 +8,7 @@
 
 		<source id="menu-panels" default="play">
 			<item value="play" label="PLAY" panel="panel_play"/>
+			<item value="practice" label="PRACTICE" panel="panel_practice"/>
 			<item value="demos" label="DEMOS" panel="panel_demos"/>
 			<item value="settings" label="SETTINGS" panel="panel_settings"/>
 		</source>
@@ -243,6 +244,34 @@
 		<source id="pause-vote-cast">
 			<item value="yes" label="Yes" cmd="vote 1;ui_close menu dm_pause"/>
 			<item value="no" label="No" cmd="vote 0;ui_close menu dm_pause"/>
+		</source>
+		<source id="practice-categories" default="">
+			<item value="" label="ALL"/>
+			<item value="angles" label="ANGLES"/>
+			<item value="nades" label="NADES"/>
+		</source>
+
+		<source id="practice-difficulty" default="medium">
+			<item value="easy" label="EASY"/>
+			<item value="medium" label="MEDIUM"/>
+			<item value="hard" label="HARD"/>
+		</source>
+
+		<source id="practice-new-category" default="angles">
+			<item value="angles" label="Clearing Angles"/>
+			<item value="nades" label="Grenade Practice"/>
+		</source>
+
+		<source id="host-gametypes" default="ffa">
+			<item value="ffa" label="FFA"/>
+			<item value="tdm" label="TDM"/>
+			<item value="round" label="ROUNDS"/>
+			<item value="obj" label="OBJECTIVE"/>
+		</source>
+
+		<source id="host-online" default="0">
+			<item value="0" label="LOCAL"/>
+			<item value="1" label="ONLINE"/>
 		</source>
 	</sources>
 </ui-library>

@@ -2,6 +2,7 @@
 	<!--
 		Added in Omaha: modern HUD MP pause shell — main-menu styling, no retail art/models.
 		Panel router: ui_om_pause_panel (root | team | weapon | vote_*).
+		Added in Omaha: practice | practice_nodes (scenario editor, lib/practice_editor.xml).
 	-->
 	<definitions menu-id="dm_pause_modern" draw-order="7">
 		<import src="ui/modern/lib/theme.xml"/>
@@ -9,6 +10,7 @@
 		<import src="ui/modern/lib/controls.xml"/>
 		<import src="ui/modern/lib/sources.xml"/>
 		<import src="ui/modern/lib/pause_modern.xml"/>
+		<import src="ui/modern/lib/practice_editor.xml"/>
 	</definitions>
 	<canvas pointer="1">
 		<container id="pause_root" type="overlap" width="100%" height="100%" fill="{var.fill-scrim}">
@@ -66,6 +68,18 @@
 						SPECTATE
 						<on event="click">
 							<set-cvar name="ui_om_cbuf" value="spectator;ui_close menu dm_pause"/>
+							<invoke name="cbuf"/>
+						</on>
+					</button>
+					<!-- Added in Omaha: practice scenario editor (local listen server only). -->
+					<button width="100%" height="40px" padding="0 20px 0 26px"
+					        fill="{var.fill-control}" hoverfill="{var.color-accent}"
+					        color="{var.color-white}" font="control" font-size="{var.text-control}"
+					        letter-spacing="2px" halign="start" valign="center"
+					        visible="{cvar.g_practice_edit == 1 and cvar.sv_running == 1}">
+						SCENARIO EDITOR
+						<on event="click">
+							<set-cvar name="ui_om_cbuf" value="practice_editor"/>
 							<invoke name="cbuf"/>
 						</on>
 					</button>
@@ -281,6 +295,16 @@
 						</foreach>
 					</container>
 				</container>
+			</container>
+
+			<!-- ========== PRACTICE SCENARIO EDITOR (Added in Omaha) ========== -->
+			<container type="overlap" width="100%" height="100%" fill="{var.fill-transparent}"
+			           visible="{cvar.ui_om_pause_panel == practice}">
+				<use template="practice-editor-panel"/>
+			</container>
+			<container type="overlap" width="100%" height="100%" fill="{var.fill-transparent}"
+			           visible="{cvar.ui_om_pause_panel == practice_nodes}">
+				<use template="practice-editor-nodes-panel"/>
 			</container>
 
 		</container>

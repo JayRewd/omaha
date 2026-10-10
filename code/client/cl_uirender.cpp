@@ -25,6 +25,11 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "cl_uirender.h"
 #include "cl_uimenu_dispatcher.h"
 #include "cl_ui.h"
+#include "cl_practice.h"
+
+/* Added in Omaha: practice list sorting (defined in cl_practice.cpp). */
+void        CL_Practice_Sort(void);
+const char *CL_Practice_AppliedSort(void);
 
 /* Fixed in Omaha: suppress dm_pause click-through after open / panel switch. */
 static qboolean g_uirDmPauseGateClicks = qfalse;
@@ -4467,6 +4472,18 @@ static int uid_query_collection_items(const uid_collection_query_t *query, uid_c
 		return uid_query_collection_demo_frags(
 			query->offset, query->limit, query->outTotal, query->outRevision, out, max
 		);
+	case UID_COLHOST_PRACTICE:
+		return CL_Practice_QueryScenarios(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max
+		);
+	case UID_COLHOST_PRACTICE_MAPS:
+		return CL_Practice_QueryMaps(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max
+		);
+	case UID_COLHOST_PRACTICE_NODES:
+		return CL_PracticeEditor_QueryNodes(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max
+		);
 	default:
 		break;
 	}
@@ -4510,6 +4527,21 @@ static int uid_query_collection_items(const uid_collection_query_t *query, uid_c
 	}
 	if (!Q_stricmp(query->source, "demo-frags")) {
 		return uid_query_collection_demo_frags(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max
+		);
+	}
+	if (!Q_stricmp(query->source, "practice")) {
+		return CL_Practice_QueryScenarios(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max
+		);
+	}
+	if (!Q_stricmp(query->source, "practice-maps")) {
+		return CL_Practice_QueryMaps(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max
+		);
+	}
+	if (!Q_stricmp(query->source, "practice-nodes")) {
+		return CL_PracticeEditor_QueryNodes(
 			query->offset, query->limit, query->outTotal, query->outRevision, out, max
 		);
 	}
@@ -4923,6 +4955,71 @@ static bool invoke_play_selected_demo(void *userdata)
 	CL_ModernBrowser_HaltRefresh();
 	UI_SetReturnMenuToCurrent();
 	Cbuf_AddText(va("demo \"%s\"\n", file));
+	return true;
+}
+
+static bool invoke_refresh_practice(void *userdata)
+{
+	(void)userdata;
+	CL_Practice_Refresh();
+	return true;
+}
+
+/* Added in Omaha: clicking the active column flips direction; a new column starts A-Z. */
+static bool invoke_sort_practice(void *userdata)
+{
+	const char *column = CL_UIVar_String("ui_om_practice_sort");
+
+	(void)userdata;
+	if (!Q_stricmp(CL_Practice_AppliedSort(), column)) {
+		CL_UIVar_Set("ui_om_practice_sort_asc", CL_UIVar_Integer("ui_om_practice_sort_asc") ? "0" : "1");
+	} else {
+		CL_UIVar_Set("ui_om_practice_sort_asc", "1");
+	}
+	CL_Practice_Sort();
+	return true;
+}
+
+static bool invoke_play_practice(void *userdata)
+{
+	(void)userdata;
+	if (!CL_UIVar_String("ui_om_practice_file")[0]) {
+		Com_Printf("UIR: play-practice: no scenario selected\n");
+		return false;
+	}
+	CL_UIR_DeactivateModernMain();
+	CL_Practice_Play(0);
+	return true;
+}
+
+static bool invoke_edit_practice(void *userdata)
+{
+	(void)userdata;
+	if (!CL_UIVar_String("ui_om_practice_file")[0]) {
+		Com_Printf("UIR: edit-practice: no scenario selected\n");
+		return false;
+	}
+	CL_UIR_DeactivateModernMain();
+	CL_Practice_Play(1);
+	return true;
+}
+
+static bool invoke_new_practice(void *userdata)
+{
+	(void)userdata;
+	// Fixed in Omaha: only leave the menu when create succeeds (was flashing on name-exists).
+	if (!CL_Practice_New()) {
+		return true;
+	}
+	CL_UIR_DeactivateModernMain();
+	return true;
+}
+
+static bool invoke_host_local_server(void *userdata)
+{
+	(void)userdata;
+	CL_UIR_DeactivateModernMain();
+	CL_Practice_StartHost();
 	return true;
 }
 
@@ -5489,6 +5586,12 @@ static void CL_UIR_RegisterInvokes(void)
 	UID_RegisterInvoke("sort-demos", invoke_sort_demos, NULL);
 	UID_RegisterInvoke("play-selected-demo", invoke_play_selected_demo, NULL);
 	UID_RegisterInvoke("export-selected-demo-avi", invoke_export_selected_demo_avi, NULL);
+	UID_RegisterInvoke("refresh-practice", invoke_refresh_practice, NULL);
+	UID_RegisterInvoke("sort-practice", invoke_sort_practice, NULL); /* Added in Omaha */
+	UID_RegisterInvoke("play-practice", invoke_play_practice, NULL);
+	UID_RegisterInvoke("edit-practice", invoke_edit_practice, NULL);
+	UID_RegisterInvoke("new-practice", invoke_new_practice, NULL);
+	UID_RegisterInvoke("host-local-server", invoke_host_local_server, NULL);
 	UID_RegisterInvoke("demo-toggle-pause", invoke_demo_toggle_pause, NULL);
 	UID_RegisterInvoke("demo-rate-reset", invoke_demo_rate_reset, NULL);
 	UID_RegisterInvoke("demo-rate-step", invoke_demo_rate_step, NULL);

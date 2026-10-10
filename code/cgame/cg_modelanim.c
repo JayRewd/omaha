@@ -1005,7 +1005,9 @@ void CG_ModelAnim(centity_t *cent, qboolean bDoShaderTime)
     bThirdPerson |= cg_3rd_person->integer ? qtrue : qfalse;
     // Fixed in OPM
     //  Draw world model body when in camera
-    bThirdPerson |= (cg.snap->ps.pm_flags & PMF_CAMERA_VIEW && !(cg.snap->ps.pm_flags & PMF_TURRET));
+    if (cg.snap) {
+        bThirdPerson |= (cg.snap->ps.pm_flags & PMF_CAMERA_VIEW && !(cg.snap->ps.pm_flags & PMF_TURRET));
+    }
 
     /*
      * Added in Omaha: FP spectate — hide followed body / attachments / local chase

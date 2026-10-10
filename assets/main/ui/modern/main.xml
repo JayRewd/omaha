@@ -9,6 +9,7 @@
 		<import src="ui/modern/lib/images.xml"/>
 		<import src="ui/modern/lib/browser.xml"/>
 		<import src="ui/modern/lib/demos.xml"/>
+		<import src="ui/modern/lib/practice.xml"/>
 	</definitions>
 
 	<canvas>
@@ -114,6 +115,11 @@
 							</container>
 						</container>
 					</container>
+				</container>
+
+				<!-- PRACTICE (Added in Omaha) -->
+				<container id="panel_practice" type="horizontal" width="100%" height="100%" visible="{cvar.ui_om_main_panel == practice}" fill="{var.fill-transparent}">
+					<use template="practice-browser" id="practice_browser_panel"/>
 				</container>
 
 				<!-- DEMOS (Added in Omaha) -->

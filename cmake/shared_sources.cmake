@@ -28,6 +28,7 @@ set(COMMON_SOURCES
     ${SOURCE_DIR}/qcommon/md5.c
     ${SOURCE_DIR}/qcommon/memory.c
     ${SOURCE_DIR}/qcommon/msg.cpp
+    ${SOURCE_DIR}/qcommon/practice_scenario.cpp
     ${SOURCE_DIR}/qcommon/net_chan.c
     ${SOURCE_DIR}/qcommon/net_ip.c
     ${SOURCE_DIR}/qcommon/q_math.c

@@ -1,0 +1,199 @@
+<ui-library version="1">
+	<!-- Added in Omaha: in-game practice scenario editor panels (pause menu). -->
+	<import src="ui/modern/lib/theme.xml"/>
+	<import src="ui/modern/lib/pause_modern.xml"/>
+	<templates>
+		<template id="practice-editor-status">
+			<container type="horizontal" width="100%" height="36px" padding="0 16px" valign="center"
+			           fill="{cvar.ui_om_practice_edit_dirty == 1 ? var.color-accent : var.fill-control}">
+				<label width="fill" text-overflow="ellipsis" font="control" font-size="{var.text-body}"
+				       color="{var.color-white}" letter-spacing="1px"
+				       bind="cvar:ui_om_practice_edit_status">{cvar.ui_om_practice_edit_status}</label>
+			</container>
+		</template>
+
+		<template id="practice-editor-panel">
+			<container type="vertical" width="520px" height="auto" gap="0"
+			           halign="center" valign="center"
+			           fill="{var.fill-panel}" stroke="{var.fill-divider}" stroke-width="1px">
+				<use template="pause-modern-panel-header" title="SCENARIO EDITOR"/>
+				<container type="vertical" width="100%" height="auto" gap="12px" padding="16px">
+					<container type="vertical" width="100%" height="auto" gap="4px">
+						<label font="body" font-size="{var.text-caption}" color="{var.color-muted}" letter-spacing="1px">NAME</label>
+						<input type="text" width="100%" height="auto" padding="8px"
+						       bind="cvar:ui_om_practice_edit_name" commit="change" max-length="48"
+						       placeholder="Scenario name"
+						       fill="{var.fill-input}" color="{var.color-white}" font="body" font-size="{var.text-control}"/>
+					</container>
+					<container type="vertical" width="100%" height="auto" gap="4px">
+						<label font="body" font-size="{var.text-caption}" color="{var.color-muted}" letter-spacing="1px">AUTHOR</label>
+						<input type="text" width="100%" height="auto" padding="8px"
+						       bind="cvar:ui_om_practice_edit_author" commit="change" max-length="48"
+						       placeholder="Author"
+						       fill="{var.fill-input}" color="{var.color-white}" font="body" font-size="{var.text-control}"/>
+					</container>
+					<container type="horizontal" width="100%" height="auto" gap="12px" valign="center">
+						<container type="vertical" width="fill" height="auto" gap="2px">
+							<label font="body" font-size="{var.text-caption}" color="{var.color-muted}" letter-spacing="1px">MAX ALIVE</label>
+							<label font="body" font-size="{var.text-body}" color="{var.color-muted}">Enemies alive at once (1-32)</label>
+						</container>
+						<input type="number" width="96px" height="auto" padding="8px"
+						       bind="cvar:ui_om_practice_edit_maxalive" commit="change" min="1" max="32" step="1"
+						       fill="{var.fill-input}" color="{var.color-white}" font="body" font-size="{var.text-control}"
+						       halign="center"/>
+					</container>
+				</container>
+
+				<use template="practice-editor-status"/>
+				<container width="100%" height="1px" fill="{var.fill-divider}"/>
+
+				<container type="vertical" width="100%" height="auto" gap="8px" padding="16px">
+					<button width="100%" height="40px" padding="0 20px 0 26px"
+					        fill="{var.fill-control}" hoverfill="{var.color-accent}"
+					        color="{var.color-white}" font="control" font-size="{var.text-control}"
+					        letter-spacing="2px" halign="start" valign="center">
+						NODE LIST
+						<on event="click">
+							<set-cvar name="ui_om_cbuf" value="set ui_om_pause_panel practice_nodes"/>
+							<invoke name="cbuf"/>
+						</on>
+					</button>
+					<container type="horizontal" width="100%" height="auto" gap="8px">
+						<button width="fill" height="40px" padding="0 20px"
+						        fill="{var.color-accent}" hoverfill="{var.color-accent-hover}"
+						        color="{var.color-white}" font="control" font-size="{var.text-control}"
+						        letter-spacing="2px" halign="center" valign="center">
+							SAVE
+							<on event="click">
+								<set-cvar name="ui_om_cbuf" value="practice_editor_save"/>
+								<invoke name="cbuf"/>
+							</on>
+						</button>
+						<button width="fill" height="40px" padding="0 20px"
+						        fill="{var.fill-control}" hoverfill="{var.color-danger}"
+						        color="{var.color-white}" font="control" font-size="{var.text-control}"
+						        letter-spacing="2px" halign="center" valign="center"
+						        visible="{cvar.ui_om_practice_edit_dirty == 1}">
+							REVERT
+							<on event="click">
+								<set-cvar name="ui_om_cbuf" value="practice_editor_revert"/>
+								<invoke name="cbuf"/>
+							</on>
+						</button>
+					</container>
+					<button width="100%" height="36px" padding="0 16px"
+					        fill="{var.fill-transparent}" hoverfill="{var.fill-hover-ghost}"
+					        color="{var.color-muted}" font="control" font-size="{var.text-body}"
+					        letter-spacing="1px" halign="center" valign="center">
+						BACK
+						<on event="click">
+							<set-cvar name="ui_om_cbuf" value="set ui_om_pause_panel root"/>
+							<invoke name="cbuf"/>
+						</on>
+					</button>
+				</container>
+			</container>
+		</template>
+
+		<template id="practice-editor-node-row">
+			<container type="horizontal" width="100%" height="36px" padding="0 8px 0 16px" gap="0" valign="center"
+			           fill="{item.field.moved == 1 ? #1A6FD448 : var.fill-transparent}">
+				<label width="64px" font="control" font-size="{var.text-control}"
+				       color="{var.color-muted}">#{item.field.id}</label>
+				<label width="120px" font="control" font-size="{var.text-control}" letter-spacing="1px"
+				       color="{item.field.type == enemy ? var.color-axis : var.color-allied}">{item.field.label}</label>
+				<label width="fill" text-overflow="ellipsis" font="control" font-size="{var.text-body}"
+				       color="{var.color-primary}">{item.field.detail}</label>
+				<container type="horizontal" width="72px" height="28px" gap="8px" valign="center">
+					<container type="overlap" width="32px" height="28px">
+						<button type="horizontal" width="100%" height="100%" padding="0"
+						        fill="{var.fill-chip}" hoverfill="{var.color-accent}"
+						        halign="center" valign="center"
+						        visible="{item.field.first != 1}">
+							<!-- Fixed in Omaha: +90 = up on screen Y-down; moves toward top of list. -->
+							<container width="8px" height="12px" shape="arrow-left" thickness="3px"
+							           fill="{var.color-white}" shape-rotation="90"/>
+							<on event="click">
+								<set-cvar name="ui_om_cbuf" value="practice_editor_move {item.index} -1"/>
+								<invoke name="cbuf"/>
+							</on>
+						</button>
+					</container>
+					<container type="overlap" width="32px" height="28px">
+						<button type="horizontal" width="100%" height="100%" padding="0"
+						        fill="{var.fill-chip}" hoverfill="{var.color-accent}"
+						        halign="center" valign="center"
+						        visible="{item.field.last != 1}">
+							<container width="8px" height="12px" shape="arrow-left" thickness="3px"
+							           fill="{var.color-white}" shape-rotation="-90"/>
+							<on event="click">
+								<set-cvar name="ui_om_cbuf" value="practice_editor_move {item.index} 1"/>
+								<invoke name="cbuf"/>
+							</on>
+						</button>
+					</container>
+				</container>
+			</container>
+		</template>
+
+		<template id="practice-editor-nodes-panel">
+			<container type="vertical" width="560px" height="auto" gap="0"
+			           halign="center" valign="center"
+			           fill="{var.fill-panel}" stroke="{var.fill-divider}" stroke-width="1px">
+				<use template="pause-modern-panel-header" title="NODE LIST"/>
+
+				<container type="vertical" width="100%" height="36px" gap="0">
+					<container type="horizontal" width="100%" height="fill" padding="0 8px 0 16px" gap="0"
+					           fill="{var.fill-control}" valign="center">
+						<label width="64px" font="control" font-size="{var.text-body}" color="{var.color-muted}">ID</label>
+						<label width="120px" font="control" font-size="{var.text-body}" color="{var.color-muted}">TYPE</label>
+						<label width="fill" font="control" font-size="{var.text-body}" color="{var.color-muted}">DETAIL</label>
+						<label width="72px" halign="center" font="control" font-size="{var.text-body}"
+						       color="{var.color-muted}">ORDER</label>
+					</container>
+					<container width="100%" height="1px" fill="{var.fill-divider}"/>
+				</container>
+
+				<container type="vertical" width="100%" height="396px" padding="16px" halign="center" valign="center"
+				           visible="{cvar.ui_om_practice_edit_count == 0}">
+					<label font="control" font-size="{var.text-control}" color="{var.color-muted}"
+					       letter-spacing="1px">NO ENEMIES OR WAYPOINTS YET</label>
+				</container>
+				<container type="vertical" width="100%" height="396px" source="practice-nodes"
+				           fill="{var.fill-transparent}" visible="{cvar.ui_om_practice_edit_count != 0}">
+					<container type="vertical" width="100%" height="fill" overflow="scroll" scrollbar="scrollbar-default">
+						<foreach mode="window" row-height="36px">
+							<use template="practice-editor-node-row"/>
+						</foreach>
+					</container>
+				</container>
+
+				<use template="practice-editor-status"/>
+				<container width="100%" height="1px" fill="{var.fill-divider}"/>
+
+				<container type="horizontal" width="100%" height="auto" gap="8px" padding="12px 16px">
+					<button width="fill" height="36px" padding="0 16px"
+					        fill="{var.fill-transparent}" hoverfill="{var.fill-hover-ghost}"
+					        color="{var.color-muted}" font="control" font-size="{var.text-body}"
+					        letter-spacing="1px" halign="center" valign="center">
+						BACK
+						<on event="click">
+							<set-cvar name="ui_om_cbuf" value="set ui_om_pause_panel practice"/>
+							<invoke name="cbuf"/>
+						</on>
+					</button>
+					<button width="fill" height="36px" padding="0 16px"
+					        fill="{var.color-accent}" hoverfill="{var.color-accent-hover}"
+					        color="{var.color-white}" font="control" font-size="{var.text-control}"
+					        letter-spacing="2px" halign="center" valign="center">
+						SAVE
+						<on event="click">
+							<set-cvar name="ui_om_cbuf" value="practice_editor_save"/>
+							<invoke name="cbuf"/>
+						</on>
+					</button>
+				</container>
+			</container>
+		</template>
+	</templates>
+</ui-library>
