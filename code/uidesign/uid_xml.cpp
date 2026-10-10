@@ -982,7 +982,7 @@ bool CollectAttrs(
 			"font-weight", "text-skew", "shape-rotation", "letter-spacing", "event", "target", "property", "name", "required", "default",
 		"version", "weight", "src", "value", "value-type", "visible-if", "set-value",
 		"wrap", "scroll", "index", "step-index", "set-index", "visible-if-index", "mode", "row-height",
-		"lifetime", "fade-duration",
+		"lifetime", "fade-duration", "history",
 		"border", "border-top", "border-right", "border-bottom", "border-left"
 		};
 		bool structural = false;

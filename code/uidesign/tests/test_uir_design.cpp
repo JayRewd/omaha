@@ -210,6 +210,7 @@ struct FakeBackendState {
 	std::vector<LifetimeItem> lifetimeItems;
 	uint64_t                 lifetimeRevision = 1;
 	bool                     lifetimeFeedActive = false;
+	bool                     lifetimePinned = false; /* Added in Omaha: UID_COLLECTION_ITEM_PINNED */
 	/* Added in Omaha: per-byte advance for caret/layout measure tests (default 8). */
 	float                    fontMeasurePx = 8.0f;
 };
@@ -1068,7 +1069,7 @@ int fake_queryCollectionItems(const uid_collection_query_t *query, uid_collectio
 				out[written].nfields = 4;
 				out[written].fieldNames = msgFieldNames;
 				out[written].fieldValues = msgFieldValues[written];
-				out[written].flags = 0;
+				out[written].flags = g_fake->lifetimePinned ? UID_COLLECTION_ITEM_PINNED : 0;
 				written++;
 			}
 			return written;
@@ -3541,6 +3542,198 @@ void TestForeachLifetimeFade(void)
 		}
 	}
 	CHECK(CountForeachWrapChildren(doc, plainForeach) == 1);
+
+	UID_DestroyDocument(doc);
+}
+
+/* Added in Omaha: pinned host items ignore lifetime, then linger one lifetime once unpinned. */
+void TestForeachLifetimePinned(void)
+{
+	static const char *kDoc = R"(
+<ui version="1">
+  <definitions>
+    <defaults type="vertical" width="100%" height="100%"/>
+  </definitions>
+  <canvas>
+    <container id="feed" type="vertical" width="200px" height="120px" source="hud-messages">
+      <foreach mode="all" lifetime="1000ms" fade-duration="400ms">
+        <label font="body" font-size="14px">{item.field.text}</label>
+      </foreach>
+    </container>
+  </canvas>
+</ui>
+)";
+	uid_limits_t lim;
+	UID_DefaultLimits(&lim);
+	uid_document_t *doc = UID_CreateDocument();
+	uid_diag_list_t diags(lim.maxDiagnostics);
+	FakeBackendState st;
+	uid_backend_t be = MakeFakeBackend(&st);
+	st.lifetimeFeedActive = true;
+	st.lifetimeItems.push_back({"msg_1", "one"});
+	st.lifetimeItems.push_back({"msg_2", "two"});
+
+	CHECK(UID_ParseXml("life_pin.xml", kDoc, std::strlen(kDoc), &lim, nullptr, doc, &diags) == UID_OK);
+	CHECK(UID_ExpandDocument(doc, &diags) == UID_OK);
+	CHECK(UID_CompileDocument(doc, &diags) == UID_OK);
+
+	doc->updateTimeMs = 1000;
+	UID_SyncBindings(doc, &be);
+	uid_node_id_t fid = FindFirstForeach(doc);
+	CHECK(CountForeachWrapChildren(doc, fid) == 2);
+
+	/* Pinned well past lifetime: rows stay solid. */
+	st.lifetimePinned = true;
+	st.lifetimeRevision++;
+	doc->updateTimeMs = 6000;
+	UID_SyncBindings(doc, &be);
+	fid = FindFirstForeach(doc);
+	CHECK(CountForeachWrapChildren(doc, fid) == 2);
+
+	/* Pinned frame without host change must still refresh appear times. */
+	doc->updateTimeMs = 6050;
+	UID_SyncBindings(doc, &be);
+	fid = FindFirstForeach(doc);
+	CHECK(CountForeachWrapChildren(doc, fid) == 2);
+	if (CountForeachWrapChildren(doc, fid) > 0) {
+		const uid_node_id_t wrap = doc->nodes[static_cast<size_t>(fid)].children[0];
+		CHECK_EQ_F(doc->states[static_cast<size_t>(wrap)].lifetimeOpacityMul, 1.0, 1e-4);
+	}
+
+	/* Unpinned: lifetime restarts from the last pinned sync (6050). */
+	st.lifetimePinned = false;
+	st.lifetimeRevision++;
+	doc->updateTimeMs = 6100;
+	UID_SyncBindings(doc, &be);
+	fid = FindFirstForeach(doc);
+	CHECK(CountForeachWrapChildren(doc, fid) == 2);
+
+	doc->updateTimeMs = 7000; /* age 950: fading, still present */
+	UID_SyncBindings(doc, &be);
+	fid = FindFirstForeach(doc);
+	CHECK(CountForeachWrapChildren(doc, fid) == 2);
+	if (CountForeachWrapChildren(doc, fid) > 0) {
+		const uid_node_id_t wrap = doc->nodes[static_cast<size_t>(fid)].children[0];
+		const float alpha = doc->states[static_cast<size_t>(wrap)].lifetimeOpacityMul;
+		CHECK(alpha < 0.999f && alpha > 0.001f);
+	}
+
+	doc->updateTimeMs = 7100; /* age 1050: expired */
+	UID_SyncBindings(doc, &be);
+	fid = FindFirstForeach(doc);
+	CHECK(CountForeachWrapChildren(doc, fid) == 0);
+
+	UID_DestroyDocument(doc);
+}
+
+uid_node_id_t NodeId(uid_document_t *doc, const char *id);
+
+/* Added in Omaha: <input history="true"> Up/Down recall of submitted lines. */
+void TestInputSubmitHistory(void)
+{
+	static const char *kDoc = R"(
+<ui version="1">
+  <definitions>
+    <defaults type="vertical" width="auto" height="auto" padding="0" margin="0" gap="0"/>
+    <fonts><font id="body" src="fonts/x.ttf" weight="400"/></fonts>
+  </definitions>
+  <canvas>
+    <container id="root" type="vertical" width="400px" height="600px">
+      <container id="feed" type="vertical" width="300px" height="300px" source="hud-messages">
+        <foreach mode="all">
+          <label font="body" font-size="14px">{item.field.text}</label>
+        </foreach>
+        <input id="hist" type="text" width="200px" height="24px" font="body" font-size="16px"
+               bind="cvar:test_hist_a" commit="submit" history="true"/>
+      </container>
+      <input id="cap" type="text" width="200px" height="24px" font="body" font-size="16px"
+             bind="cvar:test_hist_cap" commit="submit" history="true"/>
+      <input id="plain" type="text" width="200px" height="24px" font="body" font-size="16px"
+             bind="cvar:test_hist_plain" commit="submit"/>
+    </container>
+  </canvas>
+</ui>
+)";
+	uid_limits_t lim;
+	UID_DefaultLimits(&lim);
+	uid_document_t *doc = UID_CreateDocument();
+	uid_diag_list_t diags(lim.maxDiagnostics);
+	FakeBackendState st;
+	uid_backend_t be = MakeFakeBackend(&st);
+
+	CHECK(UID_ParseXml("input_history.xml", kDoc, std::strlen(kDoc), &lim, nullptr, doc, &diags) == UID_OK);	CHECK(UID_ExpandDocument(doc, &diags) == UID_OK);
+	CHECK(UID_CompileDocument(doc, &diags) == UID_OK);
+	UID_SyncBindings(doc, &be);
+	CHECK(UID_LayoutDocument(doc, 400, 600, 1.0f, 1.0f, &be, &diags) == UID_OK);
+
+	const uid_node_id_t hist = NodeId(doc, "hist");
+	const uid_node_id_t cap = NodeId(doc, "cap");
+	const uid_node_id_t plain = NodeId(doc, "plain");
+	const uid_node_id_t feed = NodeId(doc, "feed");
+	CHECK(hist >= 0 && cap >= 0 && plain >= 0 && feed >= 0);
+	if (hist < 0 || cap < 0 || plain < 0 || feed < 0) {
+		UID_DestroyDocument(doc);
+		return;
+	}
+
+	auto submit = [&](uid_node_id_t id, const char *text) {
+		doc->states[static_cast<size_t>(id)].editBuffer = text;
+		CHECK(UID_HandleKey(doc, UID_KEY_ENTER, true, 0, &be));
+	};
+	auto buffer = [&](uid_node_id_t id) { return doc->states[static_cast<size_t>(id)].editBuffer; };
+
+	UID_SetFocus(doc, hist, &be);
+	submit(hist, "one");
+	submit(hist, "two");
+	submit(hist, "two"); /* consecutive duplicate skipped */
+	submit(hist, "");    /* empty lines are not recorded */
+	doc->states[static_cast<size_t>(hist)].editBuffer = "";
+
+	const int selBefore = doc->states[static_cast<size_t>(feed)].collectionSelectedIndex;
+	CHECK(UID_HandleKey(doc, UID_KEY_DOWNARROW, true, 0, &be)); /* not browsing: no-op, still consumed */
+	CHECK(buffer(hist).empty());
+	CHECK(doc->states[static_cast<size_t>(feed)].collectionSelectedIndex == selBefore);
+
+	CHECK(UID_HandleKey(doc, UID_KEY_UPARROW, true, 0, &be));
+	CHECK(buffer(hist) == "two");
+	CHECK(doc->states[static_cast<size_t>(hist)].caretCodepoint == 3);
+	CHECK(UID_HandleKey(doc, UID_KEY_UPARROW, true, 0, &be));
+	CHECK(buffer(hist) == "one");
+	CHECK(UID_HandleKey(doc, UID_KEY_UPARROW, true, 0, &be)); /* oldest: stays */
+	CHECK(buffer(hist) == "one");
+	CHECK(UID_HandleKey(doc, UID_KEY_DOWNARROW, true, 0, &be));
+	CHECK(buffer(hist) == "two");
+	CHECK(UID_HandleKey(doc, UID_KEY_DOWNARROW, true, 0, &be)); /* past newest: clears */
+	CHECK(buffer(hist).empty());
+	CHECK(doc->states[static_cast<size_t>(feed)].collectionSelectedIndex == selBefore);
+
+	/* Refocus resets the browse cursor to the newest line. */
+	CHECK(UID_HandleKey(doc, UID_KEY_UPARROW, true, 0, &be));
+	CHECK(UID_HandleKey(doc, UID_KEY_UPARROW, true, 0, &be));
+	CHECK(buffer(hist) == "one");
+	UID_SetFocus(doc, plain, &be);
+	UID_SetFocus(doc, hist, &be);
+	CHECK(UID_HandleKey(doc, UID_KEY_UPARROW, true, 0, &be));
+	CHECK(buffer(hist) == "two");
+
+	/* Ring keeps the newest 20 lines. */
+	UID_SetFocus(doc, cap, &be);
+	for (int i = 0; i < 25; ++i) {
+		char line[16];
+		std::snprintf(line, sizeof(line), "l%d", i);
+		submit(cap, line);
+	}
+	for (int i = 0; i < 30; ++i) {
+		UID_HandleKey(doc, UID_KEY_UPARROW, true, 0, &be);
+	}
+	CHECK(buffer(cap) == "l5");
+
+	/* Without history= arrows do not recall. */
+	UID_SetFocus(doc, plain, &be);
+	submit(plain, "x");
+	doc->states[static_cast<size_t>(plain)].editBuffer = "";
+	UID_HandleKey(doc, UID_KEY_UPARROW, true, 0, &be);
+	CHECK(buffer(plain).empty());
 
 	UID_DestroyDocument(doc);
 }
@@ -11605,6 +11798,8 @@ int main(void)
 	TestClassicHudLayoutGeometry();
 	TestMessageCollectionPaint();
 	TestForeachLifetimeFade();
+	TestForeachLifetimePinned();
+	TestInputSubmitHistory();
 	TestHudAndMenuIdMutuallyExclusive();
 	TestScoreboardMenuLoads();
 	TestDmPauseMenuLoadsAndMapsUrcRects();

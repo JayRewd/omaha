@@ -47,6 +47,9 @@ typedef struct uid_collection_item_s {
 	uint32_t    flags;
 } uid_collection_item_t;
 
+/* Added in Omaha: foreach lifetime treats pinned items as just appeared (no expiry/fade). */
+#define UID_COLLECTION_ITEM_PINNED (1u << 0)
+
 /* Added in Omaha: Phase 4.4 — interned host source ids (peek skips Q_stricmp). */
 enum {
 	UID_COLHOST_NONE = 0,

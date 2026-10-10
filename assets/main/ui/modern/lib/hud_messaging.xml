@@ -115,7 +115,7 @@
 					       fill="{var.fill-transparent}" color="{var.color-white}"
 					       font="body" font-size="{template.font-size}"
 					       drop-shadow="true" halign="start" valign="center"
-					       bind="cvar:ui_om_hud_chat_text" commit="submit" max-length="150">
+					       bind="cvar:ui_om_hud_chat_text" commit="submit" max-length="150" history="true">
 						<on event="submit"><invoke name="hud-chat-submit"/></on>
 						<on event="cancel"><invoke name="hud-chat-cancel"/></on>
 					</input>

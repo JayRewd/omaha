@@ -37,6 +37,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -337,6 +338,97 @@ static void LiveCommitTextInputIfNeeded(
 	SetRuntimeString(st, st->editBuffer);
 	MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_PAINT | UID_DIRTY_BINDING));
 	MaybeWriteBinding(doc, id, backend, UID_COMMIT_CHANGE);
+}
+
+/* Added in Omaha: <input history="true"> submit recall (legacy UIConsole parity). */
+constexpr size_t kInputHistoryMax = 20;
+
+struct uid_input_history_t {
+	std::vector<std::string> lines;
+	int                      browseIndex = -1;
+};
+
+std::map<std::string, uid_input_history_t> &InputHistories()
+{
+	static std::map<std::string, uid_input_history_t> histories;
+	return histories;
+}
+
+bool InputHasHistory(const uid_node_def_t &node)
+{
+	return node.kind == UID_NODE_INPUT && node.inputType != "number" && PropBool(node, "history", false);
+}
+
+/* Bind survives template id prefixing; fall back to node id for unbound inputs. */
+std::string InputHistoryKey(const uid_node_def_t &node)
+{
+	return node.bind.empty() ? "id:" + node.id : node.bind;
+}
+
+void ResetInputHistoryBrowse(const uid_node_def_t &node)
+{
+	if (!InputHasHistory(node)) {
+		return;
+	}
+	auto it = InputHistories().find(InputHistoryKey(node));
+	if (it != InputHistories().end()) {
+		it->second.browseIndex = -1;
+	}
+}
+
+void PushInputHistory(const uid_node_def_t &node, const std::string &line)
+{
+	if (!InputHasHistory(node)) {
+		return;
+	}
+	uid_input_history_t &hist = InputHistories()[InputHistoryKey(node)];
+	hist.browseIndex = -1;
+	if (line.empty() || (!hist.lines.empty() && hist.lines.back() == line)) {
+		return;
+	}
+	hist.lines.push_back(line);
+	if (hist.lines.size() > kInputHistoryMax) {
+		hist.lines.erase(hist.lines.begin());
+	}
+}
+
+/* Up = older, Down = newer; Down past the newest entry clears the line. */
+void StepInputHistory(
+	uid_document_t *doc,
+	uid_node_id_t id,
+	uid_node_def_t *node,
+	uid_node_state_t *st,
+	int delta,
+	const uid_backend_t *backend
+)
+{
+	uid_input_history_t &hist = InputHistories()[InputHistoryKey(*node)];
+	const int count = static_cast<int>(hist.lines.size());
+	if (count == 0) {
+		return;
+	}
+	if (delta < 0) {
+		if (hist.browseIndex < 0) {
+			hist.browseIndex = count - 1;
+		} else if (hist.browseIndex > 0) {
+			--hist.browseIndex;
+		} else {
+			return;
+		}
+	} else {
+		if (hist.browseIndex < 0) {
+			return;
+		}
+		++hist.browseIndex;
+		if (hist.browseIndex >= count) {
+			hist.browseIndex = -1;
+		}
+	}
+	st->editBuffer = hist.browseIndex >= 0 ? hist.lines[static_cast<size_t>(hist.browseIndex)] : std::string();
+	st->caretCodepoint = Utf8CodepointCount(st->editBuffer);
+	st->anchorCodepoint = st->caretCodepoint;
+	MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_PAINT | UID_DIRTY_LAYOUT));
+	LiveCommitTextInputIfNeeded(doc, id, node, st, backend);
 }
 
 void ActivateButton(uid_document_t *doc, uid_node_id_t id, const uid_backend_t *backend)
@@ -1014,6 +1106,7 @@ void UID_SetFocus(uid_document_t *doc, uid_node_id_t id, const uid_backend_t *ba
 				st->editBuffer = st->preEditValue;
 				st->caretCodepoint = Utf8CodepointCount(st->editBuffer);
 				st->anchorCodepoint = st->caretCodepoint;
+				ResetInputHistoryBrowse(*node);
 			}
 			UID_DispatchEvent(doc, id, UID_EVENT_FOCUS, backend);
 		}
@@ -1449,6 +1542,12 @@ bool UID_HandleKey(uid_document_t *doc, int key, bool down, unsigned time, const
 		}
 	}
 
+	/* Added in Omaha: history inputs own Up/Down before enclosing collection stepping. */
+	if (InputHasHistory(*node) && (key == UID_KEY_UPARROW || key == UID_KEY_DOWNARROW)) {
+		StepInputHistory(doc, focus, node, st, key == UID_KEY_UPARROW ? -1 : 1, backend);
+		return true;
+	}
+
 	{
 		const uid_node_id_t scopeId = UID_FindCollectionScope(doc, focus);
 		if (scopeId != UID_INVALID_NODE_ID) {
@@ -1510,6 +1609,8 @@ bool UID_HandleKey(uid_document_t *doc, int key, bool down, unsigned time, const
 			return true;
 		}
 		if (key == UID_KEY_ENTER) {
+			/* Push before submit handlers can restructure the document. */
+			PushInputHistory(*node, st->editBuffer);
 			CommitInput(doc, focus, backend);
 			return true;
 		}

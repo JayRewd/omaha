@@ -3655,7 +3655,8 @@ static int uid_query_collection_hud_messages(
 		out[written].nfields = 4;
 		out[written].fieldNames = slot->fieldNames;
 		out[written].fieldValues = slot->fieldValues;
-		out[written].flags = 0;
+		/* Added in Omaha: open compose pins chat rows so scrolled history does not fade. */
+		out[written].flags = (which == 2 && UIR_HudChat_IsPinned()) ? UID_COLLECTION_ITEM_PINNED : 0;
 		written++;
 	}
 	return written;
@@ -5380,6 +5381,9 @@ void CL_UIR_CloseHudChat(void)
 	g_hudChatOpen = qfalse;
 	CL_UIVar_Set("ui_om_hud_chat_open", "0");
 	CL_UIVar_Set("ui_om_hud_chat_text", "");
+	/* Added in Omaha: back to the newest chat window; rows linger one lifetime, then fade. */
+	UIR_HudChat_ResetScroll();
+	UIR_HudChat_SetPinned(0);
 	/* Deactivate clears focus without re-CommitInput (avoids double submit). */
 	runtime = CL_UIR_ActiveHudRuntime();
 	if (runtime) {
@@ -5402,6 +5406,9 @@ void CL_UIR_OpenHudChat(int iMode)
 	CL_UIVar_Set("ui_om_hud_chat_label", CL_UIR_HudChatLabelForMode(iMode));
 	CL_UIVar_Set("ui_om_hud_chat_text", "");
 	CL_UIVar_SetValue("ui_om_hud_chat_mode", (float)iMode);
+	/* Added in Omaha: open compose shows the newest chat window pinned (no lifetime fade). */
+	UIR_HudChat_ResetScroll();
+	UIR_HudChat_SetPinned(1);
 	Key_SetCatcher(Key_GetCatcher() | KEYCATCH_UI);
 	IN_MouseOff();
 	CL_UIR_FocusHudChatInput();
@@ -7644,6 +7651,22 @@ qboolean CL_UIR_KeyEvent(int key, qboolean down, unsigned time)
 	}
 	if (CL_UIR_LegacyModalOwnsInput()) {
 		return qfalse;
+	}
+
+	/*
+	 * Added in Omaha: Ctrl+Up/Down scrolls the hud-chat backlog while compose is
+	 * open (plain arrows stay with the input's submit history). Compose already
+	 * owns keys, so this never shadows gameplay arrow binds.
+	 */
+	if (down && g_hudChatOpen && Key_IsDown(K_CTRL)) {
+		if (key == K_UPARROW || key == K_KP_UPARROW) {
+			UIR_HudChat_ScrollBy(1);
+			return qtrue;
+		}
+		if (key == K_DOWNARROW || key == K_KP_DOWNARROW) {
+			UIR_HudChat_ScrollBy(-1);
+			return qtrue;
+		}
 	}
 
 	if (down) {

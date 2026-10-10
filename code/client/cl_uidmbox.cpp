@@ -353,6 +353,21 @@ void UIDMBox::Print(const char *text)
         m_items[m_numitems].stableId = s_nextHudMessageId++;
     }
 
+    /* Added in Omaha: hud-chat backlog takes non-death lines as they arrive. */
+    if (!(m_items[m_numitems].flags & DMBOX_ITEM_FLAG_DEATH)) {
+        uir_hud_message_input_t row;
+
+        std::memset(&row, 0, sizeof(row));
+        row.text     = m_items[m_numitems].string.c_str();
+        row.colorR   = m_items[m_numitems].color.r;
+        row.colorG   = m_items[m_numitems].color.g;
+        row.colorB   = m_items[m_numitems].color.b;
+        row.colorA   = m_items[m_numitems].color.a;
+        row.bold     = (m_items[m_numitems].flags & DMBOX_ITEM_FLAG_BOLD) ? 1 : 0;
+        row.stableId = m_items[m_numitems].stableId;
+        UIR_HudChat_AddRow(&row);
+    }
+
     m_numitems++;
     VerifyBoxOut();
     PostDecayEvent();
@@ -443,11 +458,6 @@ void UIDMBox::Draw(void)
                 UIR_HudMessages_Clear();
                 UIR_HudMessages_NotifyChanged();
             }
-            /* Added in Omaha: chat-only collection mirrors mixed clear. */
-            if (UIR_HudChat_GetRowCount() > 0) {
-                UIR_HudChat_Clear();
-                UIR_HudChat_NotifyChanged();
-            }
         }
         return;
     }
@@ -461,10 +471,6 @@ void UIDMBox::Draw(void)
                 UIR_HudMessages_Clear();
                 UIR_HudMessages_NotifyChanged();
             }
-            if (UIR_HudChat_GetRowCount() > 0) {
-                UIR_HudChat_Clear();
-                UIR_HudChat_NotifyChanged();
-            }
             return;
         }
 
@@ -475,8 +481,6 @@ void UIDMBox::Draw(void)
 
         UIR_HudMessages_Clear();
         UIR_HudMessages_SetAlphaScale(alphaScale);
-        UIR_HudChat_Clear();
-        UIR_HudChat_SetAlphaScale(alphaScale);
         for (i = 0; i < m_numitems; i++) {
             std::memset(&row, 0, sizeof(row));
             row.text = m_items[i].string.c_str();
@@ -487,13 +491,8 @@ void UIDMBox::Draw(void)
             row.bold = (m_items[i].flags & DMBOX_ITEM_FLAG_BOLD) ? 1 : 0;
             row.stableId = m_items[i].stableId;
             UIR_HudMessages_AddRow(&row);
-            /* Added in Omaha: hud-chat excludes death/kill lines. */
-            if (!(m_items[i].flags & DMBOX_ITEM_FLAG_DEATH)) {
-                UIR_HudChat_AddRow(&row);
-            }
         }
         UIR_HudMessages_NotifyChanged();
-        UIR_HudChat_NotifyChanged();
         return;
     }
 
@@ -555,4 +554,6 @@ void UIDMBox::setRealShow(bool b)
 void UIDMBox::Clear(void)
 {
     m_numitems = 0;
+    /* Added in Omaha: hud-chat backlog follows dmbox clears (map change / disconnect). */
+    UIR_HudChat_Clear();
 }

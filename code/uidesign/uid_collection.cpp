@@ -1193,6 +1193,10 @@ bool RefreshCollectionScope(uid_document_t *doc, uid_node_id_t scopeId, const ui
 					fieldsChanged = true;
 				}
 				item.fields = std::move(newFields);
+				if (item.flags != hostItems[static_cast<size_t>(i)].flags) {
+					fieldsChanged = true;
+				}
+				item.flags = hostItems[static_cast<size_t>(i)].flags;
 			}
 			st->collectionRevision = revision;
 			st->collectionRefreshFrame = doc->syncFrameCounter;
@@ -1228,6 +1232,7 @@ bool RefreshCollectionScope(uid_document_t *doc, uid_node_id_t scopeId, const ui
 				item.fields[name] = val ? val : "";
 			}
 		}
+		item.flags = hostItems[static_cast<size_t>(i)].flags;
 		st->collectionItems.push_back(item);
 	}
 	st->collectionItemCount = total > 0 ? total : n;
@@ -1426,6 +1431,31 @@ float LifetimeAlphaFromAge(int ageMs, int lifetimeMs, int fadeMs)
 	return std::clamp(1.0f - t, 0.0f, 1.0f);
 }
 
+bool EntryPinned(const uid_collection_entry_t &item)
+{
+	return (item.flags & UID_COLLECTION_ITEM_PINNED) != 0;
+}
+
+bool AnyEntryPinned(const std::vector<uid_collection_entry_t> &items)
+{
+	for (const uid_collection_entry_t &item : items) {
+		if (EntryPinned(item)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/* Added in Omaha: pinned entries read as just appeared; others use the recorded appear time. */
+int EntryAppearedMs(const uid_node_state_t *fnSt, const uid_collection_entry_t &item, int nowMs)
+{
+	if (EntryPinned(item)) {
+		return nowMs;
+	}
+	auto it = fnSt->foreachAppearAtMs.find(item.key);
+	return (it != fnSt->foreachAppearAtMs.end()) ? it->second : nowMs;
+}
+
 void SyncForeachAppearMap(
 	uid_node_state_t *fnSt,
 	const std::vector<uid_collection_entry_t> &items,
@@ -1439,7 +1469,8 @@ void SyncForeachAppearMap(
 	hostKeys.reserve(items.size());
 	for (const uid_collection_entry_t &item : items) {
 		hostKeys.insert(item.key);
-		if (fnSt->foreachAppearAtMs.find(item.key) == fnSt->foreachAppearAtMs.end()) {
+		/* Pinned rows restart their lifetime from the last pinned sync once unpinned. */
+		if (EntryPinned(item) || fnSt->foreachAppearAtMs.find(item.key) == fnSt->foreachAppearAtMs.end()) {
 			fnSt->foreachAppearAtMs[item.key] = nowMs;
 		}
 	}
@@ -1472,9 +1503,7 @@ void CollectLifetimeVisibleIndices(
 		if (i < 0 || static_cast<size_t>(i) >= items.size()) {
 			continue;
 		}
-		const std::string &key = items[static_cast<size_t>(i)].key;
-		auto it = fnSt->foreachAppearAtMs.find(key);
-		const int appeared = (it != fnSt->foreachAppearAtMs.end()) ? it->second : nowMs;
+		const int appeared = EntryAppearedMs(fnSt, items[static_cast<size_t>(i)], nowMs);
 		const int age = nowMs - appeared;
 		if (age < lifetimeMs) {
 			outVisible->push_back(i);
@@ -1524,9 +1553,7 @@ bool ForeachLifetimeNeedsOpacityPass(
 		if (idx < 0 || static_cast<size_t>(idx) >= items.size()) {
 			continue;
 		}
-		const std::string &key = items[static_cast<size_t>(idx)].key;
-		auto it = fnSt->foreachAppearAtMs.find(key);
-		const int appeared = (it != fnSt->foreachAppearAtMs.end()) ? it->second : nowMs;
+		const int appeared = EntryAppearedMs(fnSt, items[static_cast<size_t>(idx)], nowMs);
 		const int age = nowMs - appeared;
 		if (age >= fadeStart && age < lifetimeMs) {
 			return true;
@@ -1595,9 +1622,12 @@ bool ForeachLifetimeCanSkipExpand(
 		if (idx < 0 || static_cast<size_t>(idx) >= scopeSt->collectionItems.size()) {
 			continue;
 		}
-		const std::string &key = scopeSt->collectionItems[static_cast<size_t>(idx)].key;
-		auto it = fnSt->foreachAppearAtMs.find(key);
-		const int appeared = (it != fnSt->foreachAppearAtMs.end()) ? it->second : doc->updateTimeMs;
+		const uid_collection_entry_t &item = scopeSt->collectionItems[static_cast<size_t>(idx)];
+		/* Expand must run so SyncForeachAppearMap keeps refreshing pinned appear times. */
+		if (EntryPinned(item)) {
+			return false;
+		}
+		const int appeared = EntryAppearedMs(fnSt, item, doc->updateTimeMs);
 		if ((doc->updateTimeMs - appeared) >= lifetimeMs) {
 			return false;
 		}
@@ -1670,9 +1700,7 @@ bool ApplyForeachLifetimeOpacity(
 		const int idx = wrap.foreachItemIndex;
 		float alpha = 1.0f;
 		if (idx >= 0 && static_cast<size_t>(idx) < items.size()) {
-			const std::string &key = items[static_cast<size_t>(idx)].key;
-			auto it = fnSt->foreachAppearAtMs.find(key);
-			const int appeared = (it != fnSt->foreachAppearAtMs.end()) ? it->second : nowMs;
+			const int appeared = EntryAppearedMs(fnSt, items[static_cast<size_t>(idx)], nowMs);
 			const int age = nowMs - appeared;
 			alpha = LifetimeAlphaFromAge(age, lifetimeMs, fadeMs);
 			/*
@@ -2271,10 +2299,8 @@ float UID_EvalItemLifetimeAlpha(const uid_document_t *doc, uid_node_id_t nodeId)
 	if (idx < 0 || static_cast<size_t>(idx) >= scopeSt.collectionItems.size()) {
 		return 1.0f;
 	}
-	const std::string &key = scopeSt.collectionItems[static_cast<size_t>(idx)].key;
-	auto it = fnSt.foreachAppearAtMs.find(key);
 	const int nowMs = doc->updateTimeMs;
-	const int appeared = (it != fnSt.foreachAppearAtMs.end()) ? it->second : nowMs;
+	const int appeared = EntryAppearedMs(&fnSt, scopeSt.collectionItems[static_cast<size_t>(idx)], nowMs);
 	return LifetimeAlphaFromAge(nowMs - appeared, fn.foreachLifetimeMs, fn.foreachFadeDurationMs);
 }
 
@@ -2572,6 +2598,11 @@ void UID_SyncCollections(uid_document_t *doc, const uid_backend_t *backend)
 					doc, static_cast<uid_node_id_t>(i)
 				);
 				if (sid < 0 || static_cast<size_t>(sid) >= doc->states.size()) {
+					++nNeedOp;
+					break;
+				}
+				/* Added in Omaha: pinned rows refresh appear times every frame. */
+				if (AnyEntryPinned(doc->states[static_cast<size_t>(sid)].collectionItems)) {
 					++nNeedOp;
 					break;
 				}

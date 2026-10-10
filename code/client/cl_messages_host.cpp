@@ -46,9 +46,10 @@ static float                  g_hudGameMessageAlphaScale = 1.0f;
 static uint64_t               g_hudGameMessageRevision = 1;
 
 /* Added in Omaha: chat-only and structured kill-feed hosts. */
-static uir_hud_message_slot_t g_hudChatSlots[UIR_HUD_CHAT_MAX_ROWS];
-static int                    g_hudChatCount = 0;
-static float                  g_hudChatAlphaScale = 1.0f;
+static uir_hud_message_slot_t g_hudChatBacklog[UIR_HUD_CHAT_BACKLOG_ROWS];
+static int                    g_hudChatBacklogCount = 0;
+static int                    g_hudChatScrollOffset = 0;
+static int                    g_hudChatPinned = 0;
 static uint64_t               g_hudChatRevision = 1;
 
 typedef struct {
@@ -331,43 +332,102 @@ uint64_t UIR_HudGameMessages_GetRevision(void)
 	return g_hudGameMessageRevision;
 }
 
-void UIR_HudChat_Clear(void)
+static int UIR_HudChat_MaxScrollOffset(void)
 {
-	g_hudChatCount = 0;
-	std::memset(g_hudChatSlots, 0, sizeof(g_hudChatSlots));
+	return g_hudChatBacklogCount > UIR_HUD_CHAT_MAX_ROWS ? g_hudChatBacklogCount - UIR_HUD_CHAT_MAX_ROWS : 0;
 }
 
-void UIR_HudChat_SetAlphaScale(float scale)
+/* First backlog index of the published window (window ends scrollOffset rows before newest). */
+static int UIR_HudChat_WindowStart(void)
 {
-	g_hudChatAlphaScale = UIR_Messages_ClampAlpha(scale);
+	const int end   = g_hudChatBacklogCount - g_hudChatScrollOffset;
+	const int start = end - UIR_HUD_CHAT_MAX_ROWS;
+	return start > 0 ? start : 0;
+}
+
+void UIR_HudChat_Clear(void)
+{
+	if (!g_hudChatBacklogCount && !g_hudChatScrollOffset) {
+		return;
+	}
+	g_hudChatBacklogCount  = 0;
+	g_hudChatScrollOffset  = 0;
+	std::memset(g_hudChatBacklog, 0, sizeof(g_hudChatBacklog));
+	g_hudChatRevision++;
 }
 
 void UIR_HudChat_AddRow(const uir_hud_message_input_t *row)
 {
-	UIR_Messages_AddRowToSlots(g_hudChatSlots, UIR_HUD_CHAT_MAX_ROWS, &g_hudChatCount, row);
-}
-
-void UIR_HudChat_NotifyChanged(void)
-{
-	static uint64_t s_publishedHash = 0;
-	const uint64_t  hash = UIR_Messages_HashSlots(g_hudChatSlots, g_hudChatCount);
-
-	/* Fixed in Omaha: chat republishes every Draw; only bump when content changes. */
-	if (hash == s_publishedHash) {
+	if (!row) {
 		return;
 	}
-	s_publishedHash = hash;
+	if (g_hudChatBacklogCount >= UIR_HUD_CHAT_BACKLOG_ROWS) {
+		std::memmove(
+			&g_hudChatBacklog[0], &g_hudChatBacklog[1], sizeof(g_hudChatBacklog[0]) * (UIR_HUD_CHAT_BACKLOG_ROWS - 1)
+		);
+		g_hudChatBacklogCount--;
+	}
+	UIR_Messages_AddRowToSlots(g_hudChatBacklog, UIR_HUD_CHAT_BACKLOG_ROWS, &g_hudChatBacklogCount, row);
+	/* Keep a scrolled-back view anchored on the same lines when new chat arrives. */
+	if (g_hudChatScrollOffset > 0) {
+		g_hudChatScrollOffset++;
+		if (g_hudChatScrollOffset > UIR_HudChat_MaxScrollOffset()) {
+			g_hudChatScrollOffset = UIR_HudChat_MaxScrollOffset();
+		}
+	}
 	g_hudChatRevision++;
+}
+
+void UIR_HudChat_ScrollBy(int delta)
+{
+	int offset = g_hudChatScrollOffset + delta;
+
+	if (offset > UIR_HudChat_MaxScrollOffset()) {
+		offset = UIR_HudChat_MaxScrollOffset();
+	}
+	if (offset < 0) {
+		offset = 0;
+	}
+	if (offset == g_hudChatScrollOffset) {
+		return;
+	}
+	g_hudChatScrollOffset = offset;
+	g_hudChatRevision++;
+}
+
+void UIR_HudChat_ResetScroll(void)
+{
+	UIR_HudChat_ScrollBy(-g_hudChatScrollOffset);
+}
+
+void UIR_HudChat_SetPinned(int pinned)
+{
+	pinned = pinned ? 1 : 0;
+	if (pinned == g_hudChatPinned) {
+		return;
+	}
+	g_hudChatPinned = pinned;
+	g_hudChatRevision++;
+}
+
+int UIR_HudChat_IsPinned(void)
+{
+	return g_hudChatPinned;
 }
 
 int UIR_HudChat_GetRowCount(void)
 {
-	return g_hudChatCount;
+	return (g_hudChatBacklogCount - g_hudChatScrollOffset) - UIR_HudChat_WindowStart();
 }
 
 void UIR_HudChat_GetRow(int index, uir_hud_message_row_t *out)
 {
-	UIR_Messages_GetRowFromSlots(g_hudChatSlots, g_hudChatCount, g_hudChatAlphaScale, index, out);
+	if (index < 0 || index >= UIR_HudChat_GetRowCount()) {
+		return;
+	}
+	UIR_Messages_GetRowFromSlots(
+		g_hudChatBacklog, g_hudChatBacklogCount, 1.0f, UIR_HudChat_WindowStart() + index, out
+	);
 }
 
 uint64_t UIR_HudChat_GetRevision(void)

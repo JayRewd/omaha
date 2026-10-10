@@ -102,11 +102,21 @@ int  UIR_HudGameMessages_GetRowCount(void);
 void UIR_HudGameMessages_GetRow(int index, uir_hud_message_row_t *out);
 uint64_t UIR_HudGameMessages_GetRevision(void);
 
-/* Added in Omaha: chat-only collection (MESSAGE_CHAT_WHITE / non-death dmbox rows). */
+/*
+ * Added in Omaha: chat-only collection (MESSAGE_CHAT_WHITE / non-death dmbox rows).
+ * Changed in Omaha: rows accumulate in a backlog; hud-chat publishes a
+ * UIR_HUD_CHAT_MAX_ROWS window scrolled back from the newest line.
+ */
+#define UIR_HUD_CHAT_BACKLOG_ROWS 64
+
 void UIR_HudChat_Clear(void);
-void UIR_HudChat_SetAlphaScale(float scale);
 void UIR_HudChat_AddRow(const uir_hud_message_input_t *row);
-void UIR_HudChat_NotifyChanged(void);
+/* Positive delta scrolls toward older lines; clamped to the backlog. */
+void UIR_HudChat_ScrollBy(int delta);
+void UIR_HudChat_ResetScroll(void);
+/* Pinned rows ignore foreach lifetime (compose open). */
+void UIR_HudChat_SetPinned(int pinned);
+int  UIR_HudChat_IsPinned(void);
 int  UIR_HudChat_GetRowCount(void);
 void UIR_HudChat_GetRow(int index, uir_hud_message_row_t *out);
 uint64_t UIR_HudChat_GetRevision(void);

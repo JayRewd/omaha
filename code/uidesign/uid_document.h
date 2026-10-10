@@ -100,6 +100,7 @@ struct uid_collection_entry_t {
 	std::string                        value;
 	std::string                        label;
 	std::map<std::string, std::string> fields;
+	uint32_t                           flags = 0; /* Added in Omaha: UID_COLLECTION_ITEM_* */
 };
 
 struct uid_node_def_t {
