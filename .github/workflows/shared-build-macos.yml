@@ -273,7 +273,8 @@ jobs:
         for f in \
           '${{github.workspace}}/package/main/ui/modern/main.xml' \
           '${{github.workspace}}/package/main/fonts/Oswald-Medium.ttf' \
-          '${{github.workspace}}/package/main/ui/modern/textures/panel.png'
+          '${{github.workspace}}/package/main/ui/modern/textures/panel.png' \
+          '${{github.workspace}}/package/main/practice/dm/mohdm6/Basic__FFA.json'
         do
           if [ ! -f "$f" ]; then
             echo "missing required package asset: $f" >&2

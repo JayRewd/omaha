@@ -125,7 +125,7 @@
 
         <!--
           Changed in Omaha: Feature must reference harvested Files or they are
-          omitted from the MSI. Layout: openmohaa/main/{fonts,ui/modern}/...
+          omitted from the MSI. Layout: openmohaa/main/{fonts,ui/modern,practice}/...
         -->
         <Feature Id="ProductFeature" Title="OpenMoHAA" Level="1">
             <ComponentGroupRef Id="Core" />

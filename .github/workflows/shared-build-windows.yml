@@ -322,7 +322,8 @@ jobs:
         $markers = @(
           '${{github.workspace}}/package/main/ui/modern/main.xml',
           '${{github.workspace}}/package/main/fonts/Oswald-Medium.ttf',
-          '${{github.workspace}}/package/main/ui/modern/textures/panel.png'
+          '${{github.workspace}}/package/main/ui/modern/textures/panel.png',
+          '${{github.workspace}}/package/main/practice/dm/mohdm6/Basic__FFA.json'
         )
         foreach ($m in $markers) {
           if (-not (Test-Path $m)) { throw "missing required package asset: $m" }
@@ -345,7 +346,8 @@ jobs:
         $stageMarkers = @(
           'source/misc/setup/windows/app/files/main/ui/modern/main.xml',
           'source/misc/setup/windows/app/files/main/fonts/Oswald-Medium.ttf',
-          'source/misc/setup/windows/app/files/main/ui/modern/textures/panel.png'
+          'source/misc/setup/windows/app/files/main/ui/modern/textures/panel.png',
+          'source/misc/setup/windows/app/files/main/practice/dm/mohdm6/Basic__FFA.json'
         )
         foreach ($m in $stageMarkers) {
           if (-not (Test-Path $m)) { throw "MSI staging missing required asset: $m" }

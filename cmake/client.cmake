@@ -206,6 +206,8 @@ add_custom_command(TARGET ${CLIENT_BINARY} POST_BUILD
         $<TARGET_FILE_DIR:${CLIENT_BINARY}>/main/ui/modern/examples
     COMMAND ${CMAKE_COMMAND} -E make_directory
         $<TARGET_FILE_DIR:${CLIENT_BINARY}>/main/sound/prom
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        $<TARGET_FILE_DIR:${CLIENT_BINARY}>/main/practice
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${CMAKE_SOURCE_DIR}/assets/main/fonts
         $<TARGET_FILE_DIR:${CLIENT_BINARY}>/main/fonts
@@ -215,7 +217,10 @@ add_custom_command(TARGET ${CLIENT_BINARY} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${CMAKE_SOURCE_DIR}/assets/main/sound
         $<TARGET_FILE_DIR:${CLIENT_BINARY}>/main/sound
-    COMMENT "Copy modern UI fonts, ui/modern, and sound assets"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/assets/main/practice
+        $<TARGET_FILE_DIR:${CLIENT_BINARY}>/main/practice
+    COMMENT "Copy modern UI fonts, ui/modern, sound, and practice assets"
 )
 
 # Same relative main/ layout as POST_BUILD: next to the installed client binary.
@@ -226,6 +231,8 @@ install(DIRECTORY ${CMAKE_SOURCE_DIR}/assets/main/fonts
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/assets/main/ui/modern
     DESTINATION ${INSTALL_BINDIR_FULL}/main/ui)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/assets/main/sound
+    DESTINATION ${INSTALL_BINDIR_FULL}/main)
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/assets/main/practice
     DESTINATION ${INSTALL_BINDIR_FULL}/main)
 
 if(NOT USE_RENDERER_DLOPEN)
