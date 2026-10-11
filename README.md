@@ -31,8 +31,14 @@ but is planned—expansions still run through the OpenMoHAA/legacy paths today.
   reticle stays honest while you shoot.
 - **In-game overlay** — scoreboard, kill feed, pause menu, weapons and
   grenades on screen, plus living/dead teammate cues on the Competitive pack.
+- **Practice mode** — angles and grenade practice on a listen server, with a
+  scenario browser, in-game editor, grenade replay, chase cam / nade cam, and
+  release ticks.
+- **DEMOS browser** — browse recordings, seek/pause/crop playback, and export
+  AVI or H.264 MP4 from the modern UI.
 - **Client QoL** — faster internet server discovery, client-only first-person
-  chase spectate, and related presentation fixes—all stock-server compatible.
+  chase spectate, PNG screenshots (`screenshotPNG` / F12), grenade charge bar,
+  HUD chat history, and related presentation fixes—all stock-server compatible.
 
 | Classic | Modern | Competitive |
 |:---:|:---:|:---:|
@@ -41,6 +47,18 @@ but is planned—expansions still run through the OpenMoHAA/legacy paths today.
 ![Scoreboard](docs/assets/screenshots/readme/scoreboard.jpg)
 
 ![Crosshair settings](docs/assets/screenshots/readme/menu_crosshairs.jpg)
+
+### Practice
+
+![Nade practice](docs/assets/screenshots/readme/nade-practice.mp4)
+
+*Nade practice in action.*
+
+### Demos
+
+| Browser | Playback |
+|:---:|:---:|
+| ![DEMOS browser](docs/assets/screenshots/readme/demo-browser.jpg) | ![Demo playback](docs/assets/screenshots/readme/demo-player.jpg) |
 
 ## Getting started
 
@@ -71,8 +89,8 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md). AI-assisted work is allowed **here**.
 Do not submit Omaha work to official OpenMoHAA under their generative-AI ban.
 
 Modern UI overview: [`docs/modern-ui/`](docs/modern-ui/README.md).
-Implementer contracts: [`designformat.md`](docs/LLM-helpers/designformat.md),
-[`ui-rendering-pipeline.md`](docs/LLM-helpers/ui-rendering-pipeline.md).
+Implementer contracts: [`designformat.md`](docs/modern-ui/designformat.md),
+[`ui-rendering-pipeline.md`](docs/modern-ui/ui-rendering-pipeline.md).
 
 ## License
 
