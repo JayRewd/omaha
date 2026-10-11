@@ -47,7 +47,7 @@ jobs:
 
     - name: Install required packages
       run: |
-        brew install flex bison llvm
+        brew install flex bison llvm nasm pkgconf
     # Those packages are already installed  
     #brew install git ninja cmake perl
 
@@ -204,6 +204,27 @@ jobs:
       with:
         path: 'source'
 
+    ###
+    # Static FFmpeg + x264 (H.264 demo export) — universal, linked into openmohaa
+    ###
+
+    - name: Cache FFmpeg+x264
+      id: cache-ffmpeg
+      uses: actions/cache@v4
+      with:
+        path: 'thirdparties/ffmpeg'
+        key: ${{ runner.os }}-${{ matrix.architecture.name }}-ffmpeg-7.1.1-x264-0480cb05-${{ hashFiles('source/misc/video/build-ffmpeg-x264.sh', 'source/misc/video/build-ffmpeg-x264-universal.sh') }}-v2
+
+    - name: Build static FFmpeg+x264 (universal)
+      if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
+      working-directory: ${{github.workspace}}
+      run: |
+        export FFMPEG_PREFIX='${{github.workspace}}/thirdparties/ffmpeg'
+        export FFMPEG_SLICES='${{github.workspace}}/thirdparties/ffmpeg-slices'
+        export FFMPEG_SRC='${{github.workspace}}/thirdparties/ffmpeg-src'
+        export FFMPEG_ARCHS='${{ matrix.architecture.build_name }}'
+        FFMPEG_ARCHS="${FFMPEG_ARCHS//;/ }" bash source/misc/video/build-ffmpeg-x264-universal.sh
+
     - name: CMake Settings
       run: |
         echo "CMAKE_PARAM=--log-level=VERBOSE \
@@ -220,7 +241,10 @@ jobs:
         -DBUILD_MACOS_APP=OFF \
         -DBUILD_TESTING=OFF \
         -DGIT_REVISION_BUILD_NUMBER=${{ github.run_number }} \
-        -DPRODUCT_VERSION_STAGE='${{ env.RELEASE_STAGE }}'" >> $GITHUB_ENV
+        -DPRODUCT_VERSION_STAGE='${{ env.RELEASE_STAGE }}' \
+        -DUSE_VIDEO_H264=ON \
+        -DFFMPEG_REQUIRED=ON \
+        -DFFMPEG_ROOT='${{github.workspace}}/thirdparties/ffmpeg'" >> $GITHUB_ENV
 
     - name: Configure CMake
       working-directory: ${{github.workspace}}
@@ -262,6 +286,13 @@ jobs:
           exit 1
         fi
         echo "package/main OK ($main_count files)"
+        # Changed in Omaha: release clients must ship H.264 demo export (static FFmpeg).
+        client_bin=$(find '${{github.workspace}}/package' -maxdepth 1 -type f -name 'openmohaa*' ! -name '*.dylib' | head -n 1)
+        if [ -z "$client_bin" ] || ! grep -aq 'EXPORTING MP4' "$client_bin"; then
+          echo "client binary '${client_bin}' was built without H.264 export (USE_VIDEO_H264)" >&2
+          exit 1
+        fi
+        echo "H.264 export OK in $(basename "$client_bin")"
 
     ###
     # Artifacts

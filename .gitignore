@@ -1,4 +1,5 @@
 build*
+!misc/video/build-ffmpeg-*.sh
 .cmake-build/
 .cmake-build-*/
 *.swp

@@ -234,8 +234,46 @@ jobs:
       with:
         path: 'source'
 
+    ###
+    # Static FFmpeg + x264 (H.264 demo export) — MSVC, linked into openmohaa
+    ###
+
+    - name: Cache FFmpeg+x264
+      id: cache-ffmpeg
+      uses: actions/cache@v4
+      with:
+        path: 'thirdparties/ffmpeg'
+        key: ${{ runner.os }}-${{ matrix.architecture.name }}-ffmpeg-7.1.1-x264-0480cb05-msvc-${{ hashFiles('source/misc/video/build-ffmpeg-x264-msvc.sh') }}-v2
+
+    - name: Install nasm (FFmpeg/x264 x86 asm)
+      if: matrix.architecture.name != 'arm64' && steps.cache-ffmpeg.outputs.cache-hit != 'true'
+      run: choco install nasm -y --no-progress
+
+    - name: Setup MSYS2 (FFmpeg configure/make)
+      if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: MSYS
+        update: false
+        path-type: inherit
+        install: make diffutils perl pkgconf tar bzip2 xz curl
+
+    - name: Build static FFmpeg+x264 (MSVC)
+      if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
+      shell: msys2 {0}
+      working-directory: ${{github.workspace}}
+      run: |
+        # MSYS coreutils ships its own link.exe, which would shadow the MSVC linker.
+        rm -f /usr/bin/link.exe
+        export PATH="/c/Program Files/NASM:$PATH"
+        export FFMPEG_PREFIX="$(cygpath -m '${{github.workspace}}/thirdparties/ffmpeg')"
+        export FFMPEG_SRC="$(cygpath -u '${{github.workspace}}/thirdparties/ffmpeg-src')"
+        export FFMPEG_MSVC_ARCH='${{ matrix.architecture.name }}'
+        bash source/misc/video/build-ffmpeg-x264-msvc.sh
+
     - name: CMake Settings
       run: |
+        $ffmpegFlag = "-DUSE_VIDEO_H264=ON -DFFMPEG_REQUIRED=ON -DFFMPEG_ROOT='${{github.workspace}}/thirdparties/ffmpeg'"
         echo "CMAKE_PARAM= `
         --log-level=VERBOSE `
         -DCMAKE_INSTALL_PREFIX='${{github.workspace}}/install' `
@@ -251,7 +289,8 @@ jobs:
         -DUSE_RENDERER_DLOPEN=OFF `
         -DBUILD_RENDERER_GL2=OFF `
         -DBUILD_TESTING=OFF `
-        -DPRODUCT_VERSION_STAGE='${{ env.RELEASE_STAGE }}'".Replace("`r", "").Replace("`n", "") >> $env:GITHUB_ENV
+        -DPRODUCT_VERSION_STAGE='${{ env.RELEASE_STAGE }}' `
+        $ffmpegFlag".Replace("`r", "").Replace("`n", "") >> $env:GITHUB_ENV
 
     - name: Configure CMake
       working-directory: ${{github.workspace}}
@@ -291,6 +330,13 @@ jobs:
         $mainCount = (Get-ChildItem -Path '${{github.workspace}}/package/main' -Recurse -File).Count
         if ($mainCount -lt 90) { throw "package/main has only $mainCount files (need >= 90)" }
         Write-Host "package/main OK ($mainCount files)"
+        # Changed in Omaha: release clients must ship H.264 demo export (static FFmpeg).
+        $clientExe = Get-ChildItem -Path '${{github.workspace}}/package' -Filter 'openmohaa*.exe' | Where-Object { $_.Name -notlike 'launch_*' } | Select-Object -First 1
+        if (-not $clientExe) { throw 'client executable not found in package' }
+        if (-not (Select-String -Path $clientExe.FullName -Pattern 'EXPORTING MP4' -SimpleMatch -Quiet)) {
+          throw "$($clientExe.Name) was built without H.264 export (USE_VIDEO_H264)"
+        }
+        Write-Host "H.264 export OK in $($clientExe.Name)"
 
     - name: Generate setup files
       working-directory: ${{github.workspace}}

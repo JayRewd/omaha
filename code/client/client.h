@@ -781,6 +781,13 @@ qboolean CL_AVI_BeginDemoExport( const char *demoFile );
 void CL_AVI_TryStartIfNeeded( void );
 void CL_AVI_FinishDemoExport( void );
 
+/* Added in Omaha: H.264 MP4 demo export (see cl_videoenc.*). */
+qboolean CL_VideoEnc_Available( void );
+qboolean CL_VideoEnc_Active( void );
+qboolean CL_VideoEnc_Open( const char *osPath, int width, int height, int frameRate, int sampleRate );
+void     CL_VideoEnc_PushVideo( const byte *bgr, int size );
+void     CL_VideoEnc_PushAudio( const byte *pcm, int size );
+qboolean CL_VideoEnc_Close( void );
 
 qboolean S_OPENAL_BeginAviLoopback( void );
 void S_OPENAL_EndAviLoopback( void );

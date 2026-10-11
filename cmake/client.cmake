@@ -12,6 +12,7 @@ include(libraries/libtess2)
 
 set(CLIENT_SOURCES
     ${SOURCE_DIR}/client/cl_avi.cpp
+    ${SOURCE_DIR}/client/cl_videoenc.cpp
     ${SOURCE_DIR}/client/cl_cgame.cpp
     ${SOURCE_DIR}/client/cl_cin.cpp
     ${SOURCE_DIR}/client/cl_consolecmds.cpp

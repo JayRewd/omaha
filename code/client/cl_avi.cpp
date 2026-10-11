@@ -24,6 +24,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "cl_ui.h"
 #include "cl_uimenu_dispatcher.h"
 #include "cl_uivars.h"
+#include "cl_videoenc.h"
 #include "snd_local.h"
 
 #ifdef USE_INTERNAL_SDL_HEADERS
@@ -79,6 +80,8 @@ typedef struct aviFileData_s
 
   byte          *cBuffer, *eBuffer;
 
+  /* Added in Omaha: H.264 MP4 mode for DEMOS-browser export. */
+  qboolean      h264;
 } aviFileData_t;
 
 static aviFileData_t afd;
@@ -432,9 +435,69 @@ static void CL_AVI_BuildFilename( char *filename, int filenameSize, const char *
 	Com_sprintf( filename, filenameSize, "videos/%s_9999.%s", stripped, ext );
 }
 
+/* Added in Omaha: resolve qpath under fs_homedatapath for FFmpeg avio. */
+static void CL_AVI_HomeDataOSPath( char *osPath, int osPathSize, const char *qpath )
+{
+	char *built;
+
+	built = FS_BuildOSPath( Cvar_VariableString( "fs_homedatapath" ), FS_GetCurrentGameDir(), qpath );
+	Q_strncpyz( osPath, built, osPathSize );
+	FS_CreatePath( osPath );
+}
+
+static qboolean CL_AVI_OpenH264ForWriting( const char *qpath )
+{
+	char osPath[ MAX_OSPATH ];
+	int  sampleRate;
+
+	if ( afd.fileOpen || afd.h264 ) {
+		return qfalse;
+	}
+	if ( !CL_VideoEnc_Available() ) {
+		return qfalse;
+	}
+	if ( cl_aviFrameRate->integer <= 0 ) {
+		Com_Printf( S_COLOR_RED "cl_aviFrameRate must be >= 1\n" );
+		return qfalse;
+	}
+
+	Com_Memset( &afd, 0, sizeof( aviFileData_t ) );
+	afd.frameRate = cl_aviFrameRate->integer;
+	afd.width = cls.glconfig.vidWidth;
+	afd.height = cls.glconfig.vidHeight;
+	afd.motionJpeg = qfalse;
+	afd.h264 = qtrue;
+
+	afd.cBuffer = ( byte * )Z_Malloc( afd.width * afd.height * 4 );
+	afd.eBuffer = ( byte * )Z_Malloc( afd.width * afd.height * 4 );
+
+	sampleRate = S_OPENAL_AviSampleRate();
+	if ( sampleRate <= 0 ) {
+		sampleRate = 44100;
+	}
+	if ( !S_OPENAL_AviLoopbackActive() || !Cvar_VariableIntegerValue( "s_initsound" ) ) {
+		sampleRate = 0;
+	}
+
+	CL_AVI_HomeDataOSPath( osPath, sizeof( osPath ), qpath );
+	Q_strncpyz( afd.fileName, qpath, sizeof( afd.fileName ) );
+
+	if ( !CL_VideoEnc_Open( osPath, afd.width, afd.height, afd.frameRate, sampleRate ) ) {
+		Z_Free( afd.cBuffer );
+		Z_Free( afd.eBuffer );
+		Com_Memset( &afd, 0, sizeof( aviFileData_t ) );
+		return qfalse;
+	}
+
+	afd.audio = ( sampleRate > 0 ) ? qtrue : qfalse;
+	afd.fileOpen = qtrue;
+	return qtrue;
+}
 
 qboolean CL_AVI_BeginDemoExport( const char *demoFile )
 {
+	const char *ext;
+
 	if ( !demoFile || !demoFile[0] ) {
 		return qfalse;
 	}
@@ -444,7 +507,9 @@ qboolean CL_AVI_BeginDemoExport( const char *demoFile )
 		return qfalse;
 	}
 
-	CL_AVI_BuildFilename( cls.aviDemoPath, sizeof( cls.aviDemoPath ), demoFile, "avi" );
+	/* Changed in Omaha: prefer H.264 MP4 when static FFmpeg is linked. */
+	ext = CL_VideoEnc_Available() ? "mp4" : "avi";
+	CL_AVI_BuildFilename( cls.aviDemoPath, sizeof( cls.aviDemoPath ), demoFile, ext );
 	cls.aviDemoExport = qtrue;
 	CL_UIVar_Set( "ui_om_demo_overlay", "0" );
 	if ( CL_UIMenu_IsOpen( "demo_overlay" ) ) {
@@ -453,7 +518,7 @@ qboolean CL_AVI_BeginDemoExport( const char *demoFile )
 	if ( !S_OPENAL_BeginAviLoopback() ) {
 		Com_Printf( S_COLOR_YELLOW "Demo export: OpenAL loopback unavailable, writing video only.\n" );
 	}
-	CL_UIVar_Set( "ui_om_demo_phase", "EXPORTING AVI..." );
+	CL_UIVar_Set( "ui_om_demo_phase", CL_VideoEnc_Available() ? "EXPORTING MP4..." : "EXPORTING AVI..." );
 	return qtrue;
 }
 
@@ -473,6 +538,26 @@ void CL_AVI_TryStartIfNeeded( void )
 	}
 
 	CL_AVI_BeginExportBoost();
+
+	/* Prefer H.264; fall back to MJPEG AVI if encoder open fails. */
+	if ( CL_VideoEnc_Available() && CL_AVI_OpenH264ForWriting( cls.aviDemoPath ) ) {
+		return;
+	}
+
+	if ( CL_VideoEnc_Available() ) {
+		char base[ MAX_QPATH ];
+		const char *name;
+
+		Com_Printf( S_COLOR_YELLOW "H.264 export failed, falling back to AVI.\n" );
+		Q_strncpyz( base, cls.aviDemoPath, sizeof( base ) );
+		COM_StripExtension( base, base, sizeof( base ) );
+		name = base;
+		if ( !Q_stricmpn( name, "videos/", 7 ) ) {
+			name += 7;
+		}
+		CL_AVI_BuildFilename( cls.aviDemoPath, sizeof( cls.aviDemoPath ), name, "avi" );
+		CL_UIVar_Set( "ui_om_demo_phase", "EXPORTING AVI..." );
+	}
 
 	if ( !CL_OpenAVIForWriting( cls.aviDemoPath ) ) {
 		Com_Printf( S_COLOR_RED "Demo export: could not open %s\n", cls.aviDemoPath );
@@ -666,6 +751,13 @@ void CL_WriteAVIVideoFrame( const byte *imageBuffer, int size )
   if( !afd.fileOpen )
     return;
 
+  /* Added in Omaha: route demo export frames into the H.264 encoder. */
+  if( afd.h264 )
+  {
+    CL_VideoEnc_PushVideo( imageBuffer, size );
+    afd.numVideoFrames++;
+    return;
+  }
 
   // Chunk header + contents + padding
   if( CL_CheckFileSize( 8 + size + 2 ) )
@@ -715,6 +807,13 @@ void CL_WriteAVIAudioFrame( const byte *pcmBuffer, int size )
   if( !afd.fileOpen )
     return;
 
+  /* Added in Omaha: H.264 path accepts PCM immediately (encoder frames AAC). */
+  if( afd.h264 )
+  {
+    CL_VideoEnc_PushAudio( pcmBuffer, size );
+    afd.numAudioFrames++;
+    return;
+  }
 
   // Chunk header + contents + padding
   if( CL_CheckFileSize( 8 + bytesInBuffer + size + 2 ) )
@@ -777,8 +876,10 @@ void CL_TakeVideoFrame( void )
   if( !afd.fileOpen )
     return;
 
-  /* Fixed in Omaha: capture through the renderer export, not RE_TakeVideoFrame. */
-  re.TakeVideoFrame( afd.width, afd.height, afd.cBuffer, afd.eBuffer, afd.motionJpeg );
+  /* Fixed in Omaha: capture through the renderer export, not RE_TakeVideoFrame.
+   * H.264 mode always wants raw BGR (motionJpeg = false). */
+  re.TakeVideoFrame( afd.width, afd.height, afd.cBuffer, afd.eBuffer,
+      afd.h264 ? qfalse : afd.motionJpeg );
 }
 
 /*
@@ -794,10 +895,23 @@ qboolean CL_CloseAVI( void )
   int indexSize = afd.numIndices * 16;
   const char *idxFileName = va( "%s" INDEX_FILE_EXTENSION, afd.fileName );
 
-  // AVI file isn't open
+  // AVI / MP4 file isn't open
   if( !afd.fileOpen )
     return qfalse;
 
+  /* Added in Omaha: close H.264 encoder (drains queue, writes trailer). */
+  if( afd.h264 )
+  {
+    qboolean ok;
+
+    afd.fileOpen = qfalse;
+    ok = CL_VideoEnc_Close();
+    Z_Free( afd.cBuffer );
+    Z_Free( afd.eBuffer );
+    Com_Printf( "Wrote %d:%d frames to %s\n", afd.numVideoFrames, afd.numAudioFrames, afd.fileName );
+    Com_Memset( &afd, 0, sizeof( aviFileData_t ) );
+    return ok;
+  }
 
   afd.fileOpen = qfalse;
 
@@ -863,5 +977,5 @@ CL_VideoRecording
 */
 qboolean CL_VideoRecording( void )
 {
-  return afd.fileOpen;
+  return afd.fileOpen || CL_VideoEnc_Active();
 }

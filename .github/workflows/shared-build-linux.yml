@@ -25,13 +25,13 @@ jobs:
     strategy:
       matrix:
         architecture: [
-          {name: 'amd64',   os: "ubuntu-22.04-arm", package: 'x86-64-linux-gnu',      triple: 'x86_64-linux-gnu',      arch_option: 'linux-x86_64'},
-          {name: 'i686',    os: "ubuntu-22.04-arm", package: 'i686-linux-gnu',        triple: 'i686-linux-gnu',        arch_option: 'linux-x86'},
-          {name: 'arm64',   os: "ubuntu-22.04-arm", package: 'aarch64-linux-gnu',     triple: 'aarch64-linux-gnu',     arch_option: 'linux-aarch64'},
-          {name: 'armhf',   os: "ubuntu-22.04-arm", package: 'arm-linux-gnueabihf',   triple: 'arm-linux-gnueabihf',   arch_option: 'linux-armv4'},
-          {name: 'powerpc', os: "ubuntu-22.04",     package: 'powerpc-linux-gnu',     triple: 'powerpc-linux-gnu',     arch_option: 'linux-ppc'},
-          {name: 'ppc64',   os: "ubuntu-22.04",     package: 'powerpc64-linux-gnu',   triple: 'powerpc64-linux-gnu',   arch_option: 'linux-ppc64'},
-          {name: 'ppc64el', os: "ubuntu-22.04-arm", package: 'powerpc64le-linux-gnu', triple: 'powerpc64le-linux-gnu', arch_option: 'linux-ppc64le'}
+          {name: 'amd64',   os: "ubuntu-22.04-arm", package: 'x86-64-linux-gnu',      triple: 'x86_64-linux-gnu',      arch_option: 'linux-x86_64', ffmpeg_arch: 'x86_64'},
+          {name: 'i686',    os: "ubuntu-22.04-arm", package: 'i686-linux-gnu',        triple: 'i686-linux-gnu',        arch_option: 'linux-x86', ffmpeg_arch: 'x86'},
+          {name: 'arm64',   os: "ubuntu-22.04-arm", package: 'aarch64-linux-gnu',     triple: 'aarch64-linux-gnu',     arch_option: 'linux-aarch64', ffmpeg_arch: 'aarch64'},
+          {name: 'armhf',   os: "ubuntu-22.04-arm", package: 'arm-linux-gnueabihf',   triple: 'arm-linux-gnueabihf',   arch_option: 'linux-armv4', ffmpeg_arch: 'arm'},
+          {name: 'powerpc', os: "ubuntu-22.04",     package: 'powerpc-linux-gnu',     triple: 'powerpc-linux-gnu',     arch_option: 'linux-ppc', ffmpeg_arch: 'ppc'},
+          {name: 'ppc64',   os: "ubuntu-22.04",     package: 'powerpc64-linux-gnu',   triple: 'powerpc64-linux-gnu',   arch_option: 'linux-ppc64', ffmpeg_arch: 'ppc64'},
+          {name: 'ppc64el', os: "ubuntu-22.04-arm", package: 'powerpc64le-linux-gnu', triple: 'powerpc64le-linux-gnu', arch_option: 'linux-ppc64le', ffmpeg_arch: 'ppc64'}
         ]
 
     name: "Building for platform linux-${{matrix.architecture.name}}"
@@ -51,8 +51,8 @@ jobs:
     - uses: awalsh128/cache-apt-pkgs-action@latest
       name: Install required packages
       with:
-        packages: flex bison ninja-build cmake clang libpulse-dev portaudio19-dev libasound2-dev libjack-dev libpipewire-0.3-dev qtbase5-dev libdbus-1-dev
-        version: "${{ runner.os }}-${{ runner.arch }}-v1"
+        packages: flex bison ninja-build cmake clang pkg-config libpulse-dev portaudio19-dev libasound2-dev libjack-dev libpipewire-0.3-dev qtbase5-dev libdbus-1-dev nasm
+        version: "${{ runner.os }}-${{ runner.arch }}-v3"
 
     - name: Settings
       working-directory: ${{github.workspace}}
@@ -210,8 +210,38 @@ jobs:
       with:
         path: 'source'
 
+    ###
+    # Static FFmpeg + x264 (H.264 demo export) — linked into openmohaa
+    ###
+
+    - name: Cache FFmpeg+x264
+      id: cache-ffmpeg
+      uses: actions/cache@v4
+      with:
+        path: 'thirdparties/ffmpeg'
+        key: ${{ runner.os }}-${{ matrix.architecture.name }}-ffmpeg-7.1.1-x264-0480cb05-${{ hashFiles('source/misc/video/build-ffmpeg-x264.sh') }}-v2
+
+    - name: Build static FFmpeg+x264
+      if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
+      working-directory: ${{github.workspace}}
+      run: |
+        export FFMPEG_PREFIX='${{github.workspace}}/thirdparties/ffmpeg'
+        export FFMPEG_SRC='${{github.workspace}}/thirdparties/ffmpeg-src'
+        export FFMPEG_ARCH='${{ matrix.architecture.ffmpeg_arch }}'
+        if [ "$HOST_TRIPLE" != '${{ matrix.architecture.triple }}' ]; then
+          export FFMPEG_HOST_TRIPLE='${{ matrix.architecture.triple }}'
+          # Host binutils may not index foreign objects; use the cross ar/ranlib/nm.
+          for tool in ar ranlib nm strip; do
+            if command -v "${FFMPEG_HOST_TRIPLE}-${tool}" >/dev/null 2>&1; then
+              export "${tool^^}=${FFMPEG_HOST_TRIPLE}-${tool}"
+            fi
+          done
+        fi
+        bash source/misc/video/build-ffmpeg-x264.sh
+
     - name: CMake Settings
       run: |
+        FFMPEG_FLAG="-DUSE_VIDEO_H264=ON -DFFMPEG_REQUIRED=ON -DFFMPEG_ROOT='${{github.workspace}}/thirdparties/ffmpeg'"
         echo "CMAKE_PARAM=--log-level=VERBOSE \
         -DCMAKE_INSTALL_PREFIX='${{github.workspace}}/install' \
         -DUSE_INTERNAL_SDL=OFF \
@@ -223,7 +253,8 @@ jobs:
         -DBUILD_RENDERER_GL2=OFF \
         -DBUILD_TESTING=OFF \
         -DGIT_REVISION_BUILD_NUMBER=${{ github.run_number }} \
-        -DPRODUCT_VERSION_STAGE='${{ env.RELEASE_STAGE }}'" >> $GITHUB_ENV
+        -DPRODUCT_VERSION_STAGE='${{ env.RELEASE_STAGE }}' \
+        ${FFMPEG_FLAG}" >> $GITHUB_ENV
 
     - name: Configure CMake
       working-directory: ${{github.workspace}}
@@ -265,6 +296,13 @@ jobs:
           exit 1
         fi
         echo "package/main OK ($main_count files)"
+        # Changed in Omaha: release clients must ship H.264 demo export (static FFmpeg).
+        client_bin=$(find '${{github.workspace}}/package' -maxdepth 1 -type f -name 'openmohaa*' ! -name '*.so' | head -n 1)
+        if [ -z "$client_bin" ] || ! grep -aq 'EXPORTING MP4' "$client_bin"; then
+          echo "client binary '${client_bin}' was built without H.264 export (USE_VIDEO_H264)" >&2
+          exit 1
+        fi
+        echo "H.264 export OK in $(basename "$client_bin")"
 
     ###
     # Artifacts

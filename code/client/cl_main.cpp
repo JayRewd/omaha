@@ -3744,6 +3744,9 @@ void CL_Init( void ) {
 	cl_aviFrameRate = Cvar_Get ("cl_aviFrameRate", "60", CVAR_ARCHIVE); /* Changed in Omaha: default demo/video export to 60 fps */
 	cl_aviMotionJpeg = Cvar_Get ("cl_aviMotionJpeg", "1", CVAR_ARCHIVE);
 	cl_forceavidemo = Cvar_Get ("cl_forceavidemo", "0", 0);
+	/* Added in Omaha: H.264 demo export quality (used when USE_VIDEO_H264 is linked). */
+	Cvar_Get( "cl_videoPreset", "veryfast", CVAR_ARCHIVE );
+	Cvar_Get( "cl_videoCrf", "15", CVAR_ARCHIVE );
 
 	rconAddress = Cvar_Get ("rconAddress", "", 0);
 
