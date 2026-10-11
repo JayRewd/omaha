@@ -279,6 +279,22 @@ int Sys_Milliseconds (void)
 
 /*
 ================
+Sys_Microseconds
+================
+*/
+int64_t Sys_Microseconds(void)
+{
+	static LARGE_INTEGER freq;
+	LARGE_INTEGER now;
+
+	if (!freq.QuadPart)
+		QueryPerformanceFrequency(&freq);
+	QueryPerformanceCounter(&now);
+	return now.QuadPart / freq.QuadPart * 1000000 + now.QuadPart % freq.QuadPart * 1000000 / freq.QuadPart;
+}
+
+/*
+================
 Sys_RandomBytes
 ================
 */

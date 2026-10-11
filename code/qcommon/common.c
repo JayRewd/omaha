@@ -2327,7 +2327,7 @@ void Com_Frame( void ) {
 
 	int		msec, minMsec;
 	int		timeVal, timeValSV;
-	static int	lastTime = 0, bias = 0;
+	static int	lastTime = 0;
  
 	int		timeBeforeFirstEvents;
 	int		timeBeforeServer;
@@ -2381,54 +2381,64 @@ void Com_Frame( void ) {
 	}
 
     // Figure out how much time we have
-    if (!com_timedemo->integer)
+    if (com_timedemo->integer || com_dedicated->integer)
     {
-        if (com_dedicated->integer)
-            minMsec = SV_FrameMsec();
-        else
+        minMsec = com_timedemo->integer ? 1 : SV_FrameMsec();
+
+        do
         {
-            if (com_minimized->integer && com_maxfpsMinimized->integer > 0)
-                minMsec = 1000 / com_maxfpsMinimized->integer;
-            else if (com_unfocused->integer && com_maxfpsUnfocused->integer > 0)
-                minMsec = 1000 / com_maxfpsUnfocused->integer;
-            else if (com_maxfps->integer > 0)
-                minMsec = 1000 / com_maxfps->integer;
+            if (com_sv_running->integer)
+            {
+                timeValSV = SV_SendQueuedPackets();
+
+                timeVal = Com_TimeVal(minMsec);
+
+                if (timeValSV < timeVal)
+                    timeVal = timeValSV;
+            }
             else
-                minMsec = 1;
+                timeVal = Com_TimeVal(minMsec);
 
-            timeVal = com_frameTime - lastTime;
-            bias += timeVal - minMsec;
-
-            if (bias > minMsec)
-                bias = minMsec;
-
-            // Adjust minMsec if previous frame took too long to render so
-            // that framerate is stable at the requested value.
-            minMsec -= bias;
-        }
+            if (com_busyWait->integer || timeVal < 1)
+                NET_Sleep(0);
+            else
+                NET_Sleep(timeVal - 1);
+        } while (Com_TimeVal(minMsec));
     }
     else
-        minMsec = 1;
-
-    do
     {
-        if (com_sv_running->integer)
+        // Changed in Omaha: microsecond deadline so any com_maxfps (incl. >1000) is honored
+        static int64_t nextFrameUs;
+        int64_t nowUs = Sys_Microseconds(), frameUs, remainUs;
+        int maxfps;
+
+        if (com_minimized->integer && com_maxfpsMinimized->integer > 0)
+            maxfps = com_maxfpsMinimized->integer;
+        else if (com_unfocused->integer && com_maxfpsUnfocused->integer > 0)
+            maxfps = com_maxfpsUnfocused->integer;
+        else
+            maxfps = com_maxfps->integer;
+
+        frameUs = maxfps > 0 ? 1000000 / maxfps : 0;
+        nextFrameUs += frameUs;
+        if (nextFrameUs < nowUs - frameUs)
+            nextFrameUs = nowUs - frameUs;
+
+        do
         {
-            timeValSV = SV_SendQueuedPackets();
+            remainUs = nextFrameUs - Sys_Microseconds();
+            timeVal = (!com_busyWait->integer && remainUs > 1500) ? (int)(remainUs / 1000) - 1 : 0;
 
-            timeVal = Com_TimeVal(minMsec);
+            if (com_sv_running->integer)
+            {
+                timeValSV = SV_SendQueuedPackets();
+                if (timeValSV < timeVal)
+                    timeVal = timeValSV;
+            }
 
-            if (timeValSV < timeVal)
-                timeVal = timeValSV;
-        }
-        else
-            timeVal = Com_TimeVal(minMsec);
-
-        if (com_busyWait->integer || timeVal < 1)
-            NET_Sleep(0);
-        else
-            NET_Sleep(timeVal - 1);
-    } while (Com_TimeVal(minMsec));
+            NET_Sleep(timeVal);
+        } while (Sys_Microseconds() < nextFrameUs);
+    }
 
     IN_Frame();
 
