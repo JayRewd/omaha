@@ -1260,7 +1260,13 @@ static void PaintBackgroundImage(
 	float drawW = geom.w;
 	float drawH = geom.h;
 
-	if (fit == UID_IMAGE_FIT_REPEAT && isEdgeClip) {
+	/*
+	 * Fixed in Omaha: edge-clip left/top/right/bottom are unitless 0..1 fractions.
+	 * ResolveShape/IngestPropMaps treated bare numbers as px × uiPxScale, which
+	 * shrunk classic health/boss/fuse meters at non-1 uiPxScale. Evaluate fracs
+	 * the same way for stretch and repeat; only repeat keeps retail draw offset.
+	 */
+	if (isEdgeClip) {
 		double leftFrac = 0.0;
 		double topFrac = 0.0;
 		double rightFrac = 1.0;
@@ -1289,80 +1295,64 @@ static void PaintBackgroundImage(
 			bottomFrac = topFrac;
 		}
 
-		const bool retailOffset =
-			topFrac > 1e-6 || leftFrac > 1e-6 || rightFrac < 1.0 - 1e-6 || bottomFrac < 1.0 - 1e-6;
+		if (fit == UID_IMAGE_FIT_REPEAT) {
+			const bool retailOffset =
+				topFrac > 1e-6 || leftFrac > 1e-6 || rightFrac < 1.0 - 1e-6 || bottomFrac < 1.0 - 1e-6;
 
-		if (retailOffset) {
-			/*
-			 * Retail statbar parity (cl_uistd.cpp): offset the draw position by the
-			 * clipped fraction and keep full frame height so repeat UVs stay aligned
-			 * to tile rows. Scissoring mid-pattern leaves half-cartridge drift.
-			 */
-			drawX = geom.x + static_cast<float>(leftFrac) * geom.w;
-			drawY = geom.y + static_cast<float>(topFrac) * geom.h;
-			drawW = geom.w * static_cast<float>(rightFrac - leftFrac);
-			drawH = geom.h;
+			if (retailOffset) {
+				/*
+				 * Retail statbar parity (cl_uistd.cpp): offset the draw position by the
+				 * clipped fraction and keep full frame height so repeat UVs stay aligned
+				 * to tile rows. Scissoring mid-pattern leaves half-cartridge drift.
+				 */
+				drawX = geom.x + static_cast<float>(leftFrac) * geom.w;
+				drawY = geom.y + static_cast<float>(topFrac) * geom.h;
+				drawW = geom.w * static_cast<float>(rightFrac - leftFrac);
+				drawH = geom.h;
 
-			const float visW = drawW;
-			const float visH = geom.h * static_cast<float>(bottomFrac - topFrac);
-			viewW = drawW;
-			viewH = drawH;
+				const float visW = drawW;
+				const float visH = geom.h * static_cast<float>(bottomFrac - topFrac);
+				viewW = drawW;
+				viewH = drawH;
+
+				char pathBuf[128];
+				std::snprintf(
+					pathBuf,
+					sizeof(pathBuf),
+					"M 0 0 L %.4f 0 L %.4f %.4f L 0 %.4f Z",
+					visW,
+					visW,
+					visH,
+					visH
+				);
+				clipStorage.push_back(pathBuf);
+				clipDs.push_back(clipStorage.back().c_str());
+			}
+		} else {
+			/* Stretch/contain/cover: full-geom draw, AABB clip in view space. */
+			const float lx = static_cast<float>(leftFrac) * geom.w;
+			const float ty = static_cast<float>(topFrac) * geom.h;
+			const float rx = static_cast<float>(rightFrac) * geom.w;
+			const float by = static_cast<float>(bottomFrac) * geom.h;
+			viewW = geom.w;
+			viewH = geom.h;
 
 			char pathBuf[128];
 			std::snprintf(
 				pathBuf,
 				sizeof(pathBuf),
-				"M 0 0 L %.4f 0 L %.4f %.4f L 0 %.4f Z",
-				visW,
-				visW,
-				visH,
-				visH
+				"M %.4f %.4f L %.4f %.4f L %.4f %.4f L %.4f %.4f Z",
+				lx,
+				ty,
+				rx,
+				ty,
+				rx,
+				by,
+				lx,
+				by
 			);
 			clipStorage.push_back(pathBuf);
 			clipDs.push_back(clipStorage.back().c_str());
-		} else if (usePathPaint) {
-			const std::string pathShapeId = rectShape ? "rectangle" : std::string(shapeName);
-			auto sit = doc->definitions.shapes.find(pathShapeId);
-			if (sit != doc->definitions.shapes.end()) {
-				uid_shape_resolve_params_t params{};
-				if (sit->second.hasIntrinsicSize && sit->second.width > 0.0f && sit->second.height > 0.0f) {
-					params.parentWidth = sit->second.width;
-					params.parentHeight = sit->second.height;
-					viewW = sit->second.width;
-					viewH = sit->second.height;
-				} else {
-					params.parentWidth = geom.w;
-					params.parentHeight = geom.h;
-				}
-				/*
-			 * Fixed in Omaha: intrinsic viewbox props must not also take uiPxScale —
-				 * layout already sized geom and SvgMap stretches view→dest.
-				 */
-				if (sit->second.hasIntrinsicSize && (viewW != geom.w || viewH != geom.h)) {
-					params.uiPxScale = 1.0f;
-				} else {
-					params.uiPxScale = (doc->lastUiPxScale > 0.0f) ? doc->lastUiPxScale : 1.0f;
-				}
-				params.shapeProps = &node.properties;
-				params.limits = &doc->limits;
-				params.parentProps = &node.properties;
-				params.backend = backend;
-				params.doc = doc;
-				params.nodeId = nodeId;
-
-				uid_node_state_t *st = State(doc, nodeId);
-				const std::vector<uid_resolved_path_t> *paths = nullptr;
-				if (ResolveShapeCached(doc, nodeId, st, &sit->second, &params, pathShapeId.c_str(), &paths) &&
-					paths) {
-					for (const uid_resolved_path_t &p : *paths) {
-						if (p.d.empty()) {
-							continue;
-						}
-						clipStorage.push_back(p.d);
-						clipDs.push_back(clipStorage.back().c_str());
-					}
-				}
-			}
 		}
 	} else if (usePathPaint) {
 		const std::string pathShapeId = rectShape ? "rectangle" : std::string(shapeName);

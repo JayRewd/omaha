@@ -622,6 +622,8 @@ static int g_edgeClipScissorY = 0;
 static int g_edgeClipScissorW = 0;
 static int g_edgeClipScissorH = 0;
 static bool g_edgeClipScissorOk = false;
+/* Added in Omaha: sticky capture for stretch edge-clip scale regression. */
+static bool g_edgeClipScaleScissorOk = false;
 
 static int edge_clip_register_shader(const char *path)
 {
@@ -676,6 +678,10 @@ static void edge_clip_test_scissor(int x, int y, int w, int h)
 	g_edgeClipScissorH = h;
 	if (w == 64 && h == 64 && y == 352) {
 		g_edgeClipScissorOk = true;
+	}
+	/* 75×150 bar, top=0.4 → UI clip y=60 h=90 → GL y=480-(60+90)=330. */
+	if (w == 75 && h == 90 && y == 330) {
+		g_edgeClipScaleScissorOk = true;
 	}
 }
 
@@ -3147,6 +3153,92 @@ void TestEdgeClipShapePaint(void)
 	CHECK(img.find("xywh=0.0,0.0,64.0,128.0") != std::string::npos);
 	CHECK(img.find("64") != std::string::npos);
 	CHECK(g_edgeClipScissorOk);
+	UIR_ImageShutdown();
+	UID_DestroyDocument(doc);
+}
+
+/*
+ * Added in Omaha: stretch edge-clip top/right/… are unitless 0..1 fracs.
+ * IngestPropMaps used to treat "0.4" as 0.4px × uiPxScale, so at scale 1.5
+ * health_top=0.4 clipped at 60% instead of 40%.
+ */
+void TestEdgeClipStretchFracIgnoresUiPxScale(void)
+{
+	static const char *kDoc = R"(
+<ui version="1">
+  <definitions>
+    <defaults type="vertical" width="100%" height="100%"/>
+    <shapes>
+      <shape id="edge-clip">
+        <props>
+          <prop name="left" type="number" default="0"/>
+          <prop name="top" type="number" default="0"/>
+          <prop name="right" type="number" default="1"/>
+          <prop name="bottom" type="number" default="1"/>
+        </props>
+        <path fill="none"
+          d="M {parent.width * shape.left} {parent.height * shape.top}
+             L {parent.width * shape.right} {parent.height * shape.top}
+             L {parent.width * shape.right} {parent.height * shape.bottom}
+             L {parent.width * shape.left} {parent.height * shape.bottom}
+             Z"/>
+      </shape>
+    </shapes>
+    <images>
+      <image id="meter" src="textures/hud/healthmeter"/>
+    </images>
+  </definitions>
+  <canvas>
+    <container id="root" type="vertical" width="100%" height="100%">
+      <container id="bar" width="50px" height="100px" background-image="meter"
+                 background-fit="stretch" shape="edge-clip" left="0" top="0.4" right="1" bottom="1"/>
+    </container>
+  </canvas>
+</ui>
+)";
+	uid_limits_t lim;
+	UID_DefaultLimits(&lim);
+	uid_document_t *doc = UID_CreateDocument();
+	uid_diag_list_t diags(lim.maxDiagnostics);
+	FakeBackendState st;
+	uid_backend_t be = MakeFakeBackend(&st);
+
+	UIR_CompositorReset();
+	g_edgeClipScaleScissorOk = false;
+	{
+		uir_viewport_t       vp;
+		uir_draw2d_backend_t d2d;
+		uir_image_backend_t  image;
+		std::memset(&d2d, 0, sizeof(d2d));
+		std::memset(&image, 0, sizeof(image));
+		UIR_ViewportMake(0, 0, 640, 480, &vp);
+		UIR_BeginOverlayFrame(&vp, 0);
+		d2d.scissor = edge_clip_test_scissor;
+		UIR_Draw2D_SetBackend(&d2d);
+		image.registerShaderNoMip = edge_clip_register_shader;
+		image.getShaderSize = edge_clip_shader_size;
+		image.setColor = edge_clip_set_color;
+		image.drawStretchPic = edge_clip_draw_stretch;
+		UIR_ImageSetBackend(&image);
+	}
+	be.drawImage = fake_drawImageUir;
+
+	CHECK(UID_ParseXml("edge_clip_scale.xml", kDoc, std::strlen(kDoc), &lim, nullptr, doc, &diags) == UID_OK);
+	CHECK(UID_ExpandDocument(doc, &diags) == UID_OK);
+	CHECK(UID_CompileDocument(doc, &diags) == UID_OK);
+	/* uiPxScale=1.5 → bar lays out at 75×150; unitless top=0.4 → clip y=60, not 90. */
+	CHECK(UID_LayoutDocument(doc, 640, 480, 1.0f, 1.5f, &be, &diags) == UID_OK);
+	CHECK_EQ_F(doc->lastUiPxScale, 1.5, 1e-3);
+	UID_PaintChrome(doc, &be);
+	CHECK(st.imageDrawLog.size() >= 1);
+	const std::string &img = st.imageDrawLog.back();
+	CHECK(img.find("clips=1") != std::string::npos);
+	CHECK(img.find("xywh=0.0,0.0,75.0,150.0") != std::string::npos);
+	/* Correct unitless clip: top edge at 0.4 * 150 = 60. */
+	CHECK(img.find("M 0.0000 60.0000") != std::string::npos);
+	/* Old bug: 0.4 treated as px × 1.5 → shape.top=0.6 → y=90. */
+	CHECK(img.find("M 0.0000 90.0000") == std::string::npos);
+	CHECK(g_edgeClipScaleScissorOk);
 	UIR_ImageShutdown();
 	UID_DestroyDocument(doc);
 }
@@ -11685,6 +11777,7 @@ int main(void)
 	TestForeachDefaultWidthAutoInHorizontalPanel();
 	TestAmmoPanelBottomRowLayoutMaxClip32();
 	TestEdgeClipShapePaint();
+	TestEdgeClipStretchFracIgnoresUiPxScale();
 	TestCvarBoundPropertySync();
 	TestOpacityInheritancePaint();
 	TestRejectDoctype();
