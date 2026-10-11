@@ -233,7 +233,7 @@
 									<use template="settings-cyclic-row" label="Resolution" bind="cvar:r_mode" source="video-modes" commit="apply"/>
 									<use template="settings-cyclic-row" label="Refresh Rate" bind="cvar:r_displayRefresh" source="display-refresh" commit="apply"/>
 									<use template="settings-on-off-row" label="Vertical sync" bind="cvar:r_swapInterval" commit="apply"/>
-									<use template="settings-cyclic-row" label="Max FPS" bind="cvar:com_maxfps" source="max-fps" commit="change"/>
+									<use template="settings-slider-row" label="Max FPS" bind="cvar:com_maxfps" min="125" max="1000" step="1" commit="change"/>
 									<use template="settings-on-off-row" label="Draw FPS" bind="cvar:fps" commit="change"/>
 									<use template="settings-slider-row" label="Gamma" bind="cvar:r_gamma" min="0.5" max="3" step="0.05" commit="change"/>
 									<use template="settings-cyclic-row" label="Color Depth" bind="cvar:r_colorbits" source="color-depth" commit="apply"/>

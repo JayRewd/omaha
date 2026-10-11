@@ -37,12 +37,6 @@
 
 		<!-- display-refresh is host-backed (SDL modes); see artifacts/research/display-refresh-sources.md -->
 
-		<source id="max-fps" default="125">
-			<item value="125" label="125"/>
-			<item value="250" label="250"/>
-			<item value="500" label="500"/>
-		</source>
-
 		<source id="color-depth" default="0">
 			<item value="0" label="Default"/>
 			<item value="16" label="16-bit"/>

@@ -1274,10 +1274,19 @@ static void MigrateSettingsCvarValue(
 	}
 
 	if (cvarName == "com_maxfps") {
+		// Changed in Omaha: Max FPS is a 125–1000 slider (was 125/250/500 cyclic).
 		const int fps = static_cast<int>(std::strtol(valueBuf, nullptr, 10));
-		if (fps != 125 && fps != 250 && fps != 500) {
-			backend->cvarWrite("com_maxfps", "125");
-			std::snprintf(valueBuf, valueBufSize, "%s", "125");
+		int         clamped = fps;
+		if (clamped < 125) {
+			clamped = 125;
+		} else if (clamped > 1000) {
+			clamped = 1000;
+		}
+		if (clamped != fps) {
+			char buf[16];
+			std::snprintf(buf, sizeof(buf), "%d", clamped);
+			backend->cvarWrite("com_maxfps", buf);
+			std::snprintf(valueBuf, valueBufSize, "%s", buf);
 		}
 		return;
 	}

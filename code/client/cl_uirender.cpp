@@ -4601,7 +4601,6 @@ static int uid_query_options(const char *source, char **values, char **labels, i
 		"9", "1600 x 1200", "10", "2048 x 1536",
 	};
 	static const char *const displayMode[] = {"1", "Fullscreen", "2", "Borderless", "0", "Windowed"};
-	static const char *const maxFps[] = {"125", "125", "250", "250", "500", "500"};
 	static const char *const colorDepth[] = {"16", "16-bit", "32", "32-bit"};
 	static const char *const speakerSetup[] = {
 		"0", "Two Speakers", "1", "Headphones", "2", "Surround (5.1)", "3", "Quad Speakers",
@@ -4656,7 +4655,6 @@ static int uid_query_options(const char *source, char **values, char **labels, i
 
 	UID_OPT_SRC("video-modes", videoModes);
 	UID_OPT_SRC("display-mode", displayMode);
-	UID_OPT_SRC("max-fps", maxFps);
 	UID_OPT_SRC("color-depth", colorDepth);
 	UID_OPT_SRC("texture-depth", colorDepth);
 	UID_OPT_SRC("speaker-setup", speakerSetup);
