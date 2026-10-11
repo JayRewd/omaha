@@ -29,6 +29,11 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 unsigned	frame_msec;
 int			old_com_frameTime;
 
+// Added in Omaha: usercmd / pmove rate (85..125), independent of render FPS
+cvar_t		*cl_cmdfps;
+// Added in Omaha: render-frame resample of the newest usercmd; consume no taps
+static qboolean	cl_keepLatches;
+
 /*
 ===============================================================================
 
@@ -380,6 +385,26 @@ void CL_AdjustAngles( void ) {
 
 /*
 ================
+CL_MoveKeyState
+
+Added in Omaha: CL_KeyState, but a tap since the last usercmd counts fully
+(usercmds can be several render frames apart).
+================
+*/
+static float CL_MoveKeyState( kbutton_t *key ) {
+	const qboolean tapped = key->wasPressed;
+	float          val;
+
+	if ( cl_keepLatches ) {
+		return ( key->active || tapped ) ? 1.0f : 0.0f;
+	}
+	val             = CL_KeyState( key );
+	key->wasPressed = qfalse;
+	return tapped ? 1.0f : val;
+}
+
+/*
+================
 CL_KeyMove
 
 Sets the usercmd_t based on key states
@@ -394,19 +419,19 @@ void CL_KeyMove( usercmd_t *cmd ) {
 	up = 0;
 	movespeed = 127;
 	if ( in_strafe.active ) {
-		side += movespeed * CL_KeyState (&in_right);
-		side -= movespeed * CL_KeyState (&in_left);
+		side += movespeed * CL_MoveKeyState (&in_right);
+		side -= movespeed * CL_MoveKeyState (&in_left);
 	}
 
-	side += movespeed * CL_KeyState (&in_moveright);
-	side -= movespeed * CL_KeyState (&in_moveleft);
+	side += movespeed * CL_MoveKeyState (&in_moveright);
+	side -= movespeed * CL_MoveKeyState (&in_moveleft);
 
 
-	up += movespeed * CL_KeyState (&in_up);
-	up -= movespeed * CL_KeyState (&in_down);
+	up += movespeed * CL_MoveKeyState (&in_up);
+	up -= movespeed * CL_MoveKeyState (&in_down);
 
-	forward += movespeed * CL_KeyState (&in_forward);
-	forward -= movespeed * CL_KeyState (&in_back);
+	forward += movespeed * CL_MoveKeyState (&in_forward);
+	forward -= movespeed * CL_MoveKeyState (&in_back);
 
 	cmd->forwardmove = ClampChar( forward );
 	cmd->rightmove = ClampChar( side );
@@ -672,15 +697,16 @@ void CL_MouseMove( usercmd_t *cmd ) {
 	cmd->buttons |= BUTTON_ANY;
 
 	// add mouse X/Y movement to cmd
+	// Changed in Omaha: mouse strafe accumulates until the next usercmd (CL_CreateCmd)
 	if(in_strafe.active)
-		cmd->rightmove = ClampChar(cmd->rightmove + m_side->value * mx);
+		cl.mouseStrafe[0] += m_side->value * mx;
 	else
 		cl.viewangles[YAW] -= m_yaw->value * mx;
 
 	if ((in_mlooking || cl_freelook->integer) && !in_strafe.active)
 		cl.viewangles[PITCH] += m_pitch->value * my;
 	else
-		cmd->forwardmove = ClampChar(cmd->forwardmove - m_forward->value * my);
+		cl.mouseStrafe[1] -= m_forward->value * my;
 
 	if (!isfinite(cl.viewangles[PITCH]) || !isfinite(cl.viewangles[YAW])) {
 		Com_DPrintf("Invalid client viewangles encountered (view pitch: %f, view yaw: %f)!\n", cl.viewangles[PITCH], cl.viewangles[YAW]);
@@ -717,7 +743,8 @@ void CL_CmdButtons( usercmd_t *cmd ) {
 		if ( in_buttons[i].active || in_buttons[i].wasPressed ) {
 			cmd->buttons |= 1 << i;
 		}
-		in_buttons[i].wasPressed = qfalse;
+		if ( !cl_keepLatches ) // Changed in Omaha
+			in_buttons[i].wasPressed = qfalse;
 	}
 
 	if (UI_MenuActive() || UI_ConsoleIsOpen()) {
@@ -728,8 +755,8 @@ void CL_CmdButtons( usercmd_t *cmd ) {
 		cmd->buttons |= BUTTON_RUN;
 	}
 
-	if (cge) {
-		// send weapon commands from cg
+	if (cge && !cl_keepLatches) {
+		// send weapon commands from cg (Changed in Omaha: consumed per call, so phys ticks only)
 		cmd->buttons |= cge->CG_WeaponCommandButtonBits();
 	}
 
@@ -774,9 +801,6 @@ usercmd_t CL_CreateCmd( void ) {
 
 	VectorCopy( cl.viewangles, oldAngles );
 
-	// keyboard angle adjustment
-	CL_AdjustAngles ();
-
 	Com_Memset( &cmd, 0, sizeof( cmd ) );
 
 	CL_CmdButtons( &cmd );
@@ -784,21 +808,18 @@ usercmd_t CL_CreateCmd( void ) {
 	// get basic movement from keyboard
 	CL_KeyMove( &cmd );
 
-	// get basic movement from mouse
-	CL_MouseMove( &cmd );
+	// Changed in Omaha: mouse look ran per render frame (CL_ApplyRenderLook); add its strafe
+	cmd.buttons |= cl.mouseCmd.buttons;
+	cmd.rightmove = ClampChar( cmd.rightmove + (int)cl.mouseStrafe[0] );
+	cmd.forwardmove = ClampChar( cmd.forwardmove + (int)cl.mouseStrafe[1] );
+	cl.mouseCmd.buttons = 0;
+	cl.mouseStrafe[0] = cl.mouseStrafe[1] = 0;
 
 	// get basic movement from joystick
 	CL_JoystickMove( &cmd );
 
 	/* Added in Omaha: ghost-spec jump/use cycle inject (after keys, before finish). */
 	CL_GhostSpec_AdjustMove( &cmd );
-
-	// check to make sure the angles haven't wrapped
-	if ( cl.viewangles[PITCH] - oldAngles[PITCH] > 90 ) {
-		cl.viewangles[PITCH] = oldAngles[PITCH] + 90;
-	} else if ( oldAngles[PITCH] - cl.viewangles[PITCH] > 90 ) {
-		cl.viewangles[PITCH] = oldAngles[PITCH] - 90;
-	}
 
 	// store out the final values
 	CL_FinishMove( &cmd );
@@ -830,6 +851,13 @@ void CL_CreateNewCommands( void ) {
 
 	// no need to create usercmds until we have a gamestate
 	if ( clc.state < CA_PRIMED ) {
+		return;
+	}
+
+	// Added in Omaha: wait for 1000/cl_cmdfps ms of serverTime (a stalled clock while
+	// connecting must not block cmds; unsigned also passes a backwards map_restart)
+	if ( clc.state == CA_ACTIVE && (unsigned)( cl.serverTime - cl.cmds[cl.cmdNumber & CMD_MASK].serverTime )
+			< (unsigned)( 1000 / Com_Clamp( 85, 125, cl_cmdfps->integer ) ) ) {
 		return;
 	}
 
@@ -1144,12 +1172,45 @@ void CL_WritePacket( void ) {
 
 /*
 =================
+CL_ApplyRenderLook
+
+Added in Omaha: keyboard / mouse look every render frame, written into the newest
+usercmd so prediction tracks it between cl_cmdfps ticks.
+=================
+*/
+static void CL_ApplyRenderLook( void ) {
+	const unsigned savedFrameMsec = frame_msec;
+	vec3_t         oldAngles;
+	int            i;
+
+	VectorCopy( cl.viewangles, oldAngles );
+	frame_msec = (unsigned)Com_Clamp( 1, 200, cls.frametime );
+	CL_AdjustAngles();
+	CL_MouseMove( &cl.mouseCmd );
+	frame_msec = savedFrameMsec;
+
+	// check to make sure the angles haven't wrapped
+	if ( cl.viewangles[PITCH] - oldAngles[PITCH] > 90 ) {
+		cl.viewangles[PITCH] = oldAngles[PITCH] + 90;
+	} else if ( oldAngles[PITCH] - cl.viewangles[PITCH] > 90 ) {
+		cl.viewangles[PITCH] = oldAngles[PITCH] - 90;
+	}
+
+	for ( i = 0; i < 3; i++ ) {
+		cl.cmds[cl.cmdNumber & CMD_MASK].angles[i] = ANGLE2SHORT( cl.viewangles[i] );
+	}
+}
+
+/*
+=================
 CL_SendCmd
 
 Called every frame to builds and sends a command packet to the server.
 =================
 */
 void CL_SendCmd( void ) {
+	int oldCmdNumber;
+
 	// don't send any message if not connected
 	if ( clc.state < CA_CONNECTED ) {
 		return;
@@ -1160,8 +1221,28 @@ void CL_SendCmd( void ) {
 		return;
 	}
 
+	if ( clc.state >= CA_PRIMED ) {
+		CL_ApplyRenderLook();
+	}
+	oldCmdNumber = cl.cmdNumber;
+
 	// we create commands even if a demo is playing,
 	CL_CreateNewCommands();
+
+	// Added in Omaha: no new usercmd yet; resample keys into a prediction-only copy of
+	// the newest one, and skip the duplicate packet unless reliable commands wait
+	cl.predictCmd = cl.cmds[cl.cmdNumber & CMD_MASK];
+	if ( cl.cmdNumber == oldCmdNumber && clc.state >= CA_PRIMED ) {
+		cl_keepLatches        = qtrue;
+		cl.predictCmd.buttons = 0;
+		CL_CmdButtons( &cl.predictCmd );
+		CL_KeyMove( &cl.predictCmd );
+		cl_keepLatches = qfalse;
+
+		if ( clc.state == CA_ACTIVE && clc.reliableSequence <= clc.reliableAcknowledge ) {
+			return;
+		}
+	}
 
 	// don't send a packet if the last packet was sent too recently
 	if ( !CL_ReadyToSendPacket() ) {
@@ -1258,6 +1339,7 @@ void CL_InitInput( void ) {
 
 	cl_nodelta = Cvar_Get ("cl_nodelta", "0", 0);
 	cl_debugMove = Cvar_Get ("cl_debugMove", "0", 0);
+	cl_cmdfps = Cvar_Get ("cl_cmdfps", "125", CVAR_ARCHIVE);
 }
 
 /*

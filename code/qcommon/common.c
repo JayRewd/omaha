@@ -2266,7 +2266,8 @@ int Com_ModifyMsec( int msec ) {
 	}
 
 	// don't let it scale below 1 msec
-	if ( msec < 1 && com_timescale->value) {
+	// Changed in Omaha: not at timescale 1, or 0ms frames (>1000 FPS) run the sim fast
+	if ( msec < 1 && com_timescale->value && com_timescale->value != 1.0f ) {
 		msec = 1;
 	}
 

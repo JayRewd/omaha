@@ -124,6 +124,10 @@ typedef struct {
 
 	int			mouseDx[2], mouseDy[2];	// added to by mouse events
 	int			mouseIndex;
+	// Added in Omaha: render-frame look output for cl_cmdfps-paced usercmds
+	usercmd_t	mouseCmd;			// BUTTON_ANY until the next usercmd
+	float		mouseStrafe[2];		// side, forward until the next usercmd
+	usercmd_t	predictCmd;			// newest usercmd with keys resampled this frame
 
 	int				mousex, mousey;
 	unsigned int	mouseButtons;

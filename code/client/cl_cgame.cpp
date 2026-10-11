@@ -103,7 +103,8 @@ qboolean CL_GetUserCmd( int cmdNumber, usercmd_t *ucmd ) {
 		return qfalse;
 	}
 
-	*ucmd = cl.cmds[ cmdNumber & CMD_MASK ];
+	// Changed in Omaha: newest cmd as resampled per render frame (CL_SendCmd)
+	*ucmd = cmdNumber == cl.cmdNumber ? cl.predictCmd : cl.cmds[ cmdNumber & CMD_MASK ];
 
 	return qtrue;
 }

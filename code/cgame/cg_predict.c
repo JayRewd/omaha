@@ -39,6 +39,12 @@ static int        cg_numTriggerEntities;
 
 // static	centity_t	*cg_triggerEntities[MAX_ENTITIES_IN_SNAPSHOT];
 
+// Added in Omaha: cl_cmdfps hold-last-predict and display origin lerp
+static playerState_t cg_cmdHeld;
+static int           cg_cmdHeldCmdNum = -1;
+static int           cg_cmdLerpCmdNum, cg_cmdLerpPrevTime, cg_cmdLerpCurrTime;
+static vec3_t        cg_cmdLerpPrevOrigin, cg_cmdLerpCurrOrigin;
+
 /*
 ====================
 CG_BuildSolidList
@@ -625,6 +631,19 @@ void CG_PredictPlayerState(void)
         cgi.Printf("[%i : %i] ", cg_pmove.cmd.serverTime, cg.time);
     }
 
+    // Added in Omaha: with no cmd left to replay (between cl_cmdfps ticks), keep the
+    // last pmove result; the snap lacks non-networked fields such as walking
+    if (moved) {
+        cg_cmdHeld       = cg.predicted_player_state;
+        cg_cmdHeldCmdNum = current;
+    } else if (cg.thisFrameTeleport || cg.nextFrameTeleport) {
+        cg_cmdHeldCmdNum = -1;
+    } else if (current == cg_cmdHeldCmdNum) {
+        cg.predicted_player_state = cg_cmdHeld;
+        PM_UpdateViewAngles(&cg.predicted_player_state, &latestCmd);
+        moved = qtrue;
+    }
+
     // interpolate the camera if necessary
     CG_InterpolatePlayerStateCamera();
 
@@ -657,6 +676,25 @@ void CG_PredictPlayerState(void)
     }
 
     // adjust for the movement of the groundentity
+
+    // Added in Omaha: display-only origin lerp between cl_cmdfps ticks
+    if (current != cg_cmdLerpCmdNum || cg.thisFrameTeleport || cg.nextFrameTeleport) {
+        VectorCopy(cg_cmdLerpCurrOrigin, cg_cmdLerpPrevOrigin);
+        cg_cmdLerpPrevTime = (cg.thisFrameTeleport || cg.nextFrameTeleport) ? 0 : cg_cmdLerpCurrTime;
+        VectorCopy(cg.predicted_player_state.origin, cg_cmdLerpCurrOrigin);
+        cg_cmdLerpCurrTime = latestCmd.serverTime;
+        cg_cmdLerpCmdNum   = current;
+    }
+    {
+        const int dt = cg_cmdLerpCurrTime - cg_cmdLerpPrevTime;
+        vec3_t    delta;
+
+        VectorSubtract(cg_cmdLerpCurrOrigin, cg_cmdLerpPrevOrigin, delta);
+        if (cg_cmdLerpPrevTime > 0 && dt > 0 && dt <= 64 && VectorLength(delta) <= 64) {
+            VectorMA(cg_cmdLerpPrevOrigin, Com_Clamp(0, 1, (float)(cg.time - cg_cmdLerpCurrTime) / dt), delta,
+                     cg.predicted_player_state.origin);
+        }
+    }
 
     if (!moved) {
         if (cg_showmiss->integer) {
