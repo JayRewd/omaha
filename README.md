@@ -36,6 +36,8 @@ but is planned—expansions still run through the OpenMoHAA/legacy paths today.
   release ticks.
 - **DEMOS browser** — browse recordings, seek/pause/crop playback, and export
   AVI or H.264 MP4 from the modern UI.
+- **High refresh-rate client** — FPS-independent physics, plus a high-resolution
+  frame rate limiter with improved frame timings.
 - **Client QoL** — faster internet server discovery, client-only first-person
   chase spectate, PNG screenshots (`screenshotPNG` / F12), grenade charge bar,
   HUD chat history, and related presentation fixes—all stock-server compatible.
@@ -52,7 +54,7 @@ but is planned—expansions still run through the OpenMoHAA/legacy paths today.
 
 ### Practice
 
-![Nade practice](docs/assets/screenshots/readme/nade-practice.mp4)
+![Nade practice](docs/assets/screenshots/readme/nade-practice.webp)
 
 *Nade practice in action.*
 
