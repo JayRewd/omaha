@@ -1037,10 +1037,25 @@ void RemoveExpandedForeach(uid_document_t *doc, uid_node_id_t foreachId)
 	}
 
 	/*
-	 * Added in Omaha: node ids in dirtyLayoutNodes are stale after remap — drop them.
-	 * Callers re-mark with post-remap ids (foreach_expand / foreach_empty).
+	 * Fixed in Omaha: remap dirtyLayoutNodes instead of clearing them.
+	 * Clearing dropped layout dirties from earlier ExpandForeach calls in the same
+	 * SyncCollections pass (e.g. weapons bar rebuild, then killfeed compact) so
+	 * scoped layout never sized the new gun silhouette nodes (0×0 paint cull).
 	 */
-	doc->dirtyLayoutNodes.clear();
+	{
+		std::vector<uid_node_id_t> remappedDirty;
+		remappedDirty.reserve(doc->dirtyLayoutNodes.size());
+		for (uid_node_id_t dirtyId : doc->dirtyLayoutNodes) {
+			if (dirtyId < 0 || static_cast<size_t>(dirtyId) >= nOld) {
+				continue;
+			}
+			const uid_node_id_t mapped = remap[static_cast<size_t>(dirtyId)];
+			if (mapped != UID_INVALID_NODE_ID) {
+				remappedDirty.push_back(mapped);
+			}
+		}
+		doc->dirtyLayoutNodes.swap(remappedDirty);
+	}
 	doc->idIndex.clear();
 	for (size_t i = 0; i < doc->nodes.size(); ++i) {
 		if (!doc->nodes[i].id.empty()) {
