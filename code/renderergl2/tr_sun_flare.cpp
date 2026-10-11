@@ -307,7 +307,12 @@ void lens_flare::ScreenBlend()
     }
 
     timediff = backEnd.refdef.time - lasttime;
-    if (timediff > fullfade) {
+    /*
+     * Fixed in Omaha: refdef.time can jump backward on disconnect, demo start,
+     * or rewind. A negative timediff inflated the fullscreen sun-blind alpha
+     * and never expired the fade (timediff > fullfade stayed false).
+     */
+    if (timediff < 0 || timediff > fullfade) {
         blend_active = false;
         return;
     }
@@ -613,6 +618,9 @@ void R_InitLensFlare()
     torches.Init("entity");
     dlights.Init("dlight");
     sunFlare.initted = false;
+    /* Fixed in Omaha: drop sticky sun-blind fade across map / demo loads. */
+    sunFlare.blend_active = false;
+    sunFlare.lastbright   = 0.0f;
 }
 
 bool sun_flare_class::SunCheckRay()
@@ -690,9 +698,15 @@ void sun_flare_class::SunTry()
         }
 
         timediff = backEnd.refdef.time - lasttime;
-        alpha    = (float)(fullfade - timediff) / fullfade * lastbright;
+        /* Fixed in Omaha: same backward-time guard as ScreenBlend. */
+        if (timediff < 0 || timediff > fullfade) {
+            blend_active = false;
+            return;
+        }
+        alpha = (float)(fullfade - timediff) / fullfade * lastbright;
 
         if (alpha <= 0.0001) {
+            blend_active = false;
             return;
         }
 
