@@ -56,6 +56,7 @@ set(CLIENT_SOURCES
     ${SOURCE_DIR}/client/cl_demoscan.cpp
     ${SOURCE_DIR}/client/cl_demoplayback.cpp
     ${SOURCE_DIR}/client/cl_scoreboard_host.cpp
+    ${SOURCE_DIR}/client/cl_ghostspec.cpp
     ${SOURCE_DIR}/client/cl_uiserverlist.cpp
     ${SOURCE_DIR}/client/cl_uisoundpicker.cpp
     ${SOURCE_DIR}/client/cl_uistd.cpp

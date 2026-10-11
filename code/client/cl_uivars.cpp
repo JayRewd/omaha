@@ -231,6 +231,7 @@ static const cl_uivar_def_t s_uivarDefs[] = {
 	{ "ui_om_settings_search", "" },
 	{ "ui_om_settings_tab", "input" },
 	{ "ui_om_spectator", "0" },
+	{ "ui_om_ghostspec", "0" }, /* Added in Omaha: covert ghost-spectate active */
 	{ "ui_om_status_phase", "READY" },
 	{ "ui_om_status_players", "" },
 	{ "ui_om_status_servers", "" },

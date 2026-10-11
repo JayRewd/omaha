@@ -24,6 +24,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "client.h"
 #include "cl_ui.h"
 #include "cl_uirender.h"
+#include "cl_ghostspec.h"
 
 unsigned	frame_msec;
 int			old_com_frameTime;
@@ -788,6 +789,9 @@ usercmd_t CL_CreateCmd( void ) {
 
 	// get basic movement from joystick
 	CL_JoystickMove( &cmd );
+
+	/* Added in Omaha: ghost-spec jump/use cycle inject (after keys, before finish). */
+	CL_GhostSpec_AdjustMove( &cmd );
 
 	// check to make sure the angles haven't wrapped
 	if ( cl.viewangles[PITCH] - oldAngles[PITCH] > 90 ) {

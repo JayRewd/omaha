@@ -122,46 +122,52 @@
 					       letter-spacing="1px" color="{var.color-primary}"
 					       halign="start" valign="center"
 					       visible="{item.field.is_header == 1}">{item.field.name}</label>
-					<container type="horizontal" width="100%" height="100%" gap="8px"
-					           valign="center" halign="start"
-					           visible="{item.field.is_header == 0}">
-					<label width="6%" height="100%" font="body"
-					       font-size="{var.text-body}"
-					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
-					       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
-					       halign="start" valign="center"
-					       visible="{cvar.ui_om_scoreboard_team_mode == 1}">{item.field.slot}</label>
-					<label width="fill" height="100%" font="body"
-					       font-size="{var.text-body}"
-					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
-					       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
-					       halign="start" valign="center">{item.field.name}</label>
-					<label width="10%" height="100%" font="body"
-					       font-size="{var.text-body}"
-					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
-					       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
-					       halign="start" valign="center">{item.field.kills}</label>
-					<label width="10%" height="100%" font="body"
-					       font-size="{var.text-body}"
-					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
-					       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
-					       halign="start" valign="center">{item.field.deaths}</label>
-					<label width="10%" height="100%" font="body"
-					       font-size="{var.text-body}"
-					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
-					       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
-					       halign="start" valign="center">{item.field.kd}</label>
-					<label width="14%" height="100%" font="body"
-					       font-size="{var.text-body}"
-					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
-					       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
-					       halign="start" valign="center">{item.field.time}</label>
-					<label width="10%" height="100%" font="body"
-					       font-size="{var.text-body}"
-					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
-					       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
-					       halign="start" valign="center">{item.field.ping}</label>
-					</container>
+					<!-- Added in Omaha: FFA dblclick → ghost-spec that player (auto team). -->
+					<button type="horizontal" width="100%" height="100%" gap="8px"
+					        valign="center" halign="start"
+					        fill="{var.fill-transparent}" hoverfill="{var.fill-hover-ghost}"
+					        visible="{item.field.is_header == 0}">
+						<label width="6%" height="100%" font="body"
+						       font-size="{var.text-body}"
+						       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+						       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
+						       halign="start" valign="center"
+						       visible="{cvar.ui_om_scoreboard_team_mode == 1}">{item.field.slot}</label>
+						<label width="fill" height="100%" font="body"
+						       font-size="{var.text-body}"
+						       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+						       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
+						       halign="start" valign="center">{item.field.name}</label>
+						<label width="10%" height="100%" font="body"
+						       font-size="{var.text-body}"
+						       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+						       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
+						       halign="start" valign="center">{item.field.kills}</label>
+						<label width="10%" height="100%" font="body"
+						       font-size="{var.text-body}"
+						       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+						       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
+						       halign="start" valign="center">{item.field.deaths}</label>
+						<label width="10%" height="100%" font="body"
+						       font-size="{var.text-body}"
+						       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+						       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
+						       halign="start" valign="center">{item.field.kd}</label>
+						<label width="14%" height="100%" font="body"
+						       font-size="{var.text-body}"
+						       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+						       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
+						       halign="start" valign="center">{item.field.time}</label>
+						<label width="10%" height="100%" font="body"
+						       font-size="{var.text-body}"
+						       font-weight="{item.field.is_local == 1 ? 600 : 400}"
+						       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
+						       halign="start" valign="center">{item.field.ping}</label>
+						<on event="dblclick">
+							<set-cvar name="ui_om_cbuf" value="om_ghostspec auto {item.field.client_num}"/>
+							<invoke name="cbuf"/>
+						</on>
+					</button>
 				</container>
 				<container width="100%" height="1px" fill="{var.fill-divider}"/>
 			</container>
@@ -174,10 +180,11 @@
 			<container type="vertical" width="100%" height="29px" overflow="hidden"
 			           fill="{var.fill-transparent}"
 			           visible="{item.field.is_spectator != 1 and item.field.is_header != 1 and item.field.team == {template.team}}">
-				<container type="horizontal" width="100%"
-				           height="28px"
-				           padding="0 12px" gap="8px" valign="center" halign="start"
-				           fill="#1A1A1A66">
+				<!-- Added in Omaha: dblclick → ghost-spec that player on their team. -->
+				<button type="horizontal" width="100%"
+				        height="28px"
+				        padding="0 12px" gap="8px" valign="center" halign="start"
+				        fill="#1A1A1A66" hoverfill="{var.fill-hover-ghost}">
 					<label width="6%" height="100%" font="body"
 					       font-size="{var.text-body}"
 					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
@@ -213,7 +220,11 @@
 					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
 					       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
 					       halign="start" valign="center">{item.field.ping}</label>
-				</container>
+					<on event="dblclick">
+						<set-cvar name="ui_om_cbuf" value="om_ghostspec {item.field.team} {item.field.client_num}"/>
+						<invoke name="cbuf"/>
+					</on>
+				</button>
 				<container width="100%" height="1px" fill="{var.fill-divider}"/>
 			</container>
 		</template>
@@ -222,10 +233,11 @@
 			<container type="vertical" width="100%" height="29px" overflow="hidden"
 			           fill="{var.fill-transparent}"
 			           visible="{item.field.is_spectator != 1 and item.field.is_header != 1 and item.field.team == axis}">
-				<container type="horizontal" width="100%"
-				           height="28px"
-				           padding="0 12px" gap="8px" valign="center" halign="end"
-				           fill="#1A1A1A66">
+				<!-- Added in Omaha: dblclick → ghost-spec that player on Axis. -->
+				<button type="horizontal" width="100%"
+				        height="28px"
+				        padding="0 12px" gap="8px" valign="center" halign="end"
+				        fill="#1A1A1A66" hoverfill="{var.fill-hover-ghost}">
 					<label width="10%" height="100%" font="body"
 					       font-size="{var.text-body}"
 					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
@@ -261,7 +273,11 @@
 					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
 					       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
 					       halign="end" valign="center">{item.field.slot}</label>
-				</container>
+					<on event="dblclick">
+						<set-cvar name="ui_om_cbuf" value="om_ghostspec {item.field.team} {item.field.client_num}"/>
+						<invoke name="cbuf"/>
+					</on>
+				</button>
 				<container width="100%" height="1px" fill="{var.fill-divider}"/>
 			</container>
 		</template>

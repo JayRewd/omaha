@@ -94,6 +94,7 @@ static int CL_UIR_ApplyDmPauseClickGate(int buttons)
 #include "cl_demoscan.h"
 #include "cl_demoplayback.h"
 #include "cl_scoreboard_host.h"
+#include "cl_ghostspec.h"
 #include "cl_objectives_host.h"
 #include "cl_messages_host.h"
 #include "cl_hud_registry.h"
@@ -3199,8 +3200,9 @@ typedef struct {
 	char        isLocal[4];
 	char        isDead[4];
 	char        team[12];
-	const char *fieldNames[15];
-	const char *fieldValues[15];
+	char        clientNum[8]; /* Added in Omaha: ghost-spec dblclick target */
+	const char *fieldNames[16];
+	const char *fieldValues[16];
 } uid_scoreboard_collection_slot_t;
 
 static int uid_query_collection_scoreboard(
@@ -3215,7 +3217,7 @@ static int uid_query_collection_scoreboard(
 	static uid_scoreboard_collection_slot_t slots[UIR_SCOREBOARD_MAX_ROWS];
 	static const char *const kFieldNames[] = {
 		"kind", "slot", "name", "kills", "deaths", "kd", "time", "ping", "text_color", "row_fill", "is_header",
-		"is_spectator", "is_local", "is_dead", "team",
+		"is_spectator", "is_local", "is_dead", "team", "client_num",
 	};
 	const int rowCount = UIR_Scoreboard_GetRowCount();
 	int       written = 0;
@@ -3269,6 +3271,12 @@ static int uid_query_collection_scoreboard(
 		/* Added in Omaha: dead from signed team id for modern scoreboard mute styling. */
 		Q_strncpyz(slot->isDead, row->isDead ? "1" : "0", sizeof(slot->isDead));
 		Q_strncpyz(slot->team, row->team, sizeof(slot->team));
+		/* Added in Omaha: client_num for ghost-spec scoreboard dblclick. */
+		if (row->clientNum >= 0) {
+			Com_sprintf(slot->clientNum, sizeof(slot->clientNum), "%d", row->clientNum);
+		} else {
+			slot->clientNum[0] = '\0';
+		}
 
 		slot->fieldNames[0] = kFieldNames[0];
 		slot->fieldNames[1] = kFieldNames[1];
@@ -3285,6 +3293,7 @@ static int uid_query_collection_scoreboard(
 		slot->fieldNames[12] = kFieldNames[12];
 		slot->fieldNames[13] = kFieldNames[13];
 		slot->fieldNames[14] = kFieldNames[14];
+		slot->fieldNames[15] = kFieldNames[15];
 		slot->fieldValues[0] = slot->kind;
 		slot->fieldValues[1] = slot->slot;
 		slot->fieldValues[2] = slot->name;
@@ -3300,11 +3309,12 @@ static int uid_query_collection_scoreboard(
 		slot->fieldValues[12] = slot->isLocal;
 		slot->fieldValues[13] = slot->isDead;
 		slot->fieldValues[14] = slot->team;
+		slot->fieldValues[15] = slot->clientNum;
 
 		out[written].key = slot->key;
 		out[written].value = slot->key;
 		out[written].label = slot->name[0] ? slot->name : slot->kind;
-		out[written].nfields = 15;
+		out[written].nfields = 16;
 		out[written].fieldNames = slot->fieldNames;
 		out[written].fieldValues = slot->fieldValues;
 		out[written].flags = 0;
@@ -7975,6 +7985,10 @@ static void CL_UIR_FlushPendingDmPause(void)
 void CL_UIR_OpenDmPause(const char *panel)
 {
 	if (!CL_UIR_UseModernHudPack() || clc.state != CA_ACTIVE) {
+		return;
+	}
+	/* Changed in Omaha: weapon panel blocked only during armed enter transition. */
+	if (panel && !Q_stricmp(panel, "weapon") && Cvar_VariableIntegerValue("cg_om_suppressWeaponSelect")) {
 		return;
 	}
 	/*

@@ -46,6 +46,8 @@ but is planned—expansions still run through the OpenMoHAA/legacy paths today.
 
 ![Scoreboard](docs/assets/screenshots/readme/scoreboard.jpg)
 
+*Double-click a player on the scoreboard to spectate them.*
+
 ![Crosshair settings](docs/assets/screenshots/readme/menu_crosshairs.jpg)
 
 ### Practice

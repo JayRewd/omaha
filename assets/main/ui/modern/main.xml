@@ -196,6 +196,7 @@
 										<use template="settings-keybind-row" label="Taunt 4" binding="taunt 4"/>
 									<use template="settings-category-row" label="Misc"/>
 										<use template="settings-keybind-row" label="Toggle First Person Spectate" binding="toggle cg_spectate_firstperson"/>
+										<use template="settings-keybind-row" label="Ghost Spectate (Auto)" binding="om_ghostspec auto"/>
 										<use template="settings-keybind-row" label="Scoreboard Cursor" binding="toggle_scoreboard_cursor"/>
 										<use template="settings-keybind-row" label="Cycle Scoreboard Sort" binding="cycle_scoreboard_sort"/>
 										<use template="settings-keybind-row" label="Toggle Demo Playback Overlay" binding="demooverlay"/>

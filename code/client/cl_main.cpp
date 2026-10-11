@@ -29,6 +29,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "cl_demoscan.h"
 #include "cl_demoplayback.h"
 #include "cl_practice.h"
+#include "cl_ghostspec.h"
 #include "../corepp/tiki.h"
 #include "../qcommon/cm_terrain.h"
 #include "../qcommon/localization.h"
@@ -2903,6 +2904,9 @@ void CL_Frame ( int msec ) {
 	// drop the connection
 	CL_CheckTimeout();
 
+	// Added in Omaha: ghost-spectate seek/suppress before SendCmd so inject applies this frame
+	CL_GhostSpec_Frame();
+
 	// send intentions now
 	CL_SendCmd();
 
@@ -3878,6 +3882,8 @@ void CL_Init( void ) {
 	CL_DemoPlayback_Init();
 	// Added in Omaha: in-game practice scenario editor commands
 	CL_PracticeEditor_Init();
+	// Added in Omaha: covert ghost-spectate command
+	CL_GhostSpec_Init();
 	Cmd_AddCommand ("connect", CL_Connect_f);
 	Cmd_AddCommand ("menuconnect", CL_MenuConnect_f);
 	Cmd_AddCommand ("reconnect", CL_Reconnect_f);
@@ -3986,6 +3992,7 @@ void CL_Shutdown(const char* finalmsg, qboolean disconnect, qboolean quit) {
 	Cmd_RemoveCommand ("stoprecord");
 	CL_DemoScan_Shutdown();
 	CL_DemoPlayback_Shutdown();
+	CL_GhostSpec_Shutdown();
 	Cmd_RemoveCommand ("connect");
 	Cmd_RemoveCommand ("localservers");
 	Cmd_RemoveCommand ("globalservers");

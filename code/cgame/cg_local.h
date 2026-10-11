@@ -529,6 +529,7 @@ extern "C" {
     extern cvar_t *cg_zoomSensitivity;
     extern cvar_t *cg_cheats;
     extern cvar_t *cg_spectate_firstperson;
+    extern cvar_t *cg_om_suppressWeaponSelect; /* Added in Omaha */
 
     /* Added in Omaha: optional VM anim inputs for FP spectate. */
     typedef struct {
@@ -667,6 +668,9 @@ extern "C" {
     int         CG_SpectateFP_ZoomFov(void);
     float       CG_SpectateFP_LeanAngle(void);
     qboolean    CG_SpectateFP_CalcEye(vec3_t outOrigin, vec3_t outAngles);
+    /* Added in Omaha: covert ghost-spectate helpers (cg_spectate_fp.c). */
+    qboolean    CG_GhostSpec_IsLocalGhost(void);
+    qboolean    CG_GhostSpec_SuppressWeaponSelect(void);
 
     //
     // cg_practice.cpp (Added in Omaha)

@@ -35,6 +35,8 @@ source tree, or write to the Free Software Foundation, Inc.,
 #define SPECTATEFP_LEAN_SMOOTH 12.0f
 
 cvar_t *cg_spectate_firstperson;
+/* Added in Omaha: suppress stock weapon-select push while ghost-spectating. */
+cvar_t *cg_om_suppressWeaponSelect;
 
 static int   s_fpLastClient   = -1;
 static float s_fpLeanSmoothed = 0.0f;
@@ -43,6 +45,45 @@ void CG_SpectateFP_RegisterCvars(void)
 {
 	/* Added in Omaha: toggle with `toggle cg_spectate_firstperson`. */
 	cg_spectate_firstperson = cgi.Cvar_Get("cg_spectate_firstperson", "0", CVAR_ARCHIVE);
+	/* Added in Omaha: client-driven weapon-menu suppress for ghost-spec. */
+	cg_om_suppressWeaponSelect = cgi.Cvar_Get("cg_om_suppressWeaponSelect", "0", 0);
+}
+
+/*
+===============
+CG_GhostSpec_IsLocalGhost
+
+Added in Omaha: spectating with Allies/Axis team (covert ghost-spec state).
+===============
+*/
+qboolean CG_GhostSpec_IsLocalGhost(void)
+{
+	int team;
+
+	if (!cg.snap) {
+		return qfalse;
+	}
+	if (!(cg.snap->ps.pm_flags & PMF_SPECTATING)) {
+		return qfalse;
+	}
+	team = cg.snap->ps.stats[STAT_TEAM];
+	return (team == TEAM_ALLIES || team == TEAM_AXIS) ? qtrue : qfalse;
+}
+
+/*
+===============
+CG_GhostSpec_SuppressWeaponSelect
+
+Added in Omaha: true when weapon-select menus must be ignored.
+===============
+*/
+qboolean CG_GhostSpec_SuppressWeaponSelect(void)
+{
+	/* Changed in Omaha: only the client-armed enter transition; not while ghosted. */
+	if (cg_om_suppressWeaponSelect && cg_om_suppressWeaponSelect->integer) {
+		return qtrue;
+	}
+	return qfalse;
 }
 
 qboolean CG_SpectateFP_Wanted(void)

@@ -245,6 +245,16 @@ qboolean CG_IsStatementAllowed(char *cmd)
     char     com_token[256];
     qboolean bNextStatement = qfalse;
 
+    /*
+     * Added in Omaha: drop delayed weapon-select stufftext while ghost-spectating
+     * (wait 250;pushmenu_weaponselect / pushmenu SelectPrimaryWeapon*).
+     */
+    if (cmd && CG_GhostSpec_SuppressWeaponSelect()) {
+        if (Q_stristr(cmd, "pushmenu_weaponselect") || Q_stristr(cmd, "SelectPrimaryWeapon")) {
+            return qfalse;
+        }
+    }
+
     parsed = cmd;
 
     for (Q_strncpyz(com_token, COM_ParseExt(&parsed, qtrue), sizeof(com_token)); com_token[0];

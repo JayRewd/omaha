@@ -648,6 +648,10 @@ void CG_PushMenuWeaponSelect_f(void)
     if (cgs.gametype == GT_SINGLE_PLAYER) {
         return;
     }
+    /* Added in Omaha: ghost-spec keeps weapon select closed (attack would re-push). */
+    if (CG_GhostSpec_SuppressWeaponSelect()) {
+        return;
+    }
 
     cgi.Cmd_Execute(EXEC_NOW, "pushmenu SelectPrimaryWeapon\n");
 }

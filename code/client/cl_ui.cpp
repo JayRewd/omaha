@@ -24,6 +24,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "cl_uirender.h"
 #include "cl_uimenu_dispatcher.h"
 #include "cl_hud_host.h"
+#include "cl_ghostspec.h"
 
 #include "../server/server.h"
 #include "../renderercommon/tr_public.h"
@@ -3031,6 +3032,10 @@ void UI_PushMenu(const char *name)
             return;
         }
         if (!Q_stricmpn(name, "SelectPrimaryWeapon", 19)) {
+            /* Changed in Omaha: only during armed alive→ghost enter transition. */
+            if (Cvar_VariableIntegerValue("cg_om_suppressWeaponSelect")) {
+                return;
+            }
             CL_UIR_OpenDmPause("weapon");
             UI_FocusMenuIfExists();
             return;
@@ -3061,6 +3066,15 @@ void UI_PushMenu(const char *name)
             UI_FocusMenuIfExists();
             return;
         }
+    }
+
+    /*
+     * Changed in Omaha: legacy HUD weapon menus blocked only while enter arm
+     * is active (not for the whole ghost session).
+     */
+    if (name && !Q_stricmpn(name, "SelectPrimaryWeapon", 19)
+        && Cvar_VariableIntegerValue("cg_om_suppressWeaponSelect")) {
+        return;
     }
 
     if (menu) {
