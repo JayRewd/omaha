@@ -50,6 +50,8 @@ set(CLIENT_SOURCES
     ${SOURCE_DIR}/client/cl_killfeed_classify.cpp
     ${SOURCE_DIR}/client/cl_killfeed.cpp
     ${SOURCE_DIR}/client/cl_modern_browser.cpp
+    ${SOURCE_DIR}/client/cl_demoscan.cpp
+    ${SOURCE_DIR}/client/cl_demoplayback.cpp
     ${SOURCE_DIR}/client/cl_scoreboard_host.cpp
     ${SOURCE_DIR}/client/cl_uiserverlist.cpp
     ${SOURCE_DIR}/client/cl_uisoundpicker.cpp

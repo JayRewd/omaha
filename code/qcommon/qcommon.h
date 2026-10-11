@@ -899,6 +899,9 @@ const char* FS_GetCurrentGameDir();
 void	FS_GetRelativeFilename( const char *currentDirectory, const char *absoluteFilename, char *out, size_t destlen );
 
 void FS_FileTime(const char* filename, char* date, char* size);
+// Added in Omaha: raw mtime / size of a loose file on any searchpath
+qboolean FS_FileStat(const char* filename, int64_t* mtime, int64_t* size);
+qboolean FS_IsDemoExt(const char* filename, int namelen);
 
 void FS_CorrectCase(char* path);
 

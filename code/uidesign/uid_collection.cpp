@@ -88,6 +88,17 @@ int UID_CollectionHostIdFromName(const char *source)
 			return UID_COLHOST_VOTE_OPTIONS;
 		}
 		break;
+	case 'd':
+		if (std::strcmp(source, "demos") == 0) {
+			return UID_COLHOST_DEMOS;
+		}
+		if (std::strcmp(source, "demo-players") == 0) {
+			return UID_COLHOST_DEMO_PLAYERS;
+		}
+		if (std::strcmp(source, "demo-frags") == 0) {
+			return UID_COLHOST_DEMO_FRAGS;
+		}
+		break;
 	default:
 		break;
 	}
@@ -143,9 +154,9 @@ struct UidProfScope {
 /* Added in Omaha: Phase 4.4 — same hostId peeked twice (2× scoreboard roster). */
 struct HostPeekMemo {
 	int          frame;
-	uint64_t     rev[12];
-	int          total[12];
-	unsigned char ok[12];
+	uint64_t     rev[UID_COLHOST_COUNT];
+	int          total[UID_COLHOST_COUNT];
+	unsigned char ok[UID_COLHOST_COUNT];
 	int          nQuery;
 };
 HostPeekMemo g_hostPeek = {-1, {}, {}, {}, 0};
@@ -162,7 +173,8 @@ void HostPeekMemoBegin(int frame)
 
 bool HostPeekMemoGet(int hostId, uint64_t *rev, int *total)
 {
-	if (hostId <= 0 || hostId >= 12 || !g_hostPeek.ok[hostId]) {
+	/* Fixed in Omaha: OTHER is shared by many sources, so it cannot be memoized. */
+	if (hostId <= 0 || hostId >= UID_COLHOST_OTHER || !g_hostPeek.ok[hostId]) {
 		return false;
 	}
 	if (rev) {
@@ -176,7 +188,7 @@ bool HostPeekMemoGet(int hostId, uint64_t *rev, int *total)
 
 void HostPeekMemoSet(int hostId, uint64_t rev, int total)
 {
-	if (hostId <= 0 || hostId >= 12) {
+	if (hostId <= 0 || hostId >= UID_COLHOST_OTHER) {
 		return;
 	}
 	g_hostPeek.rev[hostId] = rev;
@@ -330,6 +342,39 @@ uid_node_id_t FindOverflowScrollAncestor(
 	return UID_INVALID_NODE_ID;
 }
 
+/* Added in Omaha: discrete window index implied by overflow scrollY. Returns -1 if unknown. */
+int WindowOffsetFromOverflowScroll(
+	const uid_document_t *doc,
+	uid_node_id_t foreachId,
+	const std::vector<uid_node_id_t> &parents,
+	const uid_node_def_t *fn,
+	const uid_node_state_t *scopeSt
+)
+{
+	if (!doc || !fn || !scopeSt || parents.size() != doc->nodes.size()) {
+		return -1;
+	}
+	const float rowH = WindowRowHeightPx(doc, fn);
+	if (rowH <= 0.0f) {
+		return -1;
+	}
+	const uid_node_id_t overflowId = FindOverflowScrollAncestor(doc, foreachId, parents);
+	if (overflowId == UID_INVALID_NODE_ID || static_cast<size_t>(overflowId) >= doc->states.size()) {
+		return -1;
+	}
+	const uid_node_state_t *ovSt = &doc->states[static_cast<size_t>(overflowId)];
+	const int visible = WindowVisibleCount(doc, fn, ovSt->contentBox.h);
+	const int maxOff = std::max(0, scopeSt->collectionItemCount - visible);
+	int offset = static_cast<int>(std::floor(static_cast<double>(ovSt->scrollY / rowH)));
+	if (offset < 0) {
+		offset = 0;
+	}
+	if (offset > maxOff) {
+		offset = maxOff;
+	}
+	return offset;
+}
+
 /* Added in Omaha: drive collectionScrollOffset from overflow scrollY (discrete index window). */
 void SyncWindowOffsetFromOverflow(
 	uid_document_t *doc,
@@ -343,24 +388,9 @@ void SyncWindowOffsetFromOverflow(
 	if (!doc || !fn || !scopeSt || scopeId < 0) {
 		return;
 	}
-	const float rowH = WindowRowHeightPx(doc, fn);
-	if (rowH <= 0.0f) {
-		return;
-	}
-	const uid_node_id_t overflowId = FindOverflowScrollAncestor(doc, foreachId, parents);
-	if (overflowId == UID_INVALID_NODE_ID || static_cast<size_t>(overflowId) >= doc->states.size()) {
-		return;
-	}
-	uid_node_state_t *ovSt = &doc->states[static_cast<size_t>(overflowId)];
-	const int visible = WindowVisibleCount(doc, fn, ovSt->contentBox.h);
-	const int count = scopeSt->collectionItemCount;
-	const int maxOff = std::max(0, count - visible);
-	int offset = static_cast<int>(std::floor(static_cast<double>(ovSt->scrollY / rowH)));
+	const int offset = WindowOffsetFromOverflowScroll(doc, foreachId, parents, fn, scopeSt);
 	if (offset < 0) {
-		offset = 0;
-	}
-	if (offset > maxOff) {
-		offset = maxOff;
+		return;
 	}
 	if (offset != scopeSt->collectionScrollOffset) {
 		scopeSt->collectionScrollOffset = offset;
@@ -371,6 +401,38 @@ void SyncWindowOffsetFromOverflow(
 			"foreach_window_scroll"
 		);
 	}
+}
+
+/*
+ * Fixed in Omaha: mode=window stays scrollable when the host revision is idle.
+ * Collection cull used to skip ExpandForeach, so scrollY never reached collectionScrollOffset.
+ */
+bool WindowedForeachNeedsScrollSync(const uid_document_t *doc, uid_node_id_t foreachId)
+{
+	if (!doc || foreachId < 0 || static_cast<size_t>(foreachId) >= doc->nodes.size()) {
+		return false;
+	}
+	const uid_node_def_t *fn = &doc->nodes[static_cast<size_t>(foreachId)];
+	if (fn->kind != UID_NODE_FOREACH) {
+		return false;
+	}
+	const std::string mode = fn->foreachMode.empty() ? "all" : fn->foreachMode;
+	if (mode != "window") {
+		return false;
+	}
+	if (doc->parentOf.size() != doc->nodes.size()) {
+		return true;
+	}
+	const uid_node_id_t scopeId = FindCollectionScopeFromParentOf(doc, foreachId);
+	if (scopeId == UID_INVALID_NODE_ID || static_cast<size_t>(scopeId) >= doc->states.size()) {
+		return false;
+	}
+	const uid_node_state_t *scopeSt = &doc->states[static_cast<size_t>(scopeId)];
+	const int offset = WindowOffsetFromOverflowScroll(doc, foreachId, doc->parentOf, fn, scopeSt);
+	if (offset < 0) {
+		return false;
+	}
+	return offset != scopeSt->collectionScrollOffset;
 }
 
 uid_node_id_t FindWindowForeachUnderScope(const uid_document_t *doc, uid_node_id_t scopeId)
@@ -1066,6 +1128,10 @@ bool RefreshCollectionScope(uid_document_t *doc, uid_node_id_t scopeId, const ui
 		}
 	}
 
+	/* Added in Omaha: host lists (e.g. demos) may exceed the select option cap. */
+	if (total > q.limit) {
+		q.limit = std::min(total, 8192);
+	}
 	const int maxItems = q.limit;
 	std::vector<uid_collection_item_t> hostItems(static_cast<size_t>(maxItems));
 
@@ -2494,7 +2560,8 @@ void UID_SyncCollections(uid_document_t *doc, const uid_backend_t *backend)
 				if (!treeVisible(static_cast<uid_node_id_t>(i))) {
 					continue;
 				}
-				if (foreachStale(i)) {
+				if (foreachStale(i) ||
+					WindowedForeachNeedsScrollSync(doc, static_cast<uid_node_id_t>(i))) {
 					++nNeedOp;
 					break;
 				}
@@ -2527,7 +2594,7 @@ void UID_SyncCollections(uid_document_t *doc, const uid_backend_t *backend)
 
 
 		if (nSkipAll) {
-			/* Hosts unchanged and no lifetime fade window — skip expand/apply. */
+			/* Hosts unchanged, no lifetime fade, and windowed scroll already in sync. */
 		} else
 		for (;;) {
 			bool remapped = false;
@@ -2536,7 +2603,8 @@ void UID_SyncCollections(uid_document_t *doc, const uid_backend_t *backend)
 				if (doc->nodes[i].kind != UID_NODE_FOREACH) {
 					continue;
 				}
-				if (!anyHostChange && !doc->nodes[i].hasForeachLifetime && !foreachStale(i)) {
+				if (!anyHostChange && !doc->nodes[i].hasForeachLifetime && !foreachStale(i) &&
+					!WindowedForeachNeedsScrollSync(doc, static_cast<uid_node_id_t>(i))) {
 					continue;
 				}
 				if (!treeVisible(static_cast<uid_node_id_t>(i))) {

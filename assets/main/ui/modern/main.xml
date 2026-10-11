@@ -8,6 +8,7 @@
 		<import src="ui/modern/lib/modals.xml"/>
 		<import src="ui/modern/lib/images.xml"/>
 		<import src="ui/modern/lib/browser.xml"/>
+		<import src="ui/modern/lib/demos.xml"/>
 	</definitions>
 
 	<canvas>
@@ -115,6 +116,11 @@
 					</container>
 				</container>
 
+				<!-- DEMOS (Added in Omaha) -->
+				<container id="panel_demos" type="horizontal" width="100%" height="100%" visible="{cvar.ui_om_main_panel == demos}" fill="{var.fill-transparent}">
+					<use template="demo-browser" id="demo_browser_panel"/>
+				</container>
+
 				<!-- SETTINGS -->
 				<container id="panel_settings" type="vertical" width="100%" height="100%" fill="{var.fill-panel}" visible="{cvar.ui_om_main_panel == settings}" gap="0"
 				           stroke="{var.fill-divider}" stroke-width="1px">
@@ -186,6 +192,7 @@
 										<use template="settings-keybind-row" label="Toggle First Person Spectate" binding="toggle cg_spectate_firstperson"/>
 										<use template="settings-keybind-row" label="Scoreboard Cursor" binding="toggle_scoreboard_cursor"/>
 										<use template="settings-keybind-row" label="Cycle Scoreboard Sort" binding="cycle_scoreboard_sort"/>
+										<use template="settings-keybind-row" label="Toggle Demo Playback Overlay" binding="demooverlay"/>
 								</container>
 								<container type="vertical" width="fill" height="auto" gap="8px" padding="0 0 0 4px">
 									<use template="settings-section-header" label="MOUSE"/>
@@ -282,6 +289,9 @@
 								<use template="settings-slider-row" label="Field of View" bind="cvar:cg_fov" min="65" max="120" step="1" commit="change"/>
 								<use template="settings-on-off-row" label="Always run" bind="cvar:cl_run" commit="change"/>
 								<use template="settings-on-off-row" label="Auto-switch Weapons" bind="cvar:cg_autoswitch" commit="change"/>
+								<use template="settings-on-off-row" label="Auto-record demos" bind="cvar:cl_autoRecordDemo" commit="change"/>
+								<use template="settings-number-row" label="AVI export FPS" bind="cvar:cl_aviFrameRate" min="1" max="120" step="1" commit="change"/>
+								<use template="settings-on-off-row" label="Demo playback overlay by default" bind="cvar:ui_om_demo_overlay_default" commit="change"/>
 								<use template="settings-cyclic-row" label="Remote prediction" bind="cvar:cg_remotePrediction"
 								     source="remote-prediction" commit="change"/>
 								<use template="settings-slider-row" label="Prediction max lead" bind="cvar:cg_remotePredictionMaxLead"

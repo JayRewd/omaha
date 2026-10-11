@@ -278,10 +278,12 @@ bool StagingBlocksSync(uid_document_t *doc, const uid_node_def_t &node, const ui
 		return st.runtimeValue.hasValue;
 	}
 	if (mode == UID_COMMIT_SUBMIT) {
-		if (st.focused) {
+		/* Fixed in Omaha: sliders stay focused after drag; only text inputs
+		 * should hold the staged value until blur. */
+		if (st.focused && node.kind == UID_NODE_INPUT) {
 			return true;
 		}
-		if (!st.editBuffer.empty() && st.runtimeValue.hasValue &&
+		if (node.kind == UID_NODE_INPUT && !st.editBuffer.empty() && st.runtimeValue.hasValue &&
 			st.editBuffer != st.runtimeValue.stringValue) {
 			return true;
 		}
@@ -305,7 +307,10 @@ void SetRuntimeIfChanged(
 	}
 	st->runtimeValue.hasValue = true;
 	st->runtimeValue.stringValue = value;
-	if (TextSizeMayChange(kind)) {
+	if (kind == UID_NODE_SLIDER) {
+		/* Fixed in Omaha: playhead / other bound sliders place thumb+range in layout. */
+		UID_MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_LAYOUT | UID_DIRTY_PAINT), id, "runtime_slider");
+	} else if (TextSizeMayChange(kind)) {
 		const uid_node_def_t *node = UID_GetNode(doc, id);
 		if (node && TextIsContentSized(*node)) {
 			UID_MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_LAYOUT | UID_DIRTY_PAINT), id, "runtime_text");
@@ -2487,7 +2492,9 @@ void UID_RegisterCvarBoundProps(uid_node_def_t *node)
 		"opacity", "background-image", "mask-image", "color", "fill", "left", "top", "right", "bottom",
 		"background-scale",
 		/* Added in Omaha: leaf <image> */
-		"src", "fit", "scale"
+		"src", "fit", "scale",
+		/* Added in Omaha: drag-x handle clamps */
+		"drag-min", "drag-max"
 	};
 	node->cvarBoundProps.clear();
 	node->exprBoundProps.clear();

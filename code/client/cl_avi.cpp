@@ -21,7 +21,20 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
 
 #include "client.h"
+#include "cl_ui.h"
+#include "cl_uimenu_dispatcher.h"
+#include "cl_uivars.h"
 #include "snd_local.h"
+
+#ifdef USE_INTERNAL_SDL_HEADERS
+#	include "SDL.h"
+#else
+#	include <SDL.h>
+#endif
+
+#ifndef WAV_FORMAT_PCM
+#define WAV_FORMAT_PCM 1
+#endif
 
 #define INDEX_FILE_EXTENSION ".index.dat"
 
@@ -65,9 +78,17 @@ typedef struct aviFileData_s
   int           chunkStackTop;
 
   byte          *cBuffer, *eBuffer;
+
 } aviFileData_t;
 
 static aviFileData_t afd;
+
+/* Added in Omaha: restore FPS/vsync caps after unattended demo export. */
+static qboolean s_exportBoostActive;
+static char     s_savedMaxFps[ MAX_CVAR_VALUE_STRING ];
+static char     s_savedMaxFpsUnfocused[ MAX_CVAR_VALUE_STRING ];
+static char     s_savedMaxFpsMinimized[ MAX_CVAR_VALUE_STRING ];
+static int      s_savedSwapInterval;
 
 #define MAX_AVI_BUFFER 2048
 
@@ -332,13 +353,186 @@ Creates an AVI file and gets it into a state where
 writing the actual data can begin
 ===============
 */
+qboolean CL_AVI_RendererAllowsCapture( void )
+{
+	const char *renderer;
+
+	renderer = Cvar_VariableString( "cl_renderer" );
+	if ( renderer && *renderer && Q_stristr( renderer, "opengl2" ) ) {
+		return qfalse;
+	}
+	return qtrue;
+}
+
+qboolean CL_AVI_DemoExportActive( void )
+{
+	return cls.aviDemoExport;
+}
+
+/* Added in Omaha: uncap FPS / vsync so demo export can exceed realtime. */
+static void CL_AVI_BeginExportBoost( void )
+{
+	if ( s_exportBoostActive ) {
+		return;
+	}
+
+	Q_strncpyz( s_savedMaxFps, Cvar_VariableString( "com_maxfps" ), sizeof( s_savedMaxFps ) );
+	Q_strncpyz( s_savedMaxFpsUnfocused, Cvar_VariableString( "com_maxfpsUnfocused" ),
+		sizeof( s_savedMaxFpsUnfocused ) );
+	Q_strncpyz( s_savedMaxFpsMinimized, Cvar_VariableString( "com_maxfpsMinimized" ),
+		sizeof( s_savedMaxFpsMinimized ) );
+	s_savedSwapInterval = Cvar_VariableIntegerValue( "r_swapInterval" );
+
+	Cvar_Set( "com_maxfps", "0" );
+	Cvar_Set( "com_maxfpsUnfocused", "0" );
+	Cvar_Set( "com_maxfpsMinimized", "0" );
+	if ( SDL_GL_SetSwapInterval( 0 ) != 0 ) {
+		Com_DPrintf( "AVI export: SDL_GL_SetSwapInterval(0) failed: %s\n", SDL_GetError() );
+	}
+	s_exportBoostActive = qtrue;
+}
+
+static void CL_AVI_EndExportBoost( void )
+{
+	if ( !s_exportBoostActive ) {
+		return;
+	}
+
+	Cvar_Set( "com_maxfps", s_savedMaxFps );
+	Cvar_Set( "com_maxfpsUnfocused", s_savedMaxFpsUnfocused );
+	Cvar_Set( "com_maxfpsMinimized", s_savedMaxFpsMinimized );
+	if ( SDL_GL_SetSwapInterval( s_savedSwapInterval ) != 0 ) {
+		Com_DPrintf( "AVI export: restore swap interval failed: %s\n", SDL_GetError() );
+	}
+	s_exportBoostActive = qfalse;
+}
+
+static void CL_AVI_BuildFilename( char *filename, int filenameSize, const char *baseName, const char *ext )
+{
+	char stripped[ MAX_QPATH ];
+	int  i;
+
+	Q_strncpyz( stripped, baseName, sizeof( stripped ) );
+	COM_StripExtension( stripped, stripped, sizeof( stripped ) );
+	if ( !ext || !ext[0] ) {
+		ext = "avi";
+	}
+
+	for ( i = 0; i <= 9999; i++ ) {
+		if ( i == 0 ) {
+			Com_sprintf( filename, filenameSize, "videos/%s.%s", stripped, ext );
+		} else {
+			Com_sprintf( filename, filenameSize, "videos/%s_%04d.%s", stripped, i, ext );
+		}
+		if ( !FS_FileExists_HomeData( filename ) ) {
+			return;
+		}
+	}
+
+	Com_sprintf( filename, filenameSize, "videos/%s_9999.%s", stripped, ext );
+}
+
+
+qboolean CL_AVI_BeginDemoExport( const char *demoFile )
+{
+	if ( !demoFile || !demoFile[0] ) {
+		return qfalse;
+	}
+	if ( !CL_AVI_RendererAllowsCapture() ) {
+		Com_Printf( S_COLOR_YELLOW "Demo video export requires the OpenGL1 renderer.\n" );
+		CL_UIVar_Set( "ui_om_demo_phase", "NEEDS GL1" );
+		return qfalse;
+	}
+
+	CL_AVI_BuildFilename( cls.aviDemoPath, sizeof( cls.aviDemoPath ), demoFile, "avi" );
+	cls.aviDemoExport = qtrue;
+	CL_UIVar_Set( "ui_om_demo_overlay", "0" );
+	if ( CL_UIMenu_IsOpen( "demo_overlay" ) ) {
+		CL_UIMenu_Close( "demo_overlay" );
+	}
+	if ( !S_OPENAL_BeginAviLoopback() ) {
+		Com_Printf( S_COLOR_YELLOW "Demo export: OpenAL loopback unavailable, writing video only.\n" );
+	}
+	CL_UIVar_Set( "ui_om_demo_phase", "EXPORTING AVI..." );
+	return qtrue;
+}
+
+void CL_AVI_TryStartIfNeeded( void )
+{
+	if ( !cls.aviDemoExport || CL_VideoRecording() ) {
+		return;
+	}
+	if ( clc.state != CA_ACTIVE || !clc.demoplaying ) {
+		return;
+	}
+	/* Fixed in Omaha: wait for loading Continue (finishloadingscreen) so the
+	 * continue plaque is not baked into the export. server_loading stays true
+	 * until UI_FinishLoadingScreen_f. */
+	if ( server_loading ) {
+		return;
+	}
+
+	CL_AVI_BeginExportBoost();
+
+	if ( !CL_OpenAVIForWriting( cls.aviDemoPath ) ) {
+		Com_Printf( S_COLOR_RED "Demo export: could not open %s\n", cls.aviDemoPath );
+		CL_UIVar_Set( "ui_om_demo_phase", "EXPORT FAILED" );
+		cls.aviDemoExport = qfalse;
+		cls.aviDemoPath[0] = '\0';
+		S_OPENAL_EndAviLoopback();
+		CL_AVI_EndExportBoost();
+	}
+}
+
+void CL_AVI_FinishDemoExport( void )
+{
+	char wrote[ MAX_OSPATH ];
+
+	if ( !cls.aviDemoExport && !CL_VideoRecording() ) {
+		return;
+	}
+
+	Q_strncpyz( wrote, cls.aviDemoPath, sizeof( wrote ) );
+	if ( CL_VideoRecording() ) {
+		if ( re.Set2DWindow ) {
+			re.Set2DWindow( 0, 0, cls.glconfig.vidWidth, cls.glconfig.vidHeight,
+				0, cls.glconfig.vidWidth, cls.glconfig.vidHeight, 0, -1, 1 );
+		}
+		CL_CloseAVI();
+	}
+	S_OPENAL_EndAviLoopback();
+	CL_AVI_EndExportBoost();
+	if ( wrote[0] ) {
+		char status[ 128 ];
+
+		Com_sprintf( status, sizeof( status ), "WROTE %s", wrote );
+		CL_UIVar_Set( "ui_om_demo_phase", status );
+		Com_Printf( "Demo export finished: %s\n", wrote );
+	}
+	cls.aviDemoExport = qfalse;
+	cls.aviDemoPath[0] = '\0';
+}
+
+/*
+===============
+CL_OpenAVIForWriting
+
+Creates an AVI file and gets it into a state where
+writing the actual data can begin
+===============
+*/
 qboolean CL_OpenAVIForWriting( const char *fileName )
 {
-    return qfalse;
-    // Removed in OPM
-#if 0
+  int sampleRate;
+
   if( afd.fileOpen )
     return qfalse;
+
+  if( !CL_AVI_RendererAllowsCapture() )
+  {
+    Com_Printf( S_COLOR_YELLOW "AVI capture requires the OpenGL1 renderer.\n" );
+    return qfalse;
+  }
 
   Com_Memset( &afd, 0, sizeof( aviFileData_t ) );
 
@@ -374,10 +568,14 @@ qboolean CL_OpenAVIForWriting( const char *fileName )
   afd.cBuffer = ( byte * )Z_Malloc( afd.width * afd.height * 4 );
   afd.eBuffer = ( byte * )Z_Malloc( afd.width * afd.height * 4 );
 
-  afd.a.rate = dma.speed;
+  /* Changed in Omaha: FAKK OpenAL has no DMA mixer; loopback supplies PCM. */
+  sampleRate = S_OPENAL_AviSampleRate();
+  if( sampleRate <= 0 )
+    sampleRate = 44100;
+  afd.a.rate = sampleRate;
   afd.a.format = WAV_FORMAT_PCM;
-  afd.a.channels = dma.channels;
-  afd.a.bits = dma.samplebits;
+  afd.a.channels = 2;
+  afd.a.bits = 16;
   afd.a.sampleSize = ( afd.a.bits / 8 ) * afd.a.channels;
 
   if( afd.a.rate % afd.frameRate )
@@ -395,22 +593,14 @@ qboolean CL_OpenAVIForWriting( const char *fileName )
   {
     afd.audio = qfalse;
   }
-  else if( Q_stricmp( Cvar_VariableString( "s_backend" ), "OpenAL" ) )
+  else if( S_OPENAL_AviLoopbackActive() )
   {
-    if( afd.a.bits != 16 || afd.a.channels != 2 )
-    {
-      Com_Printf( S_COLOR_YELLOW "WARNING: Audio format of %d bit/%d channels not supported",
-          afd.a.bits, afd.a.channels );
-      afd.audio = qfalse;
-    }
-    else
-      afd.audio = qtrue;
+    afd.audio = qtrue;
   }
   else
   {
     afd.audio = qfalse;
-    Com_Printf( S_COLOR_YELLOW "WARNING: Audio capture is not supported "
-        "with OpenAL. Set s_useOpenAL to 0 for audio capture\n" );
+    Com_Printf( S_COLOR_YELLOW "WARNING: AVI audio needs OpenAL Soft loopback.\n" );
   }
 
   // This doesn't write a real header, but allocates the
@@ -428,7 +618,6 @@ qboolean CL_OpenAVIForWriting( const char *fileName )
   afd.fileOpen = qtrue;
 
   return qtrue;
-#endif
 }
 
 /*
@@ -477,6 +666,7 @@ void CL_WriteAVIVideoFrame( const byte *imageBuffer, int size )
   if( !afd.fileOpen )
     return;
 
+
   // Chunk header + contents + padding
   if( CL_CheckFileSize( 8 + size + 2 ) )
     return;
@@ -524,6 +714,7 @@ void CL_WriteAVIAudioFrame( const byte *pcmBuffer, int size )
 
   if( !afd.fileOpen )
     return;
+
 
   // Chunk header + contents + padding
   if( CL_CheckFileSize( 8 + bytesInBuffer + size + 2 ) )
@@ -586,8 +777,8 @@ void CL_TakeVideoFrame( void )
   if( !afd.fileOpen )
     return;
 
-//  RE_TakeVideoFrame( afd.width, afd.height,
-//      afd.cBuffer, afd.eBuffer, afd.motionJpeg );
+  /* Fixed in Omaha: capture through the renderer export, not RE_TakeVideoFrame. */
+  re.TakeVideoFrame( afd.width, afd.height, afd.cBuffer, afd.eBuffer, afd.motionJpeg );
 }
 
 /*
@@ -606,6 +797,7 @@ qboolean CL_CloseAVI( void )
   // AVI file isn't open
   if( !afd.fileOpen )
     return qfalse;
+
 
   afd.fileOpen = qfalse;
 

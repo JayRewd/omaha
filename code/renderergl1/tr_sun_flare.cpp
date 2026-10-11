@@ -525,6 +525,10 @@ void R_DrawLensFlares()
 {
     int i;
 
+    if (!tr.world) {
+        return;
+    }
+
     R_RotateForViewer();
 
     qglPushMatrix();
@@ -616,6 +620,10 @@ bool sun_flare_class::SunCheckRay()
 {
     mnode_t *pViewLeaf;
     trace_t  trace;
+
+    if (!tr.world || !tr.world->nodes) {
+        return false;
+    }
 
     pViewLeaf = R_PointInLeaf(tr.refdef.vieworg);
 

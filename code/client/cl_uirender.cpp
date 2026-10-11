@@ -86,6 +86,8 @@ static int CL_UIR_ApplyDmPauseClickGate(int buttons)
 #include "cl_uiplayermodelpicker.h"
 #include "cl_browser_host.h"
 #include "cl_modern_browser.h"
+#include "cl_demoscan.h"
+#include "cl_demoplayback.h"
 #include "cl_scoreboard_host.h"
 #include "cl_objectives_host.h"
 #include "cl_messages_host.h"
@@ -130,8 +132,10 @@ static int CL_UIR_ApplyDmPauseClickGate(int buttons)
 #include "../uidesign/uid_widget.h"
 #include "../uilib/ui_public.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <ctime>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -3897,6 +3901,513 @@ static int uid_query_collection_vote_options(
 	return written;
 }
 
+/*
+ * Added in Omaha: modern demo browser backed by cl_demoscan. The visible list
+ * is rebuilt when scan results, search text, gametype filter or sort change; selection drives
+ * the details panel through ui_om_demo_* store vars and the demo-players list.
+ */
+static std::vector<int> g_demoVisible;
+static uint64_t         g_demoVisibleRevision = 1;
+static uint64_t         g_demoBuiltScanRevision = 0;
+static std::string      g_demoBuiltSearch;
+static std::string      g_demoBuiltSort;
+static std::string      g_demoBuiltGametype;
+static int              g_demoBuiltAsc = -1;
+static qboolean         g_demoTabActive = qfalse;
+static std::string      g_demoDetailFile;
+static uint64_t         g_demoDetailScanRevision = 0;
+static uint64_t         g_demoPlayersRevision = 1;
+static std::vector<int> g_demoPlayerOrder;
+
+static void uir_demo_format_duration(const demoScanEntry_t *e, char *out, size_t outSize)
+{
+	if (e->state == DEMOSCAN_PENDING) {
+		Q_strncpyz(out, "...", outSize);
+	} else if (e->state != DEMOSCAN_OK) {
+		Q_strncpyz(out, "--:--", outSize);
+	} else if (e->durationMs >= 3600000) {
+		Com_sprintf(
+			out,
+			outSize,
+			"%d:%02d:%02d",
+			e->durationMs / 3600000,
+			(e->durationMs / 60000) % 60,
+			(e->durationMs / 1000) % 60
+		);
+	} else {
+		Com_sprintf(out, outSize, "%d:%02d", e->durationMs / 60000, (e->durationMs / 1000) % 60);
+	}
+}
+
+static void uir_demo_format_date(const demoScanEntry_t *e, char *out, size_t outSize)
+{
+	const time_t t = (time_t)e->createdAt;
+	struct tm   *tmv = t > 0 ? localtime(&t) : NULL;
+
+	if (!tmv) {
+		/* Changed in Omaha: no mtime and no parseable filename stamp. */
+		Q_strncpyz(out, "---", outSize);
+		return;
+	}
+	strftime(out, outSize, "%Y-%m-%d %H:%M", tmv);
+}
+
+static const char *uir_demo_gametype_label(const demoScanEntry_t *e)
+{
+	if (e->state == DEMOSCAN_PENDING) {
+		return "...";
+	}
+	if (e->state != DEMOSCAN_OK) {
+		return "Unreadable";
+	}
+	return CL_DemoScan_GametypeLabel(e);
+}
+
+static int uir_demo_cmp(const demoScanEntry_t *a, const demoScanEntry_t *b, const char *sort)
+{
+	int cmp = 0;
+
+	if (!Q_stricmp(sort, "name")) {
+		cmp = Q_stricmp(a->baseName, b->baseName);
+	} else if (!Q_stricmp(sort, "gametype")) {
+		cmp = Q_stricmp(uir_demo_gametype_label(a), uir_demo_gametype_label(b));
+	} else if (!Q_stricmp(sort, "duration")) {
+		cmp = a->durationMs < b->durationMs ? -1 : (a->durationMs > b->durationMs ? 1 : 0);
+	}
+	if (!cmp) {
+		cmp = a->createdAt < b->createdAt ? -1 : (a->createdAt > b->createdAt ? 1 : 0);
+	}
+	if (!cmp) {
+		cmp = Q_stricmp(a->file, b->file);
+	}
+	return cmp;
+}
+
+static qboolean uir_demo_matches_gametype(const demoScanEntry_t *e, const char *filter)
+{
+	if (!filter || !filter[0] || !Q_stricmp(filter, "all")) {
+		return qtrue;
+	}
+	if (!e || e->state != DEMOSCAN_OK) {
+		return qfalse;
+	}
+	return Q_stricmp(UIR_Browser_NormalizeGametype(uir_demo_gametype_label(e)), filter) == 0 ? qtrue
+												: qfalse;
+}
+
+/* Every whitespace-separated search term must appear somewhere in the metadata. */
+static qboolean uir_demo_matches_search(const demoScanEntry_t *e, const std::vector<std::string> &terms)
+{
+	for (const std::string &term : terms) {
+		if (!strstr(e->searchText, term.c_str())) {
+			return qfalse;
+		}
+	}
+	return qtrue;
+}
+
+static void uir_demo_rebuild_visible(void)
+{
+	const char *search = CL_UIVar_String("ui_om_demo_search");
+	const char *sort = CL_UIVar_String("ui_om_demo_sort");
+	const int   asc = CL_UIVar_Integer("ui_om_demo_sort_asc") ? 1 : 0;
+	const char *gtFilter = CL_UIVar_String("ui_om_demo_filter_gametype");
+	std::vector<std::string> terms;
+	int         i;
+
+	if (g_demoBuiltScanRevision == CL_DemoScan_Revision() && g_demoBuiltSearch == search && g_demoBuiltSort == sort
+		&& g_demoBuiltAsc == asc && g_demoBuiltGametype == gtFilter) {
+		return;
+	}
+	g_demoBuiltScanRevision = CL_DemoScan_Revision();
+	g_demoBuiltSearch = search;
+	g_demoBuiltSort = sort;
+	g_demoBuiltAsc = asc;
+	g_demoBuiltGametype = gtFilter;
+
+	{
+		std::string lower = search;
+		std::string term;
+		for (char &c : lower) {
+			c = (char)tolower((unsigned char)c);
+		}
+		for (size_t c = 0; c <= lower.size(); c++) {
+			if (c == lower.size() || (unsigned char)lower[c] <= ' ') {
+				if (!term.empty()) {
+					terms.push_back(term);
+					term.clear();
+				}
+			} else {
+				term.push_back(lower[c]);
+			}
+		}
+	}
+
+	g_demoVisible.clear();
+	for (i = 0; i < CL_DemoScan_Count(); i++) {
+		if (uir_demo_matches_gametype(CL_DemoScan_Get(i), gtFilter)
+			&& uir_demo_matches_search(CL_DemoScan_Get(i), terms)) {
+			g_demoVisible.push_back(i);
+		}
+	}
+	std::stable_sort(g_demoVisible.begin(), g_demoVisible.end(), [sort, asc](int ia, int ib) {
+		const int cmp = uir_demo_cmp(CL_DemoScan_Get(ia), CL_DemoScan_Get(ib), sort);
+		return asc ? cmp < 0 : cmp > 0;
+	});
+	g_demoVisibleRevision++;
+}
+
+static void uir_demo_sync_details(void)
+{
+	const char            *selected = CL_UIVar_String("ui_selected_demo");
+	const demoScanEntry_t *e = CL_DemoScan_Get(CL_DemoScan_Find(selected));
+	char                   buf[64];
+	int                    i;
+
+	if (g_demoDetailFile == selected && g_demoDetailScanRevision == CL_DemoScan_Revision()) {
+		return;
+	}
+	g_demoDetailFile = selected;
+	g_demoDetailScanRevision = CL_DemoScan_Revision();
+	g_demoPlayersRevision++;
+	g_demoPlayerOrder.clear();
+
+	if (!e) {
+		CL_UIVar_Set("ui_om_demo_selected", "0");
+		CL_UIVar_Set("ui_om_demo_title", "");
+		CL_UIVar_Set("ui_om_demo_hostname", "");
+		CL_UIVar_Set("ui_om_demo_gametype", "");
+		CL_UIVar_Set("ui_om_demo_fraglimit", "");
+		CL_UIVar_Set("ui_om_demo_timelimit", "");
+		CL_UIVar_Set("ui_om_demo_players_title", "PLAYERS");
+		return;
+	}
+
+	CL_UIVar_Set("ui_om_demo_selected", "1");
+	CL_UIVar_Set("ui_om_demo_title", e->baseName);
+	if (e->state == DEMOSCAN_PENDING) {
+		CL_UIVar_Set("ui_om_demo_hostname", "Scanning...");
+		CL_UIVar_Set("ui_om_demo_gametype", "");
+		CL_UIVar_Set("ui_om_demo_fraglimit", "");
+		CL_UIVar_Set("ui_om_demo_timelimit", "");
+		CL_UIVar_Set("ui_om_demo_players_title", "PLAYERS");
+		return;
+	}
+	if (e->state != DEMOSCAN_OK) {
+		CL_UIVar_Set("ui_om_demo_hostname", "Unreadable demo");
+		CL_UIVar_Set("ui_om_demo_gametype", "");
+		CL_UIVar_Set("ui_om_demo_fraglimit", "");
+		CL_UIVar_Set("ui_om_demo_timelimit", "");
+		CL_UIVar_Set("ui_om_demo_players_title", "PLAYERS");
+		return;
+	}
+
+	CL_UIVar_Set("ui_om_demo_hostname", e->hostname[0] ? e->hostname : "Unknown");
+	CL_UIVar_Set("ui_om_demo_gametype", uir_demo_gametype_label(e));
+	if (e->fraglimit > 0) {
+		Com_sprintf(buf, sizeof(buf), "%d", e->fraglimit);
+	} else {
+		Q_strncpyz(buf, "None", sizeof(buf));
+	}
+	CL_UIVar_Set("ui_om_demo_fraglimit", buf);
+	if (e->timelimit > 0) {
+		Com_sprintf(buf, sizeof(buf), "%d min", e->timelimit);
+	} else {
+		Q_strncpyz(buf, "None", sizeof(buf));
+	}
+	CL_UIVar_Set("ui_om_demo_timelimit", buf);
+	Com_sprintf(buf, sizeof(buf), "PLAYERS (%d)", e->numPlayers);
+	CL_UIVar_Set("ui_om_demo_players_title", buf);
+
+	for (i = 0; i < e->numPlayers; i++) {
+		g_demoPlayerOrder.push_back(i);
+	}
+	std::stable_sort(g_demoPlayerOrder.begin(), g_demoPlayerOrder.end(), [e](int ia, int ib) {
+		const demoScanPlayer_t *a = &e->players[ia];
+		const demoScanPlayer_t *b = &e->players[ib];
+		if (a->hasScore != b->hasScore) {
+			return a->hasScore ? true : false;
+		}
+		if (a->kills != b->kills) {
+			return a->kills > b->kills;
+		}
+		return a->deaths < b->deaths;
+	});
+}
+
+static void uir_demo_update_status(void)
+{
+	char buf[64];
+	int  pending = 0;
+	int  i;
+
+	for (i = 0; i < CL_DemoScan_Count(); i++) {
+		if (CL_DemoScan_Get(i)->state == DEMOSCAN_PENDING) {
+			pending++;
+		}
+	}
+	Com_sprintf(buf, sizeof(buf), "# DEMOS: %d / %d", (int)g_demoVisible.size(), CL_DemoScan_Count());
+	CL_UIVar_Set("ui_om_demo_status", buf);
+	if (pending) {
+		Com_sprintf(buf, sizeof(buf), "SCANNING %d", pending);
+		CL_UIVar_Set("ui_om_demo_phase", buf);
+	} else {
+		CL_UIVar_Set("ui_om_demo_phase", "READY");
+	}
+}
+
+static void uir_demo_refresh(void)
+{
+	CL_DemoScan_Refresh();
+	uir_demo_rebuild_visible();
+	uir_demo_sync_details();
+	uir_demo_update_status();
+}
+
+/*
+ * Scans a few milliseconds of demos per frame while the DEMOS tab is open.
+ * Opening the tab re-lists demos/; unchanged files keep their cached metadata.
+ */
+static void uir_demo_think(void)
+{
+	if (!CL_UIMenu_IsOpen("main") || Q_stricmp(CL_UIVar_String("ui_om_main_panel"), "demos")) {
+		g_demoTabActive = qfalse;
+		return;
+	}
+	if (!g_demoTabActive) {
+		g_demoTabActive = qtrue;
+		CL_DemoScan_Refresh();
+	}
+	CL_DemoScan_Think(4);
+	uir_demo_rebuild_visible();
+	uir_demo_sync_details();
+	uir_demo_update_status();
+}
+
+typedef struct {
+	char        key[MAX_QPATH];
+	char        name[MAX_QPATH];
+	char        gametype[64];
+	char        duration[16];
+	char        date[32];
+	const char *fieldNames[4];
+	const char *fieldValues[4];
+} uid_demo_collection_slot_t;
+
+static int uid_query_collection_demos(
+	int offset,
+	int limit,
+	int *outTotal,
+	uint64_t *outRevision,
+	uid_collection_item_t *out,
+	int max
+)
+{
+	static std::vector<uid_demo_collection_slot_t> slots;
+	static const char *const kFieldNames[] = {"name", "gametype", "duration", "date"};
+	int                      count;
+	int                      written = 0;
+	int                      i, f;
+
+	uir_demo_rebuild_visible();
+	count = (int)g_demoVisible.size();
+	if (outTotal) {
+		*outTotal = count;
+	}
+	if (outRevision) {
+		*outRevision = g_demoVisibleRevision;
+	}
+	if (!out || max <= 0) {
+		return 0;
+	}
+	if (offset < 0) {
+		offset = 0;
+	}
+	if (limit <= 0) {
+		limit = max;
+	}
+	if ((int)slots.size() < max) {
+		slots.resize(max);
+	}
+
+	for (i = offset; i < count && written < max && written < limit; i++) {
+		const demoScanEntry_t      *e = CL_DemoScan_Get(g_demoVisible[i]);
+		uid_demo_collection_slot_t *slot = &slots[written];
+
+		Q_strncpyz(slot->key, e->file, sizeof(slot->key));
+		Q_strncpyz(slot->name, e->baseName, sizeof(slot->name));
+		Q_strncpyz(slot->gametype, uir_demo_gametype_label(e), sizeof(slot->gametype));
+		uir_demo_format_duration(e, slot->duration, sizeof(slot->duration));
+		uir_demo_format_date(e, slot->date, sizeof(slot->date));
+		for (f = 0; f < 4; f++) {
+			slot->fieldNames[f] = kFieldNames[f];
+		}
+		slot->fieldValues[0] = slot->name;
+		slot->fieldValues[1] = slot->gametype;
+		slot->fieldValues[2] = slot->duration;
+		slot->fieldValues[3] = slot->date;
+
+		out[written].key = slot->key;
+		out[written].value = slot->key;
+		out[written].label = slot->name;
+		out[written].nfields = 4;
+		out[written].fieldNames = slot->fieldNames;
+		out[written].fieldValues = slot->fieldValues;
+		out[written].flags = 0;
+		written++;
+	}
+	return written;
+}
+
+typedef struct {
+	char        key[16];
+	char        name[MAX_NAME_LENGTH * 2];
+	char        kills[16];
+	char        deaths[16];
+	char        color[16];
+	const char *fieldNames[4];
+	const char *fieldValues[4];
+} uid_demo_player_slot_t;
+
+static int uid_query_collection_demo_players(
+	int offset,
+	int limit,
+	int *outTotal,
+	uint64_t *outRevision,
+	uid_collection_item_t *out,
+	int max
+)
+{
+	static uid_demo_player_slot_t slots[MAX_CLIENTS];
+	static const char *const      kFieldNames[] = {"name", "kills", "deaths", "color"};
+	const demoScanEntry_t        *e;
+	int                           count;
+	int                           written = 0;
+	int                           i, f;
+
+	uir_demo_sync_details();
+	e = CL_DemoScan_Get(CL_DemoScan_Find(g_demoDetailFile.c_str()));
+	count = e ? (int)g_demoPlayerOrder.size() : 0;
+	if (outTotal) {
+		*outTotal = count;
+	}
+	if (outRevision) {
+		*outRevision = g_demoPlayersRevision;
+	}
+	if (!out || max <= 0) {
+		return 0;
+	}
+	if (offset < 0) {
+		offset = 0;
+	}
+	if (limit <= 0) {
+		limit = max;
+	}
+
+	for (i = offset; i < count && written < max && written < limit && written < MAX_CLIENTS; i++) {
+		const demoScanPlayer_t *p = &e->players[g_demoPlayerOrder[i]];
+		uid_demo_player_slot_t *slot = &slots[written];
+
+		Com_sprintf(slot->key, sizeof(slot->key), "%d", i);
+		Q_strncpyz(slot->name, p->name, sizeof(slot->name));
+		if (p->hasScore) {
+			Com_sprintf(slot->kills, sizeof(slot->kills), "%d", p->kills);
+			Com_sprintf(slot->deaths, sizeof(slot->deaths), "%d", p->deaths);
+		} else {
+			Q_strncpyz(slot->kills, "-", sizeof(slot->kills));
+			Q_strncpyz(slot->deaths, "-", sizeof(slot->deaths));
+		}
+		if (p->team == TEAM_ALLIES && e->gametype > GT_FFA) {
+			Q_strncpyz(slot->color, "#8891CCFF", sizeof(slot->color));
+		} else if (p->team == TEAM_AXIS && e->gametype > GT_FFA) {
+			Q_strncpyz(slot->color, "#CC8888FF", sizeof(slot->color));
+		} else if (p->team == TEAM_SPECTATOR) {
+			Q_strncpyz(slot->color, "#EBF0F5B3", sizeof(slot->color));
+		} else {
+			Q_strncpyz(slot->color, "#EBF0F5E6", sizeof(slot->color));
+		}
+		for (f = 0; f < 4; f++) {
+			slot->fieldNames[f] = kFieldNames[f];
+		}
+		slot->fieldValues[0] = slot->name;
+		slot->fieldValues[1] = slot->kills;
+		slot->fieldValues[2] = slot->deaths;
+		slot->fieldValues[3] = slot->color;
+
+		out[written].key = slot->key;
+		out[written].value = slot->key;
+		out[written].label = slot->name;
+		out[written].nfields = 4;
+		out[written].fieldNames = slot->fieldNames;
+		out[written].fieldValues = slot->fieldValues;
+		out[written].flags = 0;
+		written++;
+	}
+	return written;
+}
+
+typedef struct {
+	char        key[16];
+	char        pct[16];
+	const char *fieldNames[1];
+	const char *fieldValues[1];
+} uid_demo_frag_slot_t;
+
+/* Added in Omaha: enemy frags of the recording player on the demo overlay scrubber. */
+static int uid_query_collection_demo_frags(
+	int offset,
+	int limit,
+	int *outTotal,
+	uint64_t *outRevision,
+	uid_collection_item_t *out,
+	int max
+)
+{
+	static std::vector<uid_demo_frag_slot_t> slots;
+	static const char *const                 kFieldNames[] = {"pct"};
+	const int                                count = CL_DemoPlayback_FragCount();
+	int                                      written = 0;
+	int                                      i;
+
+	if (outTotal) {
+		*outTotal = count;
+	}
+	if (outRevision) {
+		*outRevision = CL_DemoPlayback_FragRevision();
+	}
+	if (!out || max <= 0) {
+		return 0;
+	}
+	if (offset < 0) {
+		offset = 0;
+	}
+	if (limit <= 0) {
+		limit = max;
+	}
+	if ((int)slots.size() < max) {
+		slots.resize(max);
+	}
+
+	for (i = offset; i < count && written < max && written < limit; i++) {
+		uid_demo_frag_slot_t *slot = &slots[written];
+
+		Com_sprintf(slot->key, sizeof(slot->key), "%d", i);
+		Com_sprintf(slot->pct, sizeof(slot->pct), "%.3f", CL_DemoPlayback_FragPos(i) * 100.0f);
+		slot->fieldNames[0] = kFieldNames[0];
+		slot->fieldValues[0] = slot->pct;
+
+		out[written].key = slot->key;
+		out[written].value = slot->key;
+		out[written].label = slot->key;
+		out[written].nfields = 1;
+		out[written].fieldNames = slot->fieldNames;
+		out[written].fieldValues = slot->fieldValues;
+		out[written].flags = 0;
+		written++;
+	}
+	return written;
+}
+
 static int uid_query_collection_items(const uid_collection_query_t *query, uid_collection_item_t *out, int max)
 {
 	if (!query) {
@@ -3943,6 +4454,18 @@ static int uid_query_collection_items(const uid_collection_query_t *query, uid_c
 		return uid_query_collection_hitmarker_sounds(
 			query->offset, query->limit, query->outTotal, query->outRevision, out, max
 		);
+	case UID_COLHOST_DEMOS:
+		return uid_query_collection_demos(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max
+		);
+	case UID_COLHOST_DEMO_PLAYERS:
+		return uid_query_collection_demo_players(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max
+		);
+	case UID_COLHOST_DEMO_FRAGS:
+		return uid_query_collection_demo_frags(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max
+		);
 	default:
 		break;
 	}
@@ -3971,6 +4494,21 @@ static int uid_query_collection_items(const uid_collection_query_t *query, uid_c
 	}
 	if (!Q_stricmp(query->source, "hitmarker-sounds")) {
 		return uid_query_collection_hitmarker_sounds(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max
+		);
+	}
+	if (!Q_stricmp(query->source, "demos")) {
+		return uid_query_collection_demos(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max
+		);
+	}
+	if (!Q_stricmp(query->source, "demo-players")) {
+		return uid_query_collection_demo_players(
+			query->offset, query->limit, query->outTotal, query->outRevision, out, max
+		);
+	}
+	if (!Q_stricmp(query->source, "demo-frags")) {
+		return uid_query_collection_demo_frags(
 			query->offset, query->limit, query->outTotal, query->outRevision, out, max
 		);
 	}
@@ -4306,6 +4844,136 @@ static bool invoke_join_selected(void *userdata)
 	CL_ModernBrowser_HaltRefresh();
 	UI_SetReturnMenuToCurrent();
 	Cbuf_AddText(va("connect %s\n", addr));
+	return true;
+}
+
+/* Added in Omaha: demo browser invokes. */
+static const char *uir_demo_resolve_selected(void)
+{
+	uid_runtime_t *runtime = CL_UIR_MainRuntime();
+
+	if (runtime && UID_HasDocument(runtime)) {
+		const uid_document_t *doc = UID_GetDocument(runtime);
+		for (size_t i = 0; i < doc->nodes.size() && i < doc->states.size(); ++i) {
+			const uid_node_def_t &node = doc->nodes[i];
+			if (node.collectionSource.empty() || Q_stricmp(node.collectionSource.c_str(), "demos")) {
+				continue;
+			}
+			const uid_node_state_t *st = &doc->states[i];
+			const int               idx = st->collectionSelectedIndex;
+			if (idx >= 0 && static_cast<size_t>(idx) < st->collectionItems.size()) {
+				const std::string &value = st->collectionItems[static_cast<size_t>(idx)].value;
+				if (!value.empty()) {
+					CL_UIVar_Set("ui_selected_demo", value.c_str());
+				}
+			}
+			break;
+		}
+	}
+	return CL_UIVar_String("ui_selected_demo");
+}
+
+static bool invoke_refresh_demos(void *userdata)
+{
+	(void)userdata;
+	uir_demo_refresh();
+	return true;
+}
+
+static bool invoke_sort_demos(void *userdata)
+{
+	const char *column = CL_UIVar_String("ui_om_demo_sort");
+
+	(void)userdata;
+	if (g_demoBuiltSort == column) {
+		CL_UIVar_Set("ui_om_demo_sort_asc", CL_UIVar_Integer("ui_om_demo_sort_asc") ? "0" : "1");
+	} else {
+		/* Dates and durations read best newest/longest first; text columns A-Z. */
+		const qboolean numeric = !Q_stricmp(column, "date") || !Q_stricmp(column, "duration");
+		CL_UIVar_Set("ui_om_demo_sort_asc", numeric ? "0" : "1");
+	}
+	uir_demo_rebuild_visible();
+	uir_demo_update_status();
+	return true;
+}
+
+static bool invoke_play_selected_demo(void *userdata)
+{
+	const char *file;
+
+	(void)userdata;
+	file = uir_demo_resolve_selected();
+	if (!file || !file[0] || CL_DemoScan_Find(file) < 0) {
+		Com_Printf("UIR: play-selected-demo: no demo selected\n");
+		return false;
+	}
+	CL_UIR_DeactivateModernMain();
+	CL_ModernBrowser_HaltRefresh();
+	UI_SetReturnMenuToCurrent();
+	Cbuf_AddText(va("demo \"%s\"\n", file));
+	return true;
+}
+
+static bool invoke_export_selected_demo_avi(void *userdata)
+{
+	const char *file;
+
+	(void)userdata;
+	file = uir_demo_resolve_selected();
+	if (!file || !file[0] || CL_DemoScan_Find(file) < 0) {
+		Com_Printf("UIR: export-selected-demo-avi: no demo selected\n");
+		return false;
+	}
+	if (!CL_AVI_BeginDemoExport(file)) {
+		return false;
+	}
+	CL_UIR_DeactivateModernMain();
+	CL_ModernBrowser_HaltRefresh();
+	UI_SetReturnMenuToCurrent();
+	Cbuf_AddText(va("demo \"%s\"\n", file));
+	return true;
+}
+
+/* Added in Omaha: demo playback overlay actions. */
+static bool invoke_demo_toggle_pause(void *userdata)
+{
+	(void)userdata;
+	CL_DemoPlayback_TogglePause();
+	return true;
+}
+
+static bool invoke_demo_rate_reset(void *userdata)
+{
+	(void)userdata;
+	CL_DemoPlayback_RateReset();
+	return true;
+}
+
+static bool invoke_demo_rate_step(void *userdata)
+{
+	(void)userdata;
+	CL_DemoPlayback_RateStep();
+	return true;
+}
+
+static bool invoke_demo_seek(void *userdata)
+{
+	(void)userdata;
+	CL_DemoPlayback_SeekToUIPosition();
+	return true;
+}
+
+static bool invoke_demo_export(void *userdata)
+{
+	(void)userdata;
+	CL_DemoPlayback_Export();
+	return true;
+}
+
+static bool invoke_demo_toggle_overlay(void *userdata)
+{
+	(void)userdata;
+	CL_DemoPlayback_ToggleOverlay();
 	return true;
 }
 
@@ -4799,6 +5467,16 @@ static void CL_UIR_RegisterInvokes(void)
 	UID_RegisterInvoke("sort-scoreboard", invoke_sort_scoreboard, NULL);
 	UID_RegisterInvoke("toggle-server-favorite", invoke_toggle_server_favorite, NULL);
 	UID_RegisterInvoke("join-selected", invoke_join_selected, NULL);
+	UID_RegisterInvoke("refresh-demos", invoke_refresh_demos, NULL);
+	UID_RegisterInvoke("sort-demos", invoke_sort_demos, NULL);
+	UID_RegisterInvoke("play-selected-demo", invoke_play_selected_demo, NULL);
+	UID_RegisterInvoke("export-selected-demo-avi", invoke_export_selected_demo_avi, NULL);
+	UID_RegisterInvoke("demo-toggle-pause", invoke_demo_toggle_pause, NULL);
+	UID_RegisterInvoke("demo-rate-reset", invoke_demo_rate_reset, NULL);
+	UID_RegisterInvoke("demo-rate-step", invoke_demo_rate_step, NULL);
+	UID_RegisterInvoke("demo-seek", invoke_demo_seek, NULL);
+	UID_RegisterInvoke("demo-export", invoke_demo_export, NULL);
+	UID_RegisterInvoke("demo-toggle-overlay", invoke_demo_toggle_overlay, NULL);
 	UID_RegisterInvoke("apply-profile", invoke_apply_profile, NULL);
 	UID_RegisterInvoke("settings-defaults", invoke_settings_defaults, NULL);
 	UID_RegisterInvoke("modal-commit-keybind", invoke_modal_commit_keybind, NULL);
@@ -4866,7 +5544,7 @@ static void CL_UIR_CompareGoto_f(void)
 	qboolean wantPlay;
 
 	if (Cmd_Argc() < 2) {
-		Com_Printf("usage: ui_compare_goto <play|settings> [input|video|audio|gameplay]\n");
+		Com_Printf("usage: ui_compare_goto <play|demos|settings> [input|video|audio|gameplay]\n");
 		return;
 	}
 	if (!CL_UIR_MainRuntime() || !UID_HasDocument(CL_UIR_MainRuntime())) {
@@ -4883,8 +5561,16 @@ static void CL_UIR_CompareGoto_f(void)
 		wantPlay = qtrue;
 	} else if (!Q_stricmp(panel, "settings")) {
 		wantPlay = qfalse;
+	} else if (!Q_stricmp(panel, "demos")) {
+		// Added in Omaha: demo browser tab
+		CL_UIVar_Set("ui_om_main_panel", "demos");
+		if (page && page[0]) {
+			CL_UIVar_Set("ui_selected_demo", page);
+		}
+		CL_UIR_UpdateModern();
+		return;
 	} else {
-		Com_Printf("usage: ui_compare_goto <play|settings> [input|video|audio|gameplay]\n");
+		Com_Printf("usage: ui_compare_goto <play|demos|settings> [input|video|audio|gameplay]\n");
 		return;
 	}
 
@@ -6587,6 +7273,18 @@ void CL_UIR_Shutdown(void)
 	g_uirStarted = qfalse;
 }
 
+void CL_UIR_OnCGameShutdown(void)
+{
+	/*
+	 * Demo AVI EOF disconnects mid-frame. Menu world can still be READY from the
+	 * pre-demo main menu (SyncEligibility does not run while CA_ACTIVE), so the
+	 * disconnected compositor would RenderScene + sun flares against a torn-down
+	 * clipmap and abort in CM_TraceToLeaf.
+	 */
+	UIR_MenuWorldReleaseOwnership();
+	UIR_MenuWorldMarkNeedsReload();
+}
+
 void CL_UIR_OnRendererRegistration(void)
 {
 	CL_UIR_WireBackends();
@@ -6899,6 +7597,7 @@ void CL_UIR_UpdateModern(void)
 		g_browserDidFirstRefresh = qtrue;
 		uir_browser_refresh();
 	}
+	uir_demo_think();
 
 	ownInput = CL_UIR_ShouldOwnInput();
 	if (!ownInput) {

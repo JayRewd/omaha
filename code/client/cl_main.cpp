@@ -26,6 +26,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "../server/server.h"
 #include "cl_ui.h"
 #include "cl_uirender.h"
+#include "cl_demoscan.h"
+#include "cl_demoplayback.h"
 #include "../corepp/tiki.h"
 #include "../qcommon/cm_terrain.h"
 #include "../qcommon/localization.h"
@@ -362,12 +364,6 @@ Begins recording a demo from the current position
 static char		demoName[MAX_QPATH];	// compiler bug workaround
 void CL_Record_f( void ) {
 	char		name[MAX_OSPATH];
-	byte		bufData[MAX_MSGLEN];
-	msg_t	buf;
-	int			i;
-	size_t			len;
-	entityState_t	*ent;
-	entityState_t	nullstate;
 	char		*s;
 
 	if ( Cmd_Argc() > 2 ) {
@@ -430,6 +426,28 @@ void CL_Record_f( void ) {
 	// don't start saving messages until a non-delta compressed message is received
 	clc.demowaiting = qtrue;
 
+	CL_WriteDemoGamestate( clc.demofile, clc.serverMessageSequence - 1 );
+
+	// the rest of the demo file will be copied from net messages
+}
+
+/*
+====================
+CL_WriteDemoGamestate
+
+Writes the current gamestate (configstrings, baselines, client num) as a
+framed demo message. Added in Omaha: shared by record and demo crop export.
+====================
+*/
+void CL_WriteDemoGamestate( fileHandle_t f, int sequence ) {
+	byte		bufData[MAX_MSGLEN];
+	msg_t	buf;
+	int			i;
+	size_t			len;
+	entityState_t	*ent;
+	entityState_t	nullstate;
+	char		*s;
+
 	// write out the gamestate message
 	MSG_Init (&buf, bufData, sizeof(bufData));
 	MSG_Bitstream(&buf);
@@ -478,14 +496,12 @@ void CL_Record_f( void ) {
 	MSG_WriteByte( &buf, svc_EOF );
 
 	// write it to the demo file
-	len = LittleLong( clc.serverMessageSequence - 1 );
-	FS_Write (&len, 4, clc.demofile);
+	len = LittleLong( sequence );
+	FS_Write (&len, 4, f);
 
 	len = LittleLong (buf.cursize);
-	FS_Write (&len, 4, clc.demofile);
-	FS_Write (buf.data, buf.cursize, clc.demofile);
-
-	// the rest of the demo file will be copied from net messages
+	FS_Write (&len, 4, f);
+	FS_Write (buf.data, buf.cursize, f);
 }
 
 /*
@@ -589,8 +605,24 @@ void CL_DemoCompleted( void )
 		}
 	}
 
+	CL_AVI_FinishDemoExport();
 	CL_Disconnect();
 	CL_NextDemo();
+}
+
+/*
+=================
+CL_DemoEndOfFile
+
+Added in Omaha: the playback overlay may hold the last frame instead of
+leaving the demo.
+=================
+*/
+static void CL_DemoEndOfFile( void ) {
+	if ( CL_DemoPlayback_HoldAtEnd() ) {
+		return;
+	}
+	CL_DemoCompleted();
 }
 
 /*
@@ -605,14 +637,14 @@ void CL_ReadDemoMessage( void ) {
 	int			s;
 
 	if ( !clc.demofile ) {
-		CL_DemoCompleted ();
+		CL_DemoEndOfFile ();
 		return;
 	}
 
 	// get the sequence number
 	r = FS_Read( &s, 4, clc.demofile);
 	if ( r != 4 ) {
-		CL_DemoCompleted ();
+		CL_DemoEndOfFile ();
 		return;
 	}
 	clc.serverMessageSequence = LittleLong( s );
@@ -623,12 +655,12 @@ void CL_ReadDemoMessage( void ) {
 	// get the length
 	r = FS_Read (&buf.cursize, 4, clc.demofile);
 	if ( r != 4 ) {
-		CL_DemoCompleted ();
+		CL_DemoEndOfFile ();
 		return;
 	}
 	buf.cursize = LittleLong( buf.cursize );
 	if ( buf.cursize == (uint32_t)-1) {
-		CL_DemoCompleted ();
+		CL_DemoEndOfFile ();
 		return;
 	}
 	if ( buf.cursize > buf.maxsize ) {
@@ -637,13 +669,15 @@ void CL_ReadDemoMessage( void ) {
 	r = FS_Read( buf.data, buf.cursize, clc.demofile );
 	if ( r != buf.cursize ) {
 		Com_Printf( "Demo file was truncated.\n");
-		CL_DemoCompleted ();
+		CL_DemoEndOfFile ();
 		return;
 	}
 
 	clc.lastPacketTime = cls.realtime;
 	buf.readcount = 0;
+	CL_DemoPlayback_BeforeMessage();
 	CL_ParseServerMessage( &buf );
+	CL_DemoPlayback_AfterMessage( buf.data, buf.cursize );
 }
 
 /*
@@ -698,11 +732,15 @@ void CL_PlayDemo_f( void ) {
 	// open the demo file
 	arg = Cmd_Argv(1);
 
-	// check for an extension .dm_?? (?? is protocol)
-	ext_test = arg + strlen(arg) - 6;
-	if ((strlen(arg) > 6) && (ext_test[0] == '.') && ((ext_test[1] == 'd') || (ext_test[1] == 'D')) && ((ext_test[2] == 'm') || (ext_test[2] == 'M')) && (ext_test[3] == '_'))
+	// check for an extension .dm_* (protocol number can be 1 or 2 digits).
+	// Fixed in Omaha: ioq3 always looked at the last 6 chars (.dm_68). MOHAA
+	// Base/SH use .dm_6 / .dm_8 (5 chars), so that check missed the extension
+	// and CL_WalkDemoExt appended another .dm_8.
+	ext_test = strrchr(arg, '.');
+	if (ext_test && !Q_stricmpn(ext_test + 1, DEMOEXT, ARRAY_LEN(DEMOEXT) - 1)
+		&& ext_test[ARRAY_LEN(DEMOEXT)])
 	{
-		protocol = atoi(ext_test+4);
+		protocol = atoi(ext_test + ARRAY_LEN(DEMOEXT));
 		i=0;
 		while(demo_protocols[i])
 		{
@@ -717,7 +755,7 @@ void CL_PlayDemo_f( void ) {
 		} else {
 			Com_Printf("Protocol %d not supported for demos\n", protocol);
 			Q_strncpyz(retry, arg, sizeof(retry));
-			retry[strlen(retry)-6] = 0;
+			retry[ext_test - arg] = 0;
 			CL_WalkDemoExt( retry, name, &clc.demofile );
 		}
 	} else {
@@ -729,6 +767,8 @@ void CL_PlayDemo_f( void ) {
 		return;
 	}
 	Q_strncpyz( clc.demoName, Cmd_Argv(1), sizeof( clc.demoName ) );
+	// Added in Omaha: playback overlay timeline / restart-seek state
+	CL_DemoPlayback_OnDemoStart( name, Cmd_Argv(1) );
 
     UI_CloseConsole();
 
@@ -964,6 +1004,8 @@ This is also called on Com_Error and Com_Quit, so it shouldn't cause any errors
 */
 void CL_Disconnect() {
 	int mouseX, mouseY;
+	const qboolean wasDemoplaying = clc.demoplaying;
+	const qboolean wasAviRecording = CL_VideoRecording();
 
 	if ( !com_cl_running || !com_cl_running->integer ) {
 		return;
@@ -1021,9 +1063,14 @@ void CL_Disconnect() {
 	// not connected to a pure server anymore
 	cl_connectedToPureServer = qfalse;
 
-	// Stop recording any video
-	if( CL_VideoRecording( ) ) {
-		// Finish rendering current frame
+	// Stop recording any video. A pending AVI export arms before `demo`
+	// runs; CL_PlayDemo_f disconnects first, so do not abort that pending
+	// session. Finish when we were already playing/recording (EOF or Escape).
+	if ( cls.aviDemoExport ) {
+		if ( wasAviRecording || wasDemoplaying ) {
+			CL_AVI_FinishDemoExport();
+		}
+	} else if ( wasAviRecording ) {
 		SCR_UpdateScreen( );
 		CL_CloseAVI( );
 	}
@@ -2710,13 +2757,17 @@ void CL_Frame ( int msec ) {
 #endif
 
 	if (CL_FinishedIntro()) {
+		static int s_prevClcState = -1;
+		const qboolean returningFromSession =
+			clc.state == CA_DISCONNECTED && s_prevClcState > CA_DISCONNECTED;
+
 		if (clc.state == CA_DISCONNECTED) {
 			/* Changed in Omaha: SyncAutoMenus opens modern main before UI_MenuActive()
 			 * would be checked — sample intro music first, then sync/activate menu. */
 			const qboolean bringingUpMenu =
 				!UI_MenuActive() && !com_sv_running->integer && !server_loading;
 
-			if (bringingUpMenu) {
+			if (bringingUpMenu || returningFromSession) {
 				S_StopAllSounds2(qtrue);
 				S_TriggeredMusic_PlayIntroMusic();
 				if (!CL_UIR_UseLegacyMain()) {
@@ -2732,6 +2783,10 @@ void CL_Frame ( int msec ) {
 				} else if (CL_UIR_IsEligibleForModernMain()) {
 					CL_UIR_ActivateModernMain();
 				}
+			} else if (CL_UIR_IsEligibleForModernMain() && CL_UIR_IsModernMainActive()) {
+				/* AVI/demo EOF: main stayed open so bringingUpMenu is false, but
+				 * playback left relative mouse. Restore the GUI pointer. */
+				CL_UIR_EnterModernInputMode();
 			}
 
             CL_VerifyUpdate();
@@ -2739,19 +2794,27 @@ void CL_Frame ( int msec ) {
 			CL_UIR_DeactivateModernMain();
 			UI_ForceMenuOff(qtrue);
 		}
+		s_prevClcState = clc.state;
 	}
 
 	// if recording an avi, lock to a fixed fps
+	CL_AVI_TryStartIfNeeded();
 	if ( CL_VideoRecording( ) && cl_aviFrameRate->integer && msec) {
 		// save the current screen
 		if ( clc.state == CA_ACTIVE || cl_forceavidemo->integer) {
-			CL_TakeVideoFrame( );
+			/* Added in Omaha: fractional accumulator keeps video/audio/game time locked
+			 * (ceil(1000/60)=17 drifts ~2% ahead of exact OpenAL sample counts). */
+			static float s_aviFrameTimeAccum;
 
-			// fixed time for next frame'
-			msec = (int)ceil( (1000.0f / cl_aviFrameRate->value) * com_timescale->value );
-			if (msec == 0) {
+			CL_TakeVideoFrame( );
+			S_OPENAL_AviCaptureFrame( cl_aviFrameRate->integer );
+
+			s_aviFrameTimeAccum += (1000.0f / cl_aviFrameRate->value) * com_timescale->value;
+			msec = (int)s_aviFrameTimeAccum;
+			if (msec < 1) {
 				msec = 1;
 			}
+			s_aviFrameTimeAccum -= (float)msec;
 		}
 	}
 
@@ -2847,6 +2910,9 @@ void CL_Frame ( int msec ) {
 
 	// decide on the serverTime to render
 	CL_SetCGameTime();
+
+	// Added in Omaha: demo overlay timeline index, seek/export state, UI vars
+	CL_DemoPlayback_Frame();
 
 	// set the time if we loaded a save
 	if( SV_DoSaveGame() )
@@ -3520,6 +3586,12 @@ void CL_Video_f( void )
     return;
   }
 
+  if( !CL_AVI_RendererAllowsCapture() )
+  {
+    Com_Printf( S_COLOR_YELLOW "AVI capture requires the OpenGL1 renderer.\n" );
+    return;
+  }
+
   if( Cmd_Argc( ) == 2 )
   {
     // explicit filename
@@ -3669,7 +3741,7 @@ void CL_Init( void ) {
 	cl_timedemo = Cvar_Get ("timedemo", "0", 0);
 	cl_timedemoLog = Cvar_Get ("cl_timedemoLog", "", CVAR_ARCHIVE);
 	cl_autoRecordDemo = Cvar_Get ("cl_autoRecordDemo", "0", CVAR_ARCHIVE);
-	cl_aviFrameRate = Cvar_Get ("cl_aviFrameRate", "25", CVAR_ARCHIVE);
+	cl_aviFrameRate = Cvar_Get ("cl_aviFrameRate", "60", CVAR_ARCHIVE); /* Changed in Omaha: default demo/video export to 60 fps */
 	cl_aviMotionJpeg = Cvar_Get ("cl_aviMotionJpeg", "1", CVAR_ARCHIVE);
 	cl_forceavidemo = Cvar_Get ("cl_forceavidemo", "0", 0);
 
@@ -3794,6 +3866,10 @@ void CL_Init( void ) {
 	Cmd_AddCommand ("demo", CL_PlayDemo_f);
 	Cmd_AddCommand ("cinematic", CL_PlayCinematic_f);
 	Cmd_AddCommand ("stoprecord", CL_StopRecord_f);
+	// Added in Omaha: demo browser metadata scanner
+	CL_DemoScan_Init();
+	// Added in Omaha: demo playback overlay
+	CL_DemoPlayback_Init();
 	Cmd_AddCommand ("connect", CL_Connect_f);
 	Cmd_AddCommand ("menuconnect", CL_MenuConnect_f);
 	Cmd_AddCommand ("reconnect", CL_Reconnect_f);
@@ -3900,6 +3976,8 @@ void CL_Shutdown(const char* finalmsg, qboolean disconnect, qboolean quit) {
 	Cmd_RemoveCommand ("demo");
 	Cmd_RemoveCommand ("cinematic");
 	Cmd_RemoveCommand ("stoprecord");
+	CL_DemoScan_Shutdown();
+	CL_DemoPlayback_Shutdown();
 	Cmd_RemoveCommand ("connect");
 	Cmd_RemoveCommand ("localservers");
 	Cmd_RemoveCommand ("globalservers");

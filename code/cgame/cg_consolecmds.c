@@ -617,6 +617,10 @@ void CG_Mapinfo_f(void)
 
 void CG_PushMenuTeamSelect_f(void)
 {
+    /* Added in Omaha: recorded join menus must not open during demo playback. */
+    if (cg.demoPlayback) {
+        return;
+    }
     if (cgs.gametype == GT_SINGLE_PLAYER) {
         return;
     }
@@ -637,6 +641,10 @@ void CG_PushMenuTeamSelect_f(void)
 
 void CG_PushMenuWeaponSelect_f(void)
 {
+    /* Added in Omaha: recorded join menus must not open during demo playback. */
+    if (cg.demoPlayback) {
+        return;
+    }
     if (cgs.gametype == GT_SINGLE_PLAYER) {
         return;
     }

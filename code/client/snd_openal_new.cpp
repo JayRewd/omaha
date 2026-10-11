@@ -77,6 +77,12 @@ static ALCcontext  *al_context_id              = NULL;
 static ALCdevice   *al_device                  = NULL;
 static ALsizei      al_default_resampler_index = 0;
 static ALsizei      al_resampler_index         = 0;
+/* Added in Omaha: OpenAL Soft loopback for AVI PCM. */
+static qboolean                    s_alWantLoopback;
+static qboolean                    s_alAviLoopback;
+static LPALCLOOPBACKOPENDEVICESOFT s_alcLoopbackOpenDeviceSOFT;
+static LPALCISRENDERFORMATSUPPORTEDSOFT s_alcIsRenderFormatSupportedSOFT;
+static LPALCRENDERSAMPLESSOFT      s_alcRenderSamplesSOFT;
 
 static ALboolean (*_alutLoadMP3_LOKI)(unsigned int buffer, const byte *data, int length);
 static void (*_alReverbScale_LOKI)();
@@ -267,6 +273,61 @@ static void S_OPENAL_NukeContext()
 
         Com_Printf("OpenAL: Device closed successfully.\n");
     }
+
+    s_alAviLoopback = qfalse;
+}
+
+/*
+==============
+S_OPENAL_LoadLoopback
+==============
+*/
+static qboolean S_OPENAL_LoadLoopback(void)
+{
+    if (s_alcLoopbackOpenDeviceSOFT && s_alcRenderSamplesSOFT && s_alcIsRenderFormatSupportedSOFT) {
+        return qtrue;
+    }
+    if (!qalcGetProcAddress || !qalcIsExtensionPresent) {
+        return qfalse;
+    }
+    if (!qalcIsExtensionPresent(NULL, "ALC_SOFT_loopback")) {
+        return qfalse;
+    }
+
+    s_alcLoopbackOpenDeviceSOFT =
+        (LPALCLOOPBACKOPENDEVICESOFT)qalcGetProcAddress(NULL, "alcLoopbackOpenDeviceSOFT");
+    s_alcIsRenderFormatSupportedSOFT =
+        (LPALCISRENDERFORMATSUPPORTEDSOFT)qalcGetProcAddress(NULL, "alcIsRenderFormatSupportedSOFT");
+    s_alcRenderSamplesSOFT = (LPALCRENDERSAMPLESSOFT)qalcGetProcAddress(NULL, "alcRenderSamplesSOFT");
+
+    return (s_alcLoopbackOpenDeviceSOFT && s_alcIsRenderFormatSupportedSOFT && s_alcRenderSamplesSOFT) ? qtrue
+                                                                                                      : qfalse;
+}
+
+/*
+==============
+S_OPENAL_ApplyFrequency
+==============
+*/
+static void S_OPENAL_ApplyFrequency(void)
+{
+    int khz = 44;
+
+    if (s_khz) {
+        khz = s_khz->integer;
+    }
+    switch (khz) {
+    case 11:
+        al_frequency = 11025;
+        break;
+    default:
+    case 22:
+        al_frequency = 22050;
+        break;
+    case 44:
+        al_frequency = 44100;
+        break;
+    }
 }
 
 /*
@@ -280,6 +341,51 @@ static bool S_OPENAL_InitContext()
     int         attrlist[12];
 
     Com_DPrintf("OpenAL: Context initialization\n");
+
+    S_OPENAL_ApplyFrequency();
+    s_alAviLoopback = qfalse;
+
+    if (s_alWantLoopback && S_OPENAL_LoadLoopback()) {
+        ALCint loopAttrs[8];
+
+        Com_Printf("OpenAL: Opening Soft loopback device for AVI capture...\n");
+        al_device = s_alcLoopbackOpenDeviceSOFT(NULL);
+        if (!al_device) {
+            Com_Printf("OpenAL: Loopback device failed, using default output.\n");
+            s_alWantLoopback = qfalse;
+        } else if (!s_alcIsRenderFormatSupportedSOFT(al_device, (ALCsizei)al_frequency, ALC_STEREO_SOFT, ALC_SHORT_SOFT)) {
+            Com_Printf("OpenAL: Loopback stereo s16 at %u Hz unsupported.\n", al_frequency);
+            qalcCloseDevice(al_device);
+            al_device = NULL;
+            s_alWantLoopback = qfalse;
+        } else {
+            loopAttrs[0] = ALC_FORMAT_CHANNELS_SOFT;
+            loopAttrs[1] = ALC_STEREO_SOFT;
+            loopAttrs[2] = ALC_FORMAT_TYPE_SOFT;
+            loopAttrs[3] = ALC_SHORT_SOFT;
+            loopAttrs[4] = ALC_FREQUENCY;
+            loopAttrs[5] = (ALCint)al_frequency;
+            loopAttrs[6] = 0;
+            loopAttrs[7] = 0;
+
+            al_context_id = qalcCreateContext(al_device, loopAttrs);
+            if (!al_context_id) {
+                Com_Printf("OpenAL: Could not create loopback context\n");
+                S_OPENAL_NukeContext();
+                return false;
+            }
+
+            qalcMakeContextCurrent(al_context_id);
+            alDieIfError();
+            qalDistanceModel(AL_INVERSE_DISTANCE_CLAMPED);
+            alDieIfError();
+            qalcProcessContext(al_context_id);
+            alDieIfError();
+            s_alAviLoopback = qtrue;
+            Com_Printf("OpenAL: Loopback context ready (%u Hz stereo s16).\n", al_frequency);
+            return true;
+        }
+    }
 
     dev = NULL;
     if (s_openaldevice) {
@@ -362,18 +468,6 @@ static bool S_OPENAL_InitContext()
     }
 
     Com_Printf("OpenAL: Device opened successfully.\n");
-    switch (s_khz->integer) {
-    case 11:
-        al_frequency = 11025;
-        break;
-    default:
-    case 22:
-        al_frequency = 22050;
-        break;
-    case 44:
-        al_frequency = 44100;
-        break;
-    }
 
     attrlist[0] = ALC_FREQUENCY;
     attrlist[1] = al_frequency;
@@ -764,7 +858,110 @@ void S_OPENAL_Shutdown()
     s_bProvidersEmunerated = false;
     al_initialized         = false;
 
+    s_alcLoopbackOpenDeviceSOFT        = NULL;
+    s_alcIsRenderFormatSupportedSOFT   = NULL;
+    s_alcRenderSamplesSOFT             = NULL;
+    s_alAviLoopback                    = qfalse;
+
     QAL_Shutdown();
+}
+
+/*
+==============
+S_OPENAL_BeginAviLoopback
+==============
+*/
+qboolean S_OPENAL_BeginAviLoopback(void)
+{
+    if (s_alAviLoopback) {
+        return qtrue;
+    }
+    if (!S_OPENAL_LoadLoopback()) {
+        Com_Printf("OpenAL: ALC_SOFT_loopback is not available on this driver.\n");
+        return qfalse;
+    }
+
+    s_alWantLoopback = qtrue;
+    S_OPENAL_Shutdown();
+    if (!S_OPENAL_Init()) {
+        s_alWantLoopback = qfalse;
+        S_OPENAL_Init();
+        return qfalse;
+    }
+    if (!s_alAviLoopback) {
+        s_alWantLoopback = qfalse;
+        return qfalse;
+    }
+    return qtrue;
+}
+
+/*
+==============
+S_OPENAL_EndAviLoopback
+==============
+*/
+void S_OPENAL_EndAviLoopback(void)
+{
+    if (!s_alWantLoopback && !s_alAviLoopback) {
+        return;
+    }
+
+    s_alWantLoopback = qfalse;
+    S_OPENAL_Shutdown();
+    S_OPENAL_Init();
+}
+
+/*
+==============
+S_OPENAL_AviLoopbackActive
+==============
+*/
+qboolean S_OPENAL_AviLoopbackActive(void)
+{
+    return s_alAviLoopback;
+}
+
+/*
+==============
+S_OPENAL_AviSampleRate
+==============
+*/
+int S_OPENAL_AviSampleRate(void)
+{
+    return (int)al_frequency;
+}
+
+/*
+==============
+S_OPENAL_AviCaptureFrame
+==============
+*/
+void S_OPENAL_AviCaptureFrame(int aviFps)
+{
+    short       pcm[8192 * 2];
+    float       frameDuration;
+    int         samples;
+    const int   fps = (aviFps > 0) ? aviFps : 25;
+
+    if (!s_alAviLoopback || !s_alcRenderSamplesSOFT || !al_device) {
+        return;
+    }
+    if (!CL_VideoRecording()) {
+        return;
+    }
+
+    frameDuration = ((float)al_frequency / (float)fps) + clc.aviSoundFrameRemainder;
+    samples       = (int)frameDuration;
+    clc.aviSoundFrameRemainder = frameDuration - (float)samples;
+    if (samples < 1) {
+        samples = 1;
+    }
+    if (samples > 8192) {
+        samples = 8192;
+    }
+
+    s_alcRenderSamplesSOFT(al_device, pcm, samples);
+    CL_WriteAVIAudioFrame((byte *)pcm, samples * 4);
 }
 
 /*

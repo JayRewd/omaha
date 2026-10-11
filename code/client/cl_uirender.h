@@ -33,6 +33,8 @@ void CL_UIR_EnsureStarted(void);
 void CL_UIR_Shutdown(void);
 void CL_UIR_OnRendererRegistration(void);
 void CL_UIR_OnResolutionChanged(void);
+/* Added in Omaha: cgame drop (demo EOF / disconnect) must drop menu-world ownership. */
+void CL_UIR_OnCGameShutdown(void);
 
 /* Added in Omaha: push surface + ui px scale into all open menu runtimes now. */
 void CL_UIR_ApplyMenuSurfaceNow(void);

@@ -310,7 +310,10 @@ bool ValidateKnownAttrs(uid_diag_list_t *diags, const uid_node_def_t &node)
 					ok = false;
 				}
 			}
-		} else if (name == "left" || name == "top" || name == "right" || name == "bottom") {
+		} else if (name == "left" || name == "top" || name == "right" || name == "bottom" ||
+				   /* Added in Omaha: drag-x handle range / clamps */
+				   name == "drag-min" || name == "drag-max" || name == "drag-from" || name == "drag-to" ||
+				   name == "drag-step") {
 			if (!LooksDeferredExpr(value)) {
 				ok = ValidateNumberAttr(diags, node.source, name.c_str(), value) && ok;
 			}
@@ -935,7 +938,9 @@ bool IsHostCollectionSource(const char *sourceId)
 		std::strcmp(sourceId, "hud-objectives") == 0 || std::strcmp(sourceId, "hud-messages") == 0 ||
 		std::strcmp(sourceId, "hud-game-messages") == 0 ||
 		std::strcmp(sourceId, "hud-chat") == 0 || std::strcmp(sourceId, "hud-kill-feed") == 0 ||
-		std::strcmp(sourceId, "vote-options") == 0; /* Added in Omaha: dm_pause vote list. */
+		std::strcmp(sourceId, "vote-options") == 0 || /* Added in Omaha: dm_pause vote list. */
+		std::strcmp(sourceId, "demos") == 0 || std::strcmp(sourceId, "demo-players") == 0 || /* Added in Omaha: demo browser. */
+		std::strcmp(sourceId, "demo-frags") == 0; /* Added in Omaha: demo playback overlay. */
 }
 
 bool ValidateCollectionSources(uid_document_t *doc, uid_diag_list_t *diags)

@@ -30,6 +30,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "cl_uirender.h"
 #include "cl_uivars.h"
 #include "cl_killfeed.h"
+#include "cl_demoplayback.h"
 #include "../corepp/tiki.h"
 #include "../qcommon/localization.h"
 #include "../qcommon/bg_compat.h"
@@ -424,8 +425,13 @@ qboolean CL_GetServerCommand( int serverCommandNumber, qboolean differentServer 
 	if ( serverCommandNumber <= clc.serverCommandSequence - MAX_RELIABLE_COMMANDS ) {
 		// when a demo record was started after the client got a whole bunch of
 		// reliable commands then the client never got those first reliable commands
-		if ( clc.demoplaying )
+		if ( clc.demoplaying ) {
+			/* Fixed in Omaha: still advance lastExecuted so demo seek/rewind cannot
+			 * deadlock CanReadAhead after a restart floods the reliable ring before
+			 * cgame has drained it (rewind left seeking stuck at timeline 0). */
+			clc.lastExecutedServerCommand = serverCommandNumber;
 			return qfalse;
+		}
 		Com_Error( ERR_DROP, "CL_GetServerCommand: a reliable command was cycled out" );
 		return qfalse;
 	}
@@ -563,6 +569,8 @@ void CL_ShutdownCGame( void ) {
 		re.FreeModels();
 	}
 
+	CL_UIR_OnCGameShutdown();
+
 	Z_FreeTags( TAG_CGAME );
 }
 
@@ -607,7 +615,39 @@ CL_StartLocalSound
 ====================
 */
 void CL_StartLocalSound(const char* soundName, qboolean forceLoad) {
+	// Added in Omaha: silence the burst of events while the demo overlay seeks
+	if ( CL_DemoPlayback_MuteEventSounds() ) {
+		return;
+	}
 	S_StartLocalSound(soundName, qfalse );
+}
+
+/*
+====================
+CL_CG_S_StartSound
+
+Added in Omaha: demo overlay seek gate for cgame event sounds.
+====================
+*/
+static void CL_CG_S_StartSound( const vec3_t origin, int entNum, int entChannel, sfxHandle_t sfxHandle, float volume, float minDist, float pitch, float maxDist, int streamed ) {
+	if ( CL_DemoPlayback_MuteEventSounds() ) {
+		return;
+	}
+	S_StartSound( origin, entNum, entChannel, sfxHandle, volume, minDist, pitch, maxDist, streamed );
+}
+
+/*
+====================
+CL_CG_S_AddLoopingSound
+
+Added in Omaha: looping sounds stop while a demo is paused or seeking.
+====================
+*/
+static void CL_CG_S_AddLoopingSound( const vec3_t origin, const vec3_t velocity, sfxHandle_t sfxHandle, float volume, float minDist, float maxDist, float pitch, int flags ) {
+	if ( CL_DemoPlayback_MuteLoopingSounds() ) {
+		return;
+	}
+	S_AddLoopingSound( origin, velocity, sfxHandle, volume, minDist, maxDist, pitch, flags );
 }
 
 /*
@@ -722,10 +762,10 @@ void CL_InitCGameDLL( clientGameImport_t *cgi, clientGameExport_t **cge ) {
 	cgi->R_GetLightingForSmoke			= re.GetLightingForSmoke;
 	cgi->R_GatherLightSources			= re.R_GatherLightSources;
 
-	cgi->S_StartSound					= S_StartSound;
+	cgi->S_StartSound					= CL_CG_S_StartSound;
 	cgi->S_StartLocalSound				= CL_StartLocalSound;
 	cgi->S_StopSound					= S_StopSound;
-	cgi->S_AddLoopingSound				= S_AddLoopingSound;
+	cgi->S_AddLoopingSound				= CL_CG_S_AddLoopingSound;
 	cgi->S_ClearLoopingSounds			= S_ClearLoopingSounds;
 	cgi->S_Respatialize					= S_Respatialize;
 	cgi->S_BeginRegistration			= S_BeginRegistration;
@@ -1307,6 +1347,33 @@ void CL_SetCGameTime( void ) {
 			tn = 30;
 		}
 
+		// Added in Omaha: demo overlay seek reads a bounded batch of messages
+		// per frame so cgame never loses snapshots or reliable commands
+		if ( clc.demoplaying && !cl_timedemo->integer && CL_DemoPlayback_FastForwarding() ) {
+			int n;
+
+			for ( n = 0; n < CL_DemoPlayback_FastForwardBatch() && CL_DemoPlayback_FastForwarding()
+					&& CL_DemoPlayback_CanReadAhead(); n++ ) {
+				CL_ReadDemoMessage();
+				if ( clc.state != CA_ACTIVE ) {
+					return;
+				}
+				if ( CL_DemoPlayback_AtEnd() ) {
+					break;
+				}
+			}
+			if ( cl.snap.serverTime > cl.serverTime ) {
+				cl.serverTime = cl.snap.serverTime;
+			}
+			cl.serverTimeDelta = cl.serverTime - cls.realtime + tn;
+			return;
+		}
+
+		// Added in Omaha: demo overlay pause / playback rate
+		if ( clc.demoplaying && !cl_timedemo->integer ) {
+			CL_DemoPlayback_AdjustTimeDelta();
+		}
+
 		cl.serverTime = cls.realtime + cl.serverTimeDelta - tn;
 
 		// guarantee that time will never flow backwards, even if
@@ -1376,6 +1443,10 @@ void CL_SetCGameTime( void ) {
 	}
 
 	while ( cl.serverTime >= cl.snap.serverTime ) {
+		// Added in Omaha: the overlay holds the last frame at end of file
+		if ( CL_DemoPlayback_AtEnd() ) {
+			break;
+		}
 		// feed another messag, which should change
 		// the contents of cl.snap
 		CL_ReadDemoMessage();

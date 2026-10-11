@@ -1,0 +1,128 @@
+<ui version="1">
+	<!--
+	  Added in Omaha: demo playback overlay (cl_demoplayback). Opened by the host while a
+	  demo plays and ui_om_demo_overlay is 1 (bind: demooverlay). Draw order 4 paints with
+	  the HUD; the canvas pointer keeps keys with the game.
+
+	  The scrubber is a fixed 960px track so handle / dot offsets can be computed in px:
+	  translate-x = value * 960 - half handle width. drag-x maps the pointer over the
+	  parent's content box, which is the same 960px track.
+	-->
+	<definitions menu-id="demo_overlay" draw-order="4">
+		<import src="ui/modern/lib/theme.xml"/>
+		<import src="ui/modern/lib/shapes.xml"/>
+		<import src="ui/modern/lib/controls.xml"/>
+		<vars>
+			<var id="demo-frag" value="#E03C3CFF"/>
+			<var id="demo-crop" value="#1A6FD440"/>
+			<var id="demo-crop-dim" value="#00000080"/>
+			<var id="demo-handle" value="#F4C430FF"/>
+			<var id="demo-handle-hover" value="#FFD850FF"/>
+		</vars>
+	</definitions>
+	<canvas pointer="{cvar.ui_om_demo_overlay == 1}">
+		<container id="menu_root" type="vertical" width="100%" height="100%" fill="{var.fill-transparent}"
+		           halign="center" valign="end" padding="0 0 40px 0">
+			<container id="demo_panel" type="vertical" width="1000px" height="auto" gap="6px" padding="12px 20px 14px 20px"
+			           fill="{var.fill-panel}" stroke="{var.fill-divider}" stroke-width="1px" halign="center">
+
+				<!-- Time / status row -->
+				<container type="horizontal" width="960px" height="24px" gap="6px" valign="center">
+					<label font="control" font-size="{var.text-control}" color="{var.color-white}" bind="cvar:ui_om_demo_time">0:00</label>
+					<label font="control" font-size="{var.text-control}" color="{var.color-muted}">/</label>
+					<label font="control" font-size="{var.text-control}" color="{var.color-muted}" bind="cvar:ui_om_demo_length">0:00</label>
+					<container width="fill" height="1px"/>
+					<label font="control" font-size="{var.text-body}" color="{var.color-accent-hover}" letter-spacing="1px"
+					       visible="{cvar.ui_om_demo_seeking == 1 and cvar.ui_om_demo_exporting == 0}">SEEKING...</label>
+					<label font="control" font-size="{var.text-body}" color="{var.color-muted}" letter-spacing="1px"
+					       visible="{cvar.ui_om_demo_indexed == 0}">INDEXING...</label>
+					<label font="control" font-size="{var.text-body}" color="{var.color-primary}" letter-spacing="1px"
+					       bind="cvar:ui_om_demo_export_status"/>
+				</container>
+
+				<!-- Crop handles (drag-x) above the scrubber -->
+				<container id="demo_crop_track" type="overlap" width="960px" height="16px" padding="0"
+				           visible="{cvar.ui_om_demo_indexed == 1}">
+					<container width="{(cvar.ui_om_demo_crop_end - cvar.ui_om_demo_crop_start) * 960}px" height="4px" valign="end"
+					           translate-x="{cvar.ui_om_demo_crop_start * 960}px" fill="{var.demo-handle}"/>
+					<button id="demo_crop_start" width="12px" height="16px" padding="0"
+					        translate-x="{cvar.ui_om_demo_crop_start * 960 - 6}px"
+					        shape="triangle-up" shape-rotation="180"
+					        fill="{var.demo-handle}" hoverfill="{var.demo-handle-hover}"
+					        drag-x="cvar:ui_om_demo_crop_start" drag-max="{cvar.ui_om_demo_crop_end}"/>
+					<button id="demo_crop_end" width="12px" height="16px" padding="0"
+					        translate-x="{cvar.ui_om_demo_crop_end * 960 - 6}px"
+					        shape="triangle-up" shape-rotation="180"
+					        fill="{var.demo-handle}" hoverfill="{var.demo-handle-hover}"
+					        drag-x="cvar:ui_om_demo_crop_end" drag-min="{cvar.ui_om_demo_crop_start}"/>
+				</container>
+
+				<!-- Scrubber: playhead slider, crop shading, frag dots -->
+				<container id="demo_scrubber" type="overlap" width="960px" height="24px" padding="0">
+					<slider id="demo_playhead" width="100%" height="100%"
+					        bind="cvar:ui_om_demo_pos" min="0" max="1" step="0.0001" commit="submit"
+					        enabled="{cvar.ui_om_demo_indexed == 1 and cvar.ui_om_demo_exporting == 0}"
+					        stroke="{var.stroke-border}" stroke-width="1px">
+						<track height="100%" fill="{var.fill-control}" shape="rectangle" radius="0px"/>
+						<range fill="{var.fill-divider}" shape="rectangle" radius="0px"/>
+						<thumb width="4px" height="100%" fill="{var.color-white}" hoverfill="{var.color-accent-hover}"
+						       pressed-fill="{var.color-accent-pressed}" shape="rectangle" radius="0px"/>
+						<on event="submit"><invoke name="demo-seek"/></on>
+					</slider>
+					<container width="{cvar.ui_om_demo_crop_start * 960}px" height="100%" fill="{var.demo-crop-dim}"/>
+					<container width="{(1 - cvar.ui_om_demo_crop_end) * 960}px" height="100%" fill="{var.demo-crop-dim}"
+					           translate-x="{cvar.ui_om_demo_crop_end * 960}px"/>
+					<container id="demo_frags" type="overlap" width="100%" height="100%" source="demo-frags">
+						<foreach mode="all" type="overlap" width="100%" height="100%">
+							<container type="overlap" width="100%" height="100%" translate-x="{item.field.pct}%">
+								<container width="6px" height="6px" translate-x="-3px" valign="center"
+								           shape="circle" fill="{var.demo-frag}"/>
+							</container>
+						</foreach>
+					</container>
+				</container>
+
+				<!-- Controls -->
+				<container type="horizontal" width="960px" height="auto" gap="6px" valign="center" padding="4px 0 0 0">
+					<button id="demo_play_pause" width="96px" height="36px" padding="0" halign="center" valign="center"
+					        fill="{var.color-accent}" hoverfill="{var.color-accent-hover}" pressed-fill="{var.color-accent-pressed}"
+					        color="{var.color-white}" font="control" font-size="{var.text-control}" letter-spacing="2px">
+						<label font="control" font-size="{var.text-control}" color="{var.color-white}" letter-spacing="2px"
+						       visible="{cvar.ui_om_demo_paused == 1}">PLAY</label>
+						<label font="control" font-size="{var.text-control}" color="{var.color-white}" letter-spacing="2px"
+						       visible="{cvar.ui_om_demo_paused == 0}">PAUSE</label>
+						<on event="click"><invoke name="demo-toggle-pause"/></on>
+					</button>
+					<button id="demo_rate_reset" width="auto" height="36px" padding="0 16px" halign="center" valign="center"
+					        fill="{var.fill-control}" hoverfill="{var.fill-hover-ghost}" pressed-fill="{var.color-accent}"
+					        stroke="{var.stroke-border}" stroke-width="1px"
+					        color="{var.color-primary}" font="control" font-size="{var.text-control}" letter-spacing="2px">
+						1X
+						<on event="click"><invoke name="demo-rate-reset"/></on>
+					</button>
+					<button id="demo_rate_step" width="auto" height="36px" padding="0 16px" halign="center" valign="center"
+					        fill="{var.fill-control}" hoverfill="{var.fill-hover-ghost}" pressed-fill="{var.color-accent}"
+					        stroke="{var.stroke-border}" stroke-width="1px"
+					        color="{var.color-primary}" font="control" font-size="{var.text-control}" letter-spacing="2px">
+						+0.25
+						<on event="click"><invoke name="demo-rate-step"/></on>
+					</button>
+					<label width="72px" halign="center" font="control" font-size="{var.text-control}" color="{var.color-primary}"
+					       bind="cvar:ui_om_demo_rate">1.00x</label>
+					<container width="fill" height="1px"/>
+					<label font="body" font-size="{var.text-caption}" color="{var.color-muted}" letter-spacing="1px">CROP</label>
+					<label font="control" font-size="{var.text-body}" color="{var.color-primary}"
+					       bind="cvar:ui_om_demo_crop_label"/>
+					<button id="demo_export" width="auto" height="36px" padding="0 16px" halign="center" valign="center"
+					        enabled="{cvar.ui_om_demo_indexed == 1 and cvar.ui_om_demo_exporting == 0}"
+					        fill="{var.fill-control}" hoverfill="{var.fill-hover-ghost}" pressed-fill="{var.color-accent}"
+					        stroke="{var.stroke-border}" stroke-width="1px"
+					        color="{var.color-primary}" font="control" font-size="{var.text-control}" letter-spacing="2px">
+						CROP
+						<on event="click"><invoke name="demo-export"/></on>
+					</button>
+				</container>
+			</container>
+		</container>
+	</canvas>
+</ui>

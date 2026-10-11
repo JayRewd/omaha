@@ -866,6 +866,9 @@ int main(int argc, char **argv)
 	}
 	if (UID_CompileDocument(doc, &diags) != UID_OK) {
 		std::fprintf(stderr, "compile failed\n");
+		for (const uid_diag_t &d : diags.Items()) {
+			std::fprintf(stderr, "  %s\n", d.message.c_str());
+		}
 		UID_DestroyDocument(doc);
 		return 1;
 	}

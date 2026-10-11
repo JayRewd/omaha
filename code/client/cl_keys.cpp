@@ -1173,8 +1173,10 @@ void CL_KeyEvent(int key, qboolean down, unsigned time)
     }
 
     // keys can still be used for bound actions
+    // Changed in Omaha: the demo overlay toggle bind must survive demo playback
     if (down && (key <= K_BACKSPACE || key == K_MOUSE4) && (clc.demoplaying || clc.state == CA_CINEMATIC)
-        && Key_GetCatcher() == 0) {
+        && Key_GetCatcher() == 0
+        && !(clc.demoplaying && keys[key].binding && !Q_stricmpn(keys[key].binding, "demooverlay", 11))) {
         Cvar_Set("nextdemo", "");
         key = K_ESCAPE;
     }

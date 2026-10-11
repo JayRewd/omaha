@@ -24,6 +24,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "client.h"
 #include "cl_ui.h"
 #include "../qcommon/bg_compat.h"
+#include "cl_demoplayback.h"
 
 const char *svc_strings[256] = {
 	"svc_bad",
@@ -1070,19 +1071,30 @@ void CL_ParseServerMessage( msg_t *msg ) {
 		clc.reliableAcknowledge = clc.reliableSequence;
 	}
 
+	// Added in Omaha: demo crop export splices around the snapshot
+	if ( clc.demoplaying ) {
+		CL_DemoPlayback_NoteBits( DEMOBITS_COMMANDS, msg->bit );
+	}
+
 	//
 	// parse the message
 	//
 	while ( 1 ) {
+		int cmdBit;
+
 		if ( msg->readcount > msg->cursize ) {
 			Com_Error (ERR_DROP,"CL_ParseServerMessage: read past end of server message");
 			break;
 		}
 
+		cmdBit = msg->bit;
 		cmd = MSG_ReadByte( msg );
 	//	Com_Printf( "CL_ParseServerMessage: cmd %i\n", cmd );
 		if ( cmd == svc_EOF) {
 			SHOWNET( msg, "END OF MESSAGE" );
+			if ( clc.demoplaying ) {
+				CL_DemoPlayback_NoteBits( DEMOBITS_END, msg->bit );
+			}
 			break;
 		}
 
@@ -1105,10 +1117,19 @@ void CL_ParseServerMessage( msg_t *msg ) {
 			CL_ParseCommandString( msg );
 			break;
 		case svc_gamestate:
+			if ( clc.demoplaying ) {
+				CL_DemoPlayback_NoteBits( DEMOBITS_GAMESTATE, cmdBit );
+			}
 			CL_ParseGamestate( msg );
 			break;
 		case svc_snapshot:
+			if ( clc.demoplaying ) {
+				CL_DemoPlayback_NoteBits( DEMOBITS_SNAPSHOT_START, cmdBit );
+			}
 			CL_ParseSnapshot( msg );
+			if ( clc.demoplaying ) {
+				CL_DemoPlayback_NoteBits( DEMOBITS_SNAPSHOT_END, msg->bit );
+			}
 			break;
 		case svc_download:
 			CL_ParseDownload( msg );

@@ -42,6 +42,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "uid_xml.h"
 #include "cl_killfeed.h"
 
+#include <algorithm>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -773,6 +774,36 @@ int fake_queryCollectionItems(const uid_collection_query_t *query, uid_collectio
 	/* Fixed in Omaha: allow max=0 peeks (out may be null) like production hosts. */
 	if (!query || !query->source) {
 		return 0;
+	}
+	if (std::strcmp(query->source, "demo-frags") == 0) {
+		static const char *const kPct[] = {"25", "75"};
+		static const char       *fragFieldNames[2][1];
+		static const char       *fragFieldValues[2][1];
+		const int                total = 2;
+		if (query->outTotal) {
+			*query->outTotal = total;
+		}
+		if (query->outRevision) {
+			*query->outRevision = 1;
+		}
+		if (!out || max <= 0) {
+			return 0;
+		}
+		int written = 0;
+		for (int i = 0; i < total && written < max; ++i) {
+			std::snprintf(keyBuf[written], sizeof(keyBuf[written]), "%d", i);
+			fragFieldNames[written][0] = "pct";
+			fragFieldValues[written][0] = kPct[i];
+			out[written].key = keyBuf[written];
+			out[written].value = keyBuf[written];
+			out[written].label = keyBuf[written];
+			out[written].nfields = 1;
+			out[written].fieldNames = fragFieldNames[written];
+			out[written].fieldValues = fragFieldValues[written];
+			out[written].flags = 0;
+			written++;
+		}
+		return written;
 	}
 	if (std::strcmp(query->source, "servers") == 0) {
 		const int total = 2;
@@ -7756,6 +7787,7 @@ void TestWindowForeachScroll(void)
 	CHECK_EQ_F(doc->states[static_cast<size_t>(scrollId)].contentExtentH, 20.0f * 36.0f, 0.5);
 
 	doc->states[static_cast<size_t>(scrollId)].scrollY = 36.0f * 4.0f;
+	/* Stable XML source + collection cull: windowed lists must still follow scrollY. */
 	UID_SyncBindings(doc, &be);
 	CHECK(UID_LayoutDocument(doc, 200, 100, 1.0f, 1.0f, &be, &diags) == UID_OK);
 	listId = doc->idIndex.count("list") ? doc->idIndex["list"] : UID_INVALID_NODE_ID;
@@ -10441,6 +10473,140 @@ static void TestTranslateOffsetLayout(void)
 	UID_DestroyDocument(doc);
 }
 
+/* Added in Omaha: drag-x handles map pointer X over the parent track and clamp to bound limits. */
+static void TestDragHandle(void)
+{
+	static const char *kDoc = R"(
+<ui version="1">
+  <definitions>
+    <defaults type="vertical" width="100%" height="100%"/>
+  </definitions>
+  <canvas>
+    <container id="track" type="overlap" width="200px" height="20px" padding="0">
+      <button id="start" width="10px" height="20px" fill="#FFFFFFFF"
+              translate-x="{cvar.ui_test_a * 200}px"
+              drag-x="cvar:ui_test_a" drag-max="{cvar.ui_test_b}">
+        <on event="submit"><invoke name="drag-done"/></on>
+      </button>
+      <button id="end" width="10px" height="20px" fill="#FFFFFFFF"
+              translate-x="{cvar.ui_test_b * 200}px"
+              drag-x="cvar:ui_test_b" drag-min="{cvar.ui_test_a}"/>
+    </container>
+  </canvas>
+</ui>
+)";
+	FakeBackendState st;
+	st.cvars["ui_test_a"] = FakeCvar{"0", 0};
+	st.cvars["ui_test_b"] = FakeCvar{"0.5", 0};
+	uid_backend_t be = MakeFakeBackend(&st);
+	uid_limits_t lim;
+	UID_DefaultLimits(&lim);
+	uid_document_t *doc = UID_CreateDocument();
+	uid_diag_list_t diags(lim.maxDiagnostics);
+
+	CHECK(UID_ParseXml("drag_handle.xml", kDoc, std::strlen(kDoc), &lim, nullptr, doc, &diags) == UID_OK);
+	CHECK(UID_ExpandDocument(doc, &diags) == UID_OK);
+	CHECK(UID_CompileDocument(doc, &diags) == UID_OK);
+	if (diags.HasErrors()) {
+		for (const auto &d : diags.Items()) {
+			std::fprintf(stderr, "drag handle compile: %s\n", d.message.c_str());
+		}
+	}
+	CHECK(!diags.HasErrors());
+	UID_SyncBindings(doc, &be);
+	CHECK(UID_LayoutDocument(doc, 400, 200, 1.0f, 1.0f, &be, &diags) == UID_OK);
+
+	const uid_node_id_t track = NodeId(doc, "track");
+	const uid_node_id_t start = NodeId(doc, "start");
+	CHECK(track >= 0 && start >= 0);
+	const uid_rect_t trackBox = doc->states[(size_t)track].contentBox;
+	const uid_rect_t startBox = doc->states[(size_t)start].borderBox;
+
+	/* Grab 4px into the handle: the grab offset keeps the value at 0 until the pointer moves. */
+	uid_pointer_state_t ptr{};
+	ptr.x = startBox.x + 4.0f;
+	ptr.y = startBox.y + 10.0f;
+	ptr.buttons = UID_POINTER_BUTTON_LEFT;
+	UID_HandlePointer(doc, &ptr, 0, &be);
+	CHECK(st.cvars["ui_test_a"].value == "0");
+
+	ptr.x += 50.0f;
+	UID_HandlePointer(doc, &ptr, 1, &be);
+	CHECK(std::fabs(std::atof(st.cvars["ui_test_a"].value.c_str()) - 0.25) < 1e-4);
+
+	/* drag-max is bound to the other handle and stops the crossing. */
+	UID_SyncBindings(doc, &be);
+	ptr.x = trackBox.x + trackBox.w - 1.0f;
+	UID_HandlePointer(doc, &ptr, 2, &be);
+	CHECK(std::fabs(std::atof(st.cvars["ui_test_a"].value.c_str()) - 0.5) < 1e-4);
+	CHECK(std::find(st.invokes.begin(), st.invokes.end(), "drag-done") == st.invokes.end());
+
+	ptr.buttons = 0;
+	UID_HandlePointer(doc, &ptr, 3, &be);
+	CHECK(!doc->states[(size_t)start].dragging);
+	CHECK(std::find(st.invokes.begin(), st.invokes.end(), "drag-done") != st.invokes.end());
+
+	/* Moving after release must not write. */
+	ptr.x = trackBox.x;
+	UID_HandlePointer(doc, &ptr, 4, &be);
+	CHECK(std::fabs(std::atof(st.cvars["ui_test_a"].value.c_str()) - 0.5) < 1e-4);
+
+	UID_DestroyDocument(doc);
+}
+
+/* Demo overlay frag dots: overlap foreach rows placed by translate-x percent of the track. */
+static void TestDemoFragDotsLayout(void)
+{
+	static const char *kDoc = R"(
+<ui version="1">
+  <definitions>
+    <defaults type="vertical" width="100%" height="100%"/>
+  </definitions>
+  <canvas>
+    <container id="track" type="overlap" width="200px" height="20px" padding="0" source="demo-frags">
+      <foreach mode="all" type="overlap" width="100%" height="100%">
+        <container type="overlap" width="100%" height="100%" translate-x="{item.field.pct}%">
+          <container width="6px" height="6px" translate-x="-3px" valign="center" fill="#FF0000FF"/>
+        </container>
+      </foreach>
+    </container>
+  </canvas>
+</ui>
+)";
+	uid_limits_t lim;
+	UID_DefaultLimits(&lim);
+	uid_document_t *doc = UID_CreateDocument();
+	uid_diag_list_t diags(lim.maxDiagnostics);
+	FakeBackendState st;
+	uid_backend_t be = MakeFakeBackend(&st);
+
+	CHECK(UID_ParseXml("demo_frags.xml", kDoc, std::strlen(kDoc), &lim, nullptr, doc, &diags) == UID_OK);
+	CHECK(UID_ExpandDocument(doc, &diags) == UID_OK);
+	CHECK(UID_CompileDocument(doc, &diags) == UID_OK);
+	CHECK(!diags.HasErrors());
+	UID_SyncBindings(doc, &be);
+	CHECK(UID_LayoutDocument(doc, 400, 200, 1.0f, 1.0f, &be, &diags) == UID_OK);
+
+	const uid_node_id_t track = NodeId(doc, "track");
+	CHECK(track >= 0);
+	const uid_rect_t trackBox = doc->states[(size_t)track].contentBox;
+
+	std::vector<float> dotX;
+	for (size_t i = 0; i < doc->states.size(); ++i) {
+		const uid_rect_t &b = doc->states[i].borderBox;
+		if (std::fabs(b.w - 6.0f) < 0.01f && std::fabs(b.h - 6.0f) < 0.01f) {
+			dotX.push_back(b.x - trackBox.x);
+		}
+	}
+	std::sort(dotX.begin(), dotX.end());
+	CHECK(dotX.size() == 2);
+	if (dotX.size() == 2) {
+		CHECK(std::fabs(dotX[0] - 47.0f) < 0.5f);
+		CHECK(std::fabs(dotX[1] - 147.0f) < 0.5f);
+	}
+	UID_DestroyDocument(doc);
+}
+
 static void TestOverlapCenterChildLayout(void)
 {
 	static const char *kDoc = R"(
@@ -11432,6 +11598,8 @@ int main(void)
 	TestOverlapCompassTemplateLayout();
 	TestTemplatePropsInMixedRuntimeExpr();
 	TestTranslateOffsetLayout();
+	TestDragHandle();
+	TestDemoFragDotsLayout();
 	TestClassicHudPackLoads();
 	TestModernHudPackLoads();
 	TestClassicHudLayoutGeometry();

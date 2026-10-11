@@ -35,6 +35,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -615,6 +616,128 @@ void ApplySliderAtPointer(uid_document_t *doc, uid_node_id_t id, float x, const 
 	SetSliderValue(doc, id, minV + t * (maxV - minV), backend, true);
 }
 
+bool FindNodePath(const uid_document_t *doc, uid_node_id_t id, uid_node_id_t target, std::vector<uid_node_id_t> *path);
+
+/*
+ * Added in Omaha: drag-x="cvar:NAME" makes a button a horizontal drag handle.
+ * The pointer maps across the parent's content box onto [drag-from, drag-to]
+ * (default 0..1) and is clamped to [drag-min, drag-max], which may be bound
+ * expressions so paired handles cannot cross. Writes are live; release fires submit.
+ */
+bool DragCvarName(const uid_node_def_t &node, std::string *cvarName)
+{
+	const char *v = node.properties.GetCStr("drag-x", nullptr);
+	return v && v[0] && UID_ParseCvarBind(v, cvarName) && !cvarName->empty();
+}
+
+double DragNumber(const uid_node_def_t &node, const char *name, double fallback)
+{
+	const char *v = node.properties.GetCStr(name, nullptr);
+	double      out = fallback;
+	if (!v || !v[0] || std::strchr(v, '{')) {
+		return fallback;
+	}
+	if (!UID_ParseNumber(v, &out, nullptr)) {
+		return fallback;
+	}
+	return out;
+}
+
+bool DragReadCvar(const uid_backend_t *backend, const std::string &cvarName, double *out)
+{
+	if (!backend) {
+		return false;
+	}
+	if (backend->cvarNumber) {
+		return backend->cvarNumber(cvarName.c_str(), out, nullptr);
+	}
+	char buf[64];
+	if (backend->cvarDescribe && backend->cvarDescribe(cvarName.c_str(), nullptr, buf, sizeof(buf))) {
+		return UID_ParseNumber(buf, out, nullptr);
+	}
+	return false;
+}
+
+const uid_node_state_t *DragTrackState(const uid_document_t *doc, const uid_node_state_t *st)
+{
+	const uid_node_state_t *pst = StateC(doc, st->dragParent);
+	return (pst && pst->contentBox.w > 0.0f) ? pst : nullptr;
+}
+
+void BeginDragHandle(uid_document_t *doc, uid_node_id_t id, float x, const uid_backend_t *backend)
+{
+	uid_node_def_t   *node = UID_GetNode(doc, id);
+	uid_node_state_t *st = State(doc, id);
+	std::string       cvarName;
+	std::vector<uid_node_id_t> path;
+
+	if (!node || !st || !DragCvarName(*node, &cvarName) || doc->rootNode == UID_INVALID_NODE_ID) {
+		return;
+	}
+	if (!FindNodePath(doc, doc->rootNode, id, &path) || path.size() < 2) {
+		return;
+	}
+	st->dragParent = path[path.size() - 2];
+	const uid_node_state_t *track = DragTrackState(doc, st);
+	if (!track) {
+		return;
+	}
+
+	const double from = DragNumber(*node, "drag-from", 0.0);
+	const double to = DragNumber(*node, "drag-to", 1.0);
+	double       cur = from;
+	DragReadCvar(backend, cvarName, &cur);
+	const double span = to - from;
+	const float  t = span != 0.0 ? static_cast<float>((cur - from) / span) : 0.0f;
+	st->dragGrabOffset = x - (track->contentBox.x + t * track->contentBox.w);
+	st->dragging = true;
+}
+
+void ApplyDragAtPointer(uid_document_t *doc, uid_node_id_t id, float x, const uid_backend_t *backend)
+{
+	uid_node_def_t   *node = UID_GetNode(doc, id);
+	uid_node_state_t *st = State(doc, id);
+	std::string       cvarName;
+
+	if (!node || !st || !DragCvarName(*node, &cvarName)) {
+		return;
+	}
+	const uid_node_state_t *track = DragTrackState(doc, st);
+	if (!track) {
+		return;
+	}
+
+	const double from = DragNumber(*node, "drag-from", 0.0);
+	const double to = DragNumber(*node, "drag-to", 1.0);
+	double       lo = DragNumber(*node, "drag-min", std::min(from, to));
+	double       hi = DragNumber(*node, "drag-max", std::max(from, to));
+	const double step = DragNumber(*node, "drag-step", 0.0);
+	if (hi < lo) {
+		hi = lo;
+	}
+
+	const float t =
+		std::min(1.0f, std::max(0.0f, (x - st->dragGrabOffset - track->contentBox.x) / track->contentBox.w));
+	double v = from + t * (to - from);
+	if (step > 0.0) {
+		v = from + std::round((v - from) / step) * step;
+	}
+	v = std::min(hi, std::max(lo, v));
+
+	double cur = 0.0;
+	if (DragReadCvar(backend, cvarName, &cur) && std::fabs(cur - v) < 1e-6) {
+		return;
+	}
+	char buf[64];
+	std::snprintf(buf, sizeof(buf), "%.6g", v);
+	if (backend && backend->cvarWrite) {
+		backend->cvarWrite(cvarName.c_str(), buf);
+	}
+	SetRuntimeString(st, buf);
+	MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_BINDING | UID_DIRTY_LAYOUT | UID_DIRTY_PAINT));
+	UID_DispatchEvent(doc, id, UID_EVENT_CHANGE, backend);
+}
+
 bool FindNodePath(const uid_document_t *doc, uid_node_id_t id, uid_node_id_t target, std::vector<uid_node_id_t> *path)
 {
 	if (!doc || !path || id == UID_INVALID_NODE_ID) {
@@ -998,6 +1121,19 @@ void UID_HandlePointer(
 		UID_MarkDirty(doc, UID_DIRTY_PAINT, hit, "input_hover");
 	}
 
+	/* Added in Omaha: drag-x handles write live while held; release fires submit. */
+	for (size_t i = 0; i < doc->nodes.size() && i < doc->states.size(); ++i) {
+		if (doc->nodes[i].kind != UID_NODE_SLIDER && doc->states[i].dragging) {
+			if (leftDown) {
+				ApplyDragAtPointer(doc, static_cast<uid_node_id_t>(i), pointer->x, backend);
+			} else {
+				doc->states[i].dragging = false;
+				UID_DispatchEvent(doc, static_cast<uid_node_id_t>(i), UID_EVENT_SUBMIT, backend);
+				MarkDirty(doc, UID_DIRTY_PAINT);
+			}
+		}
+	}
+
 	/* Slider drag — live write if commit=change; stage until release if submit. */
 	for (size_t i = 0; i < doc->nodes.size() && i < doc->states.size(); ++i) {
 		if (doc->nodes[i].kind == UID_NODE_SLIDER && doc->states[i].dragging) {
@@ -1023,6 +1159,8 @@ void UID_HandlePointer(
 				if (node->kind == UID_NODE_SLIDER) {
 					st->dragging = true;
 					ApplySliderAtPointer(doc, hit, pointer->x, backend);
+				} else {
+					BeginDragHandle(doc, hit, pointer->x, backend);
 				}
 				if (node->kind == UID_NODE_SELECT) {
 					if (node->appearance == "cyclic") {

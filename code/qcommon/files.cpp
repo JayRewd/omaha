@@ -4514,3 +4514,32 @@ void FS_FileTime(const char *filename, char *date, char *size)
 
     Q_snprintf(size, 128, "%ld", fileSize);
 }
+
+/*
+================
+FS_FileStat
+
+Added in Omaha: same lookup as FS_FileTime, but returns raw values.
+================
+*/
+qboolean FS_FileStat(const char *filename, int64_t *mtime, int64_t *size)
+{
+    struct stat fileStat;
+
+    for (auto search = fs_searchpaths; search; search = search->next) {
+        if (search->dir != NULL && search->dir->path[0]) {
+            const char *ospath = FS_BuildOSPath(search->dir->path, fs_gamedir, filename);
+            if (stat(ospath, &fileStat) != -1) {
+                if (mtime) {
+                    *mtime = (int64_t)fileStat.st_mtime;
+                }
+                if (size) {
+                    *size = (int64_t)fileStat.st_size;
+                }
+                return qtrue;
+            }
+        }
+    }
+
+    return qfalse;
+}

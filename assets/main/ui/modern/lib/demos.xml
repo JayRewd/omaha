@@ -1,0 +1,198 @@
+<ui-library version="1">
+	<!-- Added in Omaha: demo browser (DEMOS tab). Host collections: demos, demo-players. -->
+	<templates>
+		<template id="demo-sort-header">
+			<props>
+				<prop name="label" type="string" required="true"/>
+				<prop name="column" type="string" required="true"/>
+				<prop name="width" type="string" required="true"/>
+			</props>
+			<button type="horizontal" width="{template.width}" height="100%" padding="0" gap="4px"
+			        fill="{var.fill-transparent}" hoverfill="{var.fill-chip}" halign="start" valign="center">
+				<label font="control" font-size="{var.text-body}" color="{var.color-muted}">{template.label}</label>
+				<container width="10px" height="12px" visible="{cvar.ui_om_demo_sort == {template.column}}">
+					<container width="8px" height="12px" shape="arrow-left" thickness="3px" fill="{var.color-accent}"
+					           shape-rotation="-90" visible="{cvar.ui_om_demo_sort_asc == 1}"/>
+					<container width="8px" height="12px" shape="arrow-left" thickness="3px" fill="{var.color-accent}"
+					           shape-rotation="90" visible="{cvar.ui_om_demo_sort_asc == 0}"/>
+				</container>
+				<on event="click">
+					<set-cvar name="ui_om_demo_sort" value="{template.column}"/>
+					<invoke name="sort-demos"/>
+				</on>
+			</button>
+		</template>
+
+		<template id="demo-detail-row">
+			<props>
+				<prop name="label" type="string" required="true"/>
+				<prop name="bind" type="binding" required="true"/>
+			</props>
+			<container type="vertical" width="100%" height="auto" gap="2px" padding="6px 16px">
+				<label font="body" font-size="{var.text-caption}" color="{var.color-muted}" letter-spacing="1px">{template.label}</label>
+				<label width="100%" text-overflow="ellipsis" font="control" font-size="{var.text-control}"
+				       color="{var.color-primary}" bind="{template.bind}"/>
+			</container>
+		</template>
+
+		<template id="demo-browser">
+			<container type="horizontal" width="100%" height="100%" gap="1.25%" fill="{var.fill-transparent}">
+				<!-- Demo list -->
+				<container type="vertical" width="fill" height="100%" fill="{var.fill-panel}" gap="0"
+				           stroke="{var.fill-divider}" stroke-width="1px">
+					<container type="vertical" width="100%" height="48px" gap="0">
+						<container id="demo_tabs" type="horizontal" width="100%" height="fill" fill="{var.fill-input}" gap="0"
+						           padding="0" valign="center"
+						           source="browser-gametypes" bind="cvar:ui_om_demo_filter_gametype">
+							<foreach mode="all" type="horizontal" width="100%" height="100%" gap="0" valign="center">
+								<button set-index="{item.index}"
+								        width="auto" height="100%" padding="0 20px" shape="skew-rect"
+								        skewl="12px" skewr="12px"
+								        fill="{item.selected ? var.color-accent : var.fill-transparent}"
+								        hoverfill="{item.selected ? var.color-accent-hover : var.fill-hover-ghost}"
+								        color="{item.selected ? var.color-white : var.color-muted}"
+								        font="control" font-size="{var.text-control}" letter-spacing="2px">{item.label}</button>
+								<container width="2px" height="100%" margin="0 -6px 0 -6px" fill="{var.fill-divider-skew}"
+								           shape="angled-line" offset="12px" heightfactor="0.64"
+								           visible="{!item.last}"/>
+							</foreach>
+						</container>
+						<container width="100%" height="1px" fill="{var.fill-divider}"/>
+					</container>
+					<container id="demo_list" type="vertical" width="100%" height="fill" source="demos"
+					           bind="cvar:ui_selected_demo" fill="{var.fill-transparent}">
+						<container type="vertical" width="100%" height="48px" gap="0">
+							<container type="horizontal" width="100%" height="fill" fill="{var.fill-control}" valign="center"
+							           padding="0 16px">
+								<use template="demo-sort-header" label="DEMO NAME" column="name" width="46%"/>
+								<use template="demo-sort-header" label="GAMETYPE" column="gametype" width="20%"/>
+								<use template="demo-sort-header" label="DURATION" column="duration" width="12%"/>
+								<use template="demo-sort-header" label="DATE CREATED" column="date" width="22%"/>
+							</container>
+							<container width="100%" height="1px" fill="{var.fill-divider}"/>
+						</container>
+						<container type="vertical" width="100%" height="fill" overflow="scroll" scrollbar="scrollbar-default">
+							<foreach mode="window" row-height="36px">
+								<button type="horizontal" width="100%" height="36px" padding="0 16px" valign="center"
+								        set-index="{item.index}"
+								        fill="{item.selected ? #1A6FD448 : var.fill-transparent}"
+								        hoverfill="{var.fill-hover-ghost}" pressed-fill="{var.color-accent}">
+									<on event="dblclick"><invoke name="play-selected-demo"/></on>
+									<label width="46%" text-overflow="ellipsis"
+									       font="control" font-size="{var.text-control}" color="{var.color-primary}">{item.field.name}</label>
+									<label width="20%" text-overflow="ellipsis"
+									       font="control" font-size="{var.text-control}" color="{var.color-primary}">{item.field.gametype}</label>
+									<label width="12%"
+									       font="control" font-size="{var.text-control}" color="{var.color-primary}">{item.field.duration}</label>
+									<label width="22%"
+									       font="control" font-size="{var.text-body}" color="{var.color-muted}">{item.field.date}</label>
+								</button>
+							</foreach>
+						</container>
+					</container>
+
+					<container id="demo_status" type="horizontal" width="100%" height="auto"
+					           fill="{var.color-accent}" padding="8px 16px" gap="16px" valign="center"
+					           halign="space-between">
+						<label font="control" font-size="{var.text-body}" color="{var.color-white}"
+						       letter-spacing="1px" bind="cvar:ui_om_demo_status"># DEMOS</label>
+						<label font="control" font-size="{var.text-body}" color="{var.color-white}" letter-spacing="1px"
+						       bind="cvar:ui_om_demo_phase">READY</label>
+					</container>
+
+					<container width="100%" height="1px" fill="{var.fill-chip}"/>
+					<container id="demo_actions" type="horizontal" width="100%" height="auto"
+					           padding="12px 16px" gap="4px" valign="center" halign="space-between"
+					           fill="{var.fill-input}">
+						<button id="btn_demo_refresh" width="auto" height="auto" padding="10px 26px 10px 20px"
+						        shape="skew-rect" skewl="0" skewr="12px"
+						        fill="{var.fill-hover-ghost}" hoverfill="{var.fill-divider}"
+						        color="{var.color-primary}" font="control" font-size="{var.text-control}" letter-spacing="2px">
+							REFRESH
+							<on event="click"><invoke name="refresh-demos"/></on>
+						</button>
+						<container type="horizontal" width="fill" height="auto" padding="1px"
+						           shape="skew-rect" skewl="12px" skewr="12px" fill="{var.fill-chip}">
+							<input id="field_demo_search" type="text" width="fill" height="auto" padding="8px 16px"
+							       bind="cvar:ui_om_demo_search" commit="change"
+							       placeholder="Search demos, servers, maps, players..."
+							       fill="{var.fill-input}" color="{var.color-white}" font="body" font-size="{var.text-control}" letter-spacing="1px"
+							       halign="start" valign="center"/>
+						</container>
+						<container type="horizontal" width="auto" height="auto" gap="4px" valign="center">
+							<button id="btn_demo_avi_export" width="auto" height="auto" padding="10px 18px"
+							        shape="skew-rect" skewl="12px" skewr="12px"
+							        fill="{var.fill-hover-ghost}" hoverfill="{var.fill-divider}"
+							        color="{var.color-primary}" font="control" font-size="{var.text-control}" letter-spacing="2px"
+							        visible="{cvar.ui_om_demo_selected == 1}">
+								AVI EXPORT
+								<on event="click"><invoke name="export-selected-demo-avi"/></on>
+							</button>
+							<button id="btn_demo_play" width="auto" height="auto" padding="10px 20px 10px 26px"
+							        shape="skew-rect" skewl="12px" skewr="0"
+							        fill="{var.color-accent}" hoverfill="{var.color-accent-hover}"
+							        color="{var.color-white}" font="control" font-size="{var.text-control}" letter-spacing="2px">
+								PLAY
+								<on event="click"><invoke name="play-selected-demo"/></on>
+							</button>
+						</container>
+					</container>
+				</container>
+
+				<!-- Details panel 28% -->
+				<container id="demo_details" type="vertical" width="28%" height="100%" fill="{var.fill-panel}" gap="0"
+				           stroke="{var.fill-divider}" stroke-width="1px">
+					<container type="vertical" width="100%" height="48px" gap="0">
+						<label width="100%" height="fill" padding="0 16px" fill="{var.fill-input}" valign="center"
+						       font="control" font-size="{var.text-heading}" color="{var.color-white}" letter-spacing="2px">DETAILS</label>
+						<container width="100%" height="1px" fill="{var.fill-divider}"/>
+					</container>
+
+					<container type="vertical" width="100%" height="fill" padding="16px" halign="center" valign="center"
+					           visible="{cvar.ui_om_demo_selected == 0}">
+						<label font="control" font-size="{var.text-control}" color="{var.color-muted}" letter-spacing="1px">Select a demo</label>
+					</container>
+
+					<container type="vertical" width="100%" height="fill" gap="0" padding="6px 0 0 0"
+					           visible="{cvar.ui_om_demo_selected == 1}">
+						<use template="demo-detail-row" label="HOSTNAME" bind="cvar:ui_om_demo_hostname"/>
+						<use template="demo-detail-row" label="GAMETYPE" bind="cvar:ui_om_demo_gametype"/>
+						<container type="horizontal" width="100%" height="auto" gap="0">
+							<container type="vertical" width="50%" height="auto">
+								<use template="demo-detail-row" label="FRAG LIMIT" bind="cvar:ui_om_demo_fraglimit"/>
+							</container>
+							<container type="vertical" width="50%" height="auto">
+								<use template="demo-detail-row" label="TIME LIMIT" bind="cvar:ui_om_demo_timelimit"/>
+							</container>
+						</container>
+
+						<container width="100%" height="1px" margin="10px 0 0 0" fill="{var.fill-divider}"/>
+						<container type="horizontal" width="100%" height="36px" padding="0 16px" valign="center"
+						           fill="{var.fill-control}">
+							<label width="fill" font="control" font-size="{var.text-body}" color="{var.color-muted}"
+							       letter-spacing="1px" bind="cvar:ui_om_demo_players_title">PLAYERS</label>
+							<label width="48px" halign="end" font="control" font-size="{var.text-body}" color="{var.color-muted}">K</label>
+							<label width="48px" halign="end" font="control" font-size="{var.text-body}" color="{var.color-muted}">D</label>
+						</container>
+						<container id="demo_players" type="vertical" width="100%" height="fill" source="demo-players"
+						           fill="{var.fill-transparent}">
+							<container type="vertical" width="100%" height="fill" overflow="scroll" scrollbar="scrollbar-default">
+								<!-- All rows: MAX_CLIENTS is 64; windowed rebuild flashed {item.*} on scroll. -->
+								<foreach>
+									<container type="horizontal" width="100%" height="28px" padding="0 16px" valign="center">
+										<label width="fill" text-overflow="ellipsis" font="control" font-size="{var.text-control}"
+										       color="{item.field.color}">{item.field.name}</label>
+										<label width="48px" halign="end" font="control" font-size="{var.text-control}"
+										       color="{var.color-primary}">{item.field.kills}</label>
+										<label width="48px" halign="end" font="control" font-size="{var.text-control}"
+										       color="{var.color-muted}">{item.field.deaths}</label>
+									</container>
+								</foreach>
+							</container>
+						</container>
+					</container>
+				</container>
+			</container>
+		</template>
+	</templates>
+</ui-library>

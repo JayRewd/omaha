@@ -165,6 +165,8 @@ void UID_InitNodeState(uid_node_state_t *state)
 	state->capturing = false;
 	state->overlayOpen = false;
 	state->dragging = false;
+	state->dragParent = UID_INVALID_NODE_ID;
+	state->dragGrabOffset = 0.0f;
 	state->highlightIndex = -1;
 	state->collectionItems.clear();
 	state->collectionSelectedIndex = -1;

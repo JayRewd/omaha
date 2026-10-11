@@ -272,7 +272,9 @@ bool IsCommonControlAttr(const std::string &name)
 		"hoverfill", "pressed-fill", "focus-fill", "disabled-fill", "selected-fill",
 		"hover-color", "pressed-color", "focus-color", "disabled-color",
 		/* Added in Omaha: pack children like a container (flatten layout-only wrappers). */
-		"type", "gap"
+		"type", "gap",
+		/* Added in Omaha: horizontal drag handle bound to a cvar (see uid_input). */
+		"drag-x", "drag-min", "drag-max", "drag-from", "drag-to", "drag-step"
 	};
 	for (const char *a : kAttrs) {
 		if (name == a) {

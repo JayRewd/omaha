@@ -351,6 +351,9 @@ struct uid_node_state_t {
 	bool                capturing;     /* keybind capture mode */
 	bool                overlayOpen;   /* legacy select flag; relative modals use ui_om_modal */
 	bool                dragging;      /* slider drag */
+	/* Added in Omaha: drag-x handle — parent track and pointer grab offset. */
+	uid_node_id_t       dragParent;
+	float               dragGrabOffset;
 	int                 highlightIndex; /* select highlight */
 
 	/* Added in Omaha: collection scope runtime */

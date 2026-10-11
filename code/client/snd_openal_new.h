@@ -229,6 +229,13 @@ extern "C" {
     void S_OPENAL_SetReverb(int iType, float fLevel);
     void S_OPENAL_Update();
 
+    /* Added in Omaha: OpenAL Soft loopback mix for AVI export. */
+    qboolean S_OPENAL_BeginAviLoopback(void);
+    void     S_OPENAL_EndAviLoopback(void);
+    void     S_OPENAL_AviCaptureFrame(int aviFps);
+    qboolean S_OPENAL_AviLoopbackActive(void);
+    int      S_OPENAL_AviSampleRate(void);
+
     const char  *S_OPENAL_GetMusicFilename();
     int          S_OPENAL_GetMusicLoopCount();
     unsigned int S_OPENAL_GetMusicOffset();

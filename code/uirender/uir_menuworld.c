@@ -138,6 +138,14 @@ static void uir_mw_load_map_env(void)
 	g_mwDeferDraw = 1;
 }
 
+static void uir_mw_flush_pending_3d(void)
+{
+	/* Flush leftover RC_DRAW_SURFS before swapping clipmap/world (AVI EOF / disconnect). */
+	if (g_mw.set2DWindow) {
+		g_mw.set2DWindow(0, 0, 1, 1, 0, 1, 0, 1, -1, 1);
+	}
+}
+
 static uir_status_t uir_mw_begin_initial_load(void)
 {
 	int checksum = 0;
@@ -155,6 +163,7 @@ static uir_status_t uir_mw_begin_initial_load(void)
 		return UIR_ERR_MISSING_ASSET;
 	}
 
+	uir_mw_flush_pending_3d();
 	g_mw.cmLoadMap(g_mwDesiredView.bsp, qtrue, &checksum);
 	if (g_mw.setWorldVisData && g_mw.cmVisibilityPointer) {
 		g_mw.setWorldVisData(g_mw.cmVisibilityPointer());
@@ -188,6 +197,7 @@ static uir_status_t uir_mw_begin_staged_switch(void)
 
 	g_mwState = UIR_MW_SWITCHING;
 
+	uir_mw_flush_pending_3d();
 	g_mw.cmLoadMap(g_mwDesiredView.bsp, qtrue, &checksum);
 	if (g_mw.setWorldVisData && g_mw.cmVisibilityPointer) {
 		g_mw.setWorldVisData(g_mw.cmVisibilityPointer());

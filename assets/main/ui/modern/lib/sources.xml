@@ -8,6 +8,7 @@
 
 		<source id="menu-panels" default="play">
 			<item value="play" label="PLAY" panel="panel_play"/>
+			<item value="demos" label="DEMOS" panel="panel_demos"/>
 			<item value="settings" label="SETTINGS" panel="panel_settings"/>
 		</source>
 

@@ -353,6 +353,10 @@ typedef struct {
 	int			realtime;			// ignores pause
 	int			realFrametime;		// ignoring pause, so console always works
 
+	/* Added in Omaha: unattended AVI export from the DEMOS browser (survives CL_Disconnect). */
+	qboolean	aviDemoExport;
+	char		aviDemoPath[MAX_OSPATH];
+
 	int				numlocalservers;
 	serverInfo_t	localServers[ MAX_OTHER_SERVERS ];
 	qboolean		bNewLocalServerInfo;
@@ -551,6 +555,7 @@ const char *CL_ConfigString( int index );
 void CL_StartDemoLoop( void );
 void CL_NextDemo( void );
 void CL_ReadDemoMessage( void );
+void CL_WriteDemoGamestate( fileHandle_t f, int sequence );
 void CL_StopRecord_f(void);
 
 void CL_InitDownloads(void);
@@ -770,6 +775,18 @@ void CL_WriteAVIVideoFrame( const byte *imageBuffer, int size );
 void CL_WriteAVIAudioFrame( const byte *pcmBuffer, int size );
 qboolean CL_CloseAVI( void );
 qboolean CL_VideoRecording( void );
+qboolean CL_AVI_RendererAllowsCapture( void );
+qboolean CL_AVI_DemoExportActive( void );
+qboolean CL_AVI_BeginDemoExport( const char *demoFile );
+void CL_AVI_TryStartIfNeeded( void );
+void CL_AVI_FinishDemoExport( void );
+
+
+qboolean S_OPENAL_BeginAviLoopback( void );
+void S_OPENAL_EndAviLoopback( void );
+void S_OPENAL_AviCaptureFrame( int aviFps );
+qboolean S_OPENAL_AviLoopbackActive( void );
+int S_OPENAL_AviSampleRate( void );
 
 //
 // cl_consolecmds.cpp
