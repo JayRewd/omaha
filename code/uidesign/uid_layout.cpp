@@ -2410,6 +2410,18 @@ void CollectPaintOrder(
 
 } // namespace
 
+bool UID_UpdateSliderParts(uid_document_t *doc, uid_node_id_t sliderId)
+{
+	const uid_node_def_t   *slider = UID_GetNode(doc, sliderId);
+	const uid_node_state_t *sst = StateC(doc, sliderId);
+	if (!slider || !sst || slider->kind != UID_NODE_SLIDER || !sst->layoutInputsValid ||
+		sst->contentBox.w <= 0.0f || sst->contentBox.h <= 0.0f) {
+		return false;
+	}
+	LayoutSliderParts(doc, sliderId, sst->effectivelyEnabled);
+	return true;
+}
+
 uid_text_wrap_t UID_TextWrapMode(const uid_node_def_t &node)
 {
 	return TextWrapMode(node);

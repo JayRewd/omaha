@@ -482,6 +482,11 @@ struct uid_document_t {
 	std::string                                  menuId;
 	int                                          drawOrder;
 	uid_menu_backdrop_t                          menuBackdrop;
+	/*
+	 * Added in Omaha: <definitions chrome-target="overlay">. Chrome paints in the
+	 * non-retained overlay phase so a stacked live menu keeps HUD retention.
+	 */
+	bool                                         chromeInOverlay;
 	/* Added in Omaha: optional canvas pointer="{bool expr}"; empty = no cursor ownership. */
 	std::string                                  pointerExpr;
 	uid_limits_t                                 limits;

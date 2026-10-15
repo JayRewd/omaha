@@ -43,6 +43,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <string>
 #include <vector>
 
 extern "C" {
@@ -2265,6 +2266,230 @@ static void test_gradient_parse_and_raster()
 	}
 }
 
+/*
+ * Added in Omaha: compositor layer order on both frame paths. chrome-target="overlay"
+ * menus paint in OVERLAY_CHROME, which must queue model previews and run before
+ * PREVIEWS; OVERLAY (modals/dropdowns) runs after and cannot queue.
+ */
+extern "C" void (*g_uirStubPreviewDrawHook)(const uir_rect_t *destPx, const uir_model_preview_params_t *params);
+
+static std::vector<std::string> g_layerLog;
+static bool                     g_layerQueueInOverlayChrome = true;
+
+static void layer_log_preview_draw(const uir_rect_t *destPx, const uir_model_preview_params_t *params)
+{
+	char buf[64];
+	(void)params;
+	std::snprintf(
+		buf,
+		sizeof(buf),
+		"preview:%d:%s",
+		(int)destPx->x,
+		UIR_CompositorPhase() == UIR_PHASE_PREVIEWS ? "ok" : "bad-phase"
+	);
+	g_layerLog.push_back(buf);
+}
+
+static uir_status_t layer_queue(float x)
+{
+	uir_rect_t                 r = {x, 0.0f, 32.0f, 32.0f};
+	uir_model_preview_params_t p;
+	std::memset(&p, 0, sizeof(p));
+	return UIR_QueueModelPreview(&r, &p);
+}
+
+static void layer_chrome(void *ud)
+{
+	(void)ud;
+	g_layerLog.push_back(UIR_CompositorPhase() == UIR_PHASE_CHROME ? "chrome" : "chrome:bad-phase");
+	UIR_BatchRetainClaim();
+	CHECK(layer_queue(10.0f) == UIR_OK);
+}
+
+static void layer_overlay_chrome(void *ud)
+{
+	uir_color_t c = {1.0f, 1.0f, 1.0f, 1.0f};
+	(void)ud;
+	g_layerLog.push_back(
+		UIR_CompositorPhase() == UIR_PHASE_OVERLAY_CHROME ? "overlay-chrome" : "overlay-chrome:bad-phase"
+	);
+	CHECK(UIR_DrawSolidRect(0.0f, 0.0f, 4.0f, 4.0f, &c) != UIR_ERR_WRONG_PHASE);
+	if (g_layerQueueInOverlayChrome) {
+		CHECK(layer_queue(20.0f) == UIR_OK);
+	}
+}
+
+static void layer_overlay(void *ud)
+{
+	(void)ud;
+	g_layerLog.push_back(UIR_CompositorPhase() == UIR_PHASE_OVERLAY ? "overlay" : "overlay:bad-phase");
+	CHECK(layer_queue(30.0f) == UIR_ERR_WRONG_PHASE);
+}
+
+static int layer_target_available(void)
+{
+	return 1;
+}
+
+static int layer_begin_target(void)
+{
+	g_layerLog.push_back("target-begin");
+	return 1;
+}
+
+static void layer_end_target(void)
+{
+	g_layerLog.push_back("target-end");
+}
+
+static int layer_begin_target_keep(int keep)
+{
+	(void)keep;
+	g_layerLog.push_back("target-begin-keep");
+	return 1;
+}
+
+static void layer_clear_rect_fb(int x, int y, int w, int h)
+{
+	(void)x;
+	(void)y;
+	(void)w;
+	(void)h;
+}
+
+static std::string layer_join(void)
+{
+	std::string s;
+	for (size_t i = 0; i < g_layerLog.size(); i++) {
+		if (i) {
+			s += ' ';
+		}
+		s += g_layerLog[i];
+	}
+	return s;
+}
+
+static std::string layer_run(bool disconnected, bool withOverlayChrome)
+{
+	uir_viewport_t vp;
+
+	UIR_CompositorReset();
+	UIR_ViewportMake(0, 0, 640, 480, &vp);
+	UIR_CompositorSetChromeCallback(layer_chrome, NULL);
+	UIR_CompositorSetOverlayChromeCallback(withOverlayChrome ? layer_overlay_chrome : NULL, NULL);
+	UIR_CompositorSetOverlayCallback(layer_overlay, NULL);
+	g_layerLog.clear();
+	if (disconnected) {
+		CHECK(UIR_BeginDisconnectedFrame(&vp, 0) == UIR_OK);
+		CHECK(UIR_EndDisconnectedFrame() == UIR_OK);
+	} else {
+		CHECK(UIR_BeginOverlayFrame(&vp, 0) == UIR_OK);
+		CHECK(UIR_EndOverlayFrame() == UIR_OK);
+	}
+	CHECK(UIR_CompositorPhase() == UIR_PHASE_IDLE);
+	UIR_CompositorSetChromeCallback(NULL, NULL);
+	UIR_CompositorSetOverlayChromeCallback(NULL, NULL);
+	UIR_CompositorSetOverlayCallback(NULL, NULL);
+	return layer_join();
+}
+
+#define CHECK_LAYERS(actual, expected)                                                                                 \
+	do {                                                                                                               \
+		const std::string _a = (actual);                                                                               \
+		if (_a != (expected)) {                                                                                        \
+			std::fprintf(stderr, "%s:%d: layer order\n  got:  %s\n  want: %s\n", __FILE__, __LINE__, _a.c_str(),       \
+						 (expected));                                                                                  \
+			g_failures++;                                                                                              \
+		}                                                                                                              \
+	} while (0)
+
+static void test_compositor_overlay_chrome_previews(void)
+{
+	uir_batch_backend_t be;
+
+	g_uirStubPreviewDrawHook = layer_log_preview_draw;
+	g_layerQueueInOverlayChrome = true;
+
+	/* No UI target backend: pure phase order. */
+	UIR_BatchSetBackend(NULL);
+	CHECK_LAYERS(
+		layer_run(false, true),
+		"chrome overlay-chrome preview:10:ok preview:20:ok overlay"
+	);
+	CHECK_LAYERS(
+		layer_run(true, true),
+		"chrome overlay-chrome preview:10:ok preview:20:ok overlay"
+	);
+	/* Hosts without an overlay-chrome layer keep the old order. */
+	CHECK_LAYERS(layer_run(false, false), "chrome preview:10:ok overlay");
+	CHECK_LAYERS(layer_run(true, false), "chrome preview:10:ok overlay");
+
+	/*
+	 * Immediate UI targets (batching off): overlay-chrome 2D composites before
+	 * the 3D previews, overlay composites after them.
+	 */
+	std::memset(&be, 0, sizeof(be));
+	be.targetAvailable = layer_target_available;
+	be.beginTarget = layer_begin_target;
+	be.endTarget = layer_end_target;
+	UIR_BatchSetBackend(&be);
+	UIR_BatchSetRetain(0);
+	CHECK_LAYERS(
+		layer_run(false, true),
+		"target-begin chrome target-end target-begin overlay-chrome target-end preview:10:ok preview:20:ok "
+		"target-begin overlay target-end"
+	);
+	CHECK_LAYERS(
+		layer_run(true, true),
+		"target-begin chrome target-end target-begin overlay-chrome target-end preview:10:ok preview:20:ok "
+		"target-begin overlay target-end"
+	);
+
+	/* No previews at all: overlay-chrome and overlay share one target session. */
+	{
+		uir_viewport_t vp;
+		UIR_CompositorReset();
+		UIR_ViewportMake(0, 0, 640, 480, &vp);
+		UIR_CompositorSetOverlayChromeCallback(layer_overlay_chrome, NULL);
+		UIR_CompositorSetOverlayCallback(layer_overlay, NULL);
+		g_layerQueueInOverlayChrome = false;
+		g_layerLog.clear();
+		CHECK(UIR_BeginOverlayFrame(&vp, 0) == UIR_OK);
+		CHECK(UIR_EndOverlayFrame() == UIR_OK);
+		CHECK_LAYERS(
+			layer_join(),
+			"target-begin target-end target-begin overlay-chrome overlay target-end"
+		);
+		g_layerQueueInOverlayChrome = true;
+		UIR_CompositorSetOverlayChromeCallback(NULL, NULL);
+		UIR_CompositorSetOverlayCallback(NULL, NULL);
+	}
+
+	/*
+	 * Retained HUD target owner (Phase 4.6 direct overlay): overlay-chrome and
+	 * overlay draw straight to the backbuffer, around the previews.
+	 */
+	be.beginTargetKeep = layer_begin_target_keep;
+	be.clearRectFb = layer_clear_rect_fb;
+	UIR_BatchSetBackend(&be);
+	UIR_BatchSetRetain(1);
+	layer_run(false, true); /* first frame decides eligibility for the next */
+	CHECK_LAYERS(
+		layer_run(false, true),
+		"target-begin-keep chrome target-end overlay-chrome preview:10:ok preview:20:ok overlay"
+	);
+	/* Menu frames never retain. */
+	CHECK_LAYERS(
+		layer_run(true, true),
+		"target-begin chrome target-end target-begin overlay-chrome target-end preview:10:ok preview:20:ok "
+		"target-begin overlay target-end"
+	);
+	UIR_BatchSetRetain(0);
+	UIR_BatchSetBackend(NULL);
+	g_uirStubPreviewDrawHook = NULL;
+	UIR_CompositorReset();
+}
+
 int main()
 {
 	test_viewport();
@@ -2302,6 +2527,7 @@ int main()
 	test_tess_shapes_acceptance();
 	test_image_axis_aligned_clip_scissor();
 	test_gradient_parse_and_raster();
+	test_compositor_overlay_chrome_previews();
 
 	if (g_failures) {
 		std::fprintf(stderr, "%d failure(s)\n", g_failures);

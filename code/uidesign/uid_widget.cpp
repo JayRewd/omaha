@@ -2266,6 +2266,13 @@ std::string UID_NodeDisplayText(const uid_document_t *doc, uid_node_id_t id)
 		return st->runtimeValue.stringValue;
 	}
 	if (!node->text.empty()) {
+		/*
+		 * Fixed in Omaha: a foreach row cloned after this frame's bind pass has no
+		 * runtime text yet; painting the raw template flashed "{item.field.killer}".
+		 */
+		if (node->foreachGenerated && node->text.find("{item.") != std::string::npos) {
+			return std::string();
+		}
 		return node->text;
 	}
 	if (node->kind == UID_NODE_TOGGLE) {

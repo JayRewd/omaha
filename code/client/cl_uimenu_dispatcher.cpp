@@ -763,6 +763,13 @@ qboolean CL_UIMenu_HasPointerMenuOpen(void)
 	return qfalse;
 }
 
+/* Added in Omaha: chrome-target="overlay" documents paint chrome in the overlay phase. */
+static bool EntryChromeInOverlay(const OpenMenuEntry &entry)
+{
+	return entry.runtime && UID_HasDocument(entry.runtime)
+		&& UID_GetDocument(entry.runtime)->chromeInOverlay;
+}
+
 static void PaintChromeFiltered(int maxDrawOrder)
 {
 	CL_UIR_ProfileSyncFromCvar();
@@ -770,7 +777,8 @@ static void PaintChromeFiltered(int maxDrawOrder)
 
 	indices.reserve(g_openMenus.size());
 	for (int i = 0; i < static_cast<int>(g_openMenus.size()); ++i) {
-		if (g_openMenus[static_cast<size_t>(i)].drawOrder <= maxDrawOrder) {
+		const OpenMenuEntry &entry = g_openMenus[static_cast<size_t>(i)];
+		if (entry.drawOrder <= maxDrawOrder && !EntryChromeInOverlay(entry)) {
 			indices.push_back(i);
 		}
 	}
@@ -804,6 +812,32 @@ static void PaintChromeFiltered(int maxDrawOrder)
 	}
 }
 
+/*
+ * Changed in Omaha: chrome-target="overlay" chrome paints in its own compositor
+ * layer (before model previews) so those menus may use <model>. Overlay content
+ * (modals/dropdowns) of every document paints after previews.
+ */
+static void PaintOverlayChromeFiltered(int maxDrawOrder)
+{
+	std::vector<int> indices;
+	indices.reserve(g_openMenus.size());
+	for (int i = 0; i < static_cast<int>(g_openMenus.size()); ++i) {
+		const OpenMenuEntry &entry = g_openMenus[static_cast<size_t>(i)];
+		if (entry.drawOrder <= maxDrawOrder && EntryChromeInOverlay(entry)) {
+			indices.push_back(i);
+		}
+	}
+	SortOpenIndicesByDrawOrder(&indices, qtrue);
+
+	for (int idx : indices) {
+		OpenMenuEntry &entry = g_openMenus[static_cast<size_t>(idx)];
+		UIR_InvalidateAppliedClip();
+		UIR_ResetClipStack();
+		UIR_BatchCloseDrawSession();
+		UID_DrawChrome(entry.runtime);
+	}
+}
+
 static void PaintOverlayFiltered(int maxDrawOrder)
 {
 	std::vector<int> indices;
@@ -828,6 +862,11 @@ void CL_UIMenu_PaintChromeUpTo(int maxDrawOrder)
 	PaintChromeFiltered(maxDrawOrder);
 }
 
+void CL_UIMenu_PaintOverlayChromeUpTo(int maxDrawOrder)
+{
+	PaintOverlayChromeFiltered(maxDrawOrder);
+}
+
 void CL_UIMenu_PaintOverlayUpTo(int maxDrawOrder)
 {
 	PaintOverlayFiltered(maxDrawOrder);
@@ -836,6 +875,11 @@ void CL_UIMenu_PaintOverlayUpTo(int maxDrawOrder)
 void CL_UIMenu_PaintChrome(void)
 {
 	PaintChromeFiltered(9);
+}
+
+void CL_UIMenu_PaintOverlayChrome(void)
+{
+	PaintOverlayChromeFiltered(9);
 }
 
 void CL_UIMenu_PaintOverlay(void)

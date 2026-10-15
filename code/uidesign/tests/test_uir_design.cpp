@@ -34,6 +34,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "uid_invoke.h"
 #include "uid_layout.h"
 #include "uid_modal.h"
+#include "uid_paint.h"
 #include "uid_menu_map_view.h"
 #include "uid_runtime.h"
 #include "uid_template.h"
@@ -10419,8 +10420,43 @@ static void TestMenuMetadataParse(void)
 	CHECK(doc->menuId == "stats");
 	CHECK(doc->drawOrder == 6);
 	CHECK(doc->menuBackdrop == UID_MENU_BACKDROP_MENU_MAP);
+	CHECK(!doc->chromeInOverlay);
 
 	UID_DestroyDocument(doc);
+}
+
+/* Added in Omaha: chrome-target="overlay" moves menu chrome into the overlay phase. */
+static void TestMenuMetadataChromeTarget(void)
+{
+	uid_limits_t lim;
+	UID_DefaultLimits(&lim);
+	uid_parse_io_t parseIo = MakeTestParseIo();
+	struct {
+		const char *defs;
+		bool        ok;
+		bool        overlay;
+	} cases[] = {
+		{"menu-id=\"a\" draw-order=\"4\" chrome-target=\"overlay\"", true, true},
+		{"menu-id=\"a\" draw-order=\"4\" chrome-target=\"chrome\"", true, false},
+		{"menu-id=\"a\" draw-order=\"4\" chrome-target=\"bogus\"", false, false},
+		{"hud-id=\"h\" hud-label=\"H\" draw-order=\"4\" pause-menu=\"p\" scoreboard-menu=\"s\" "
+		 "chrome-target=\"overlay\"",
+		 false, false},
+	};
+	for (const auto &tc : cases) {
+		const std::string xml = std::string("<ui version=\"1\"><definitions ") + tc.defs
+			+ "><fonts/></definitions><canvas><container id=\"root\" type=\"vertical\" "
+			  "width=\"100px\" height=\"100px\"/></canvas></ui>";
+		uid_document_t *doc = UID_CreateDocument();
+		uid_diag_list_t diags(lim.maxDiagnostics);
+		const bool ok = UID_ParseXml("chrome_target.xml", xml.c_str(), xml.size(), &lim, &parseIo, doc, &diags)
+			== UID_OK && !diags.HasErrors();
+		CHECK(ok == tc.ok);
+		if (tc.ok) {
+			CHECK(doc->chromeInOverlay == tc.overlay);
+		}
+		UID_DestroyDocument(doc);
+	}
 }
 
 static void TestMenuMetadataDrawOrderBounds(void)
@@ -11229,6 +11265,242 @@ static void TestDmPauseModernMenuLoads(void)
 	UID_DestroyDocument(doc);
 }
 
+/*
+ * Added in Omaha: chrome-target="overlay" menus with <model> (dm_pause team
+ * panel, main profile) queue previews from the compositor OVERLAY_CHROME layer
+ * and the previews draw on both the connected and disconnected frame paths.
+ */
+extern "C" void (*g_uirStubPreviewDrawHook)(const uir_rect_t *destPx, const uir_model_preview_params_t *params);
+
+struct OverlayChromeProbe {
+	uid_document_t          *doc = nullptr;
+	uid_backend_t           *be = nullptr;
+	int                      queuedOk = 0;
+	int                      queuedRejected = 0;
+	std::vector<std::string> log;
+	std::vector<uir_rect_t>  drawn;
+};
+
+static OverlayChromeProbe *g_ocProbe = nullptr;
+
+static void oc_queue_model_preview(const uid_model_preview_desc_t *desc)
+{
+	uir_rect_t                 r = {desc->x, desc->y, desc->w, desc->h};
+	uir_model_preview_params_t p;
+	std::memset(&p, 0, sizeof(p));
+	/* Same as the client host: a document with models never replays its paint list. */
+	UID_PaintListMarkHostDraw();
+	if (UIR_QueueModelPreview(&r, &p) == UIR_OK) {
+		g_ocProbe->queuedOk++;
+	} else {
+		g_ocProbe->queuedRejected++;
+	}
+}
+
+static void oc_preview_draw(const uir_rect_t *destPx, const uir_model_preview_params_t *params)
+{
+	(void)params;
+	g_ocProbe->log.push_back(UIR_CompositorPhase() == UIR_PHASE_PREVIEWS ? "preview" : "preview:bad-phase");
+	g_ocProbe->drawn.push_back(*destPx);
+}
+
+static void oc_layer_chrome(void *ud)
+{
+	(void)ud;
+	g_ocProbe->log.push_back("chrome");
+}
+
+static void oc_layer_overlay_chrome(void *ud)
+{
+	(void)ud;
+	g_ocProbe->log.push_back("overlay-chrome");
+	UID_PaintChrome(g_ocProbe->doc, g_ocProbe->be);
+}
+
+static void oc_layer_overlay(void *ud)
+{
+	(void)ud;
+	g_ocProbe->log.push_back("overlay");
+	UID_PaintOverlay(g_ocProbe->doc, g_ocProbe->be);
+}
+
+/* Pre-fix scheduling: overlay-chrome menus painted chrome inside the overlay layer. */
+static void oc_layer_overlay_legacy(void *ud)
+{
+	(void)ud;
+	g_ocProbe->log.push_back("overlay");
+	UID_PaintChrome(g_ocProbe->doc, g_ocProbe->be);
+	UID_PaintOverlay(g_ocProbe->doc, g_ocProbe->be);
+}
+
+static std::string OcJoinLog(void)
+{
+	std::string s;
+	for (size_t i = 0; i < g_ocProbe->log.size(); i++) {
+		if (i) {
+			s += ' ';
+		}
+		s += g_ocProbe->log[i];
+	}
+	return s;
+}
+
+static void OcRunFrame(bool disconnected, uir_layer_fn overlayChrome, uir_layer_fn overlay)
+{
+	uir_viewport_t vp;
+
+	g_ocProbe->queuedOk = 0;
+	g_ocProbe->queuedRejected = 0;
+	g_ocProbe->log.clear();
+	g_ocProbe->drawn.clear();
+	UIR_CompositorReset();
+	UIR_ViewportMake(0, 0, 1280, 720, &vp);
+	UIR_CompositorSetChromeCallback(oc_layer_chrome, nullptr);
+	UIR_CompositorSetOverlayChromeCallback(overlayChrome, nullptr);
+	UIR_CompositorSetOverlayCallback(overlay, nullptr);
+	if (disconnected) {
+		CHECK(UIR_BeginDisconnectedFrame(&vp, 0) == UIR_OK);
+		CHECK(UIR_EndDisconnectedFrame() == UIR_OK);
+	} else {
+		CHECK(UIR_BeginOverlayFrame(&vp, 0) == UIR_OK);
+		CHECK(UIR_EndOverlayFrame() == UIR_OK);
+	}
+	CHECK(UIR_CompositorPhase() == UIR_PHASE_IDLE);
+	UIR_CompositorSetChromeCallback(nullptr, nullptr);
+	UIR_CompositorSetOverlayChromeCallback(nullptr, nullptr);
+	UIR_CompositorSetOverlayCallback(nullptr, nullptr);
+}
+
+static void OcCheckModelsBothFramePaths(
+	uid_document_t *doc, uid_backend_t *be, const char *modelIdA, const char *modelIdB
+)
+{
+	OverlayChromeProbe probe;
+	probe.doc = doc;
+	probe.be = be;
+	g_ocProbe = &probe;
+	g_uirStubPreviewDrawHook = oc_preview_draw;
+	be->queueModelPreview = oc_queue_model_preview;
+
+	uid_node_id_t a = NodeId(doc, modelIdA);
+	uid_node_id_t b = NodeId(doc, modelIdB);
+	CHECK(a >= 0 && b >= 0);
+	if (a < 0 || b < 0) {
+		g_uirStubPreviewDrawHook = nullptr;
+		g_ocProbe = nullptr;
+		return;
+	}
+	const uid_rect_t boxA = doc->states[(size_t)a].contentBox;
+	const uid_rect_t boxB = doc->states[(size_t)b].contentBox;
+	CHECK(boxA.w > 1.0f && boxA.h > 1.0f);
+	CHECK(boxB.w > 1.0f && boxB.h > 1.0f);
+
+	for (int disconnected = 0; disconnected < 2; disconnected++) {
+		OcRunFrame(disconnected != 0, oc_layer_overlay_chrome, oc_layer_overlay);
+		CHECK(probe.queuedOk == 2);
+		CHECK(probe.queuedRejected == 0);
+		const std::string got = OcJoinLog();
+		if (got != "chrome overlay-chrome preview preview overlay") {
+			std::fprintf(stderr, "  %s frame order: %s\n", disconnected ? "disconnected" : "overlay", got.c_str());
+		}
+		CHECK(got == "chrome overlay-chrome preview preview overlay");
+		CHECK(probe.drawn.size() == 2);
+		if (probe.drawn.size() == 2) {
+			CHECK_EQ_F(probe.drawn[0].x, boxA.x, 0.01);
+			CHECK_EQ_F(probe.drawn[0].y, boxA.y, 0.01);
+			CHECK_EQ_F(probe.drawn[0].w, boxA.w, 0.01);
+			CHECK_EQ_F(probe.drawn[0].h, boxA.h, 0.01);
+			CHECK_EQ_F(probe.drawn[1].x, boxB.x, 0.01);
+			CHECK_EQ_F(probe.drawn[1].w, boxB.w, 0.01);
+		}
+
+		/* Negative control: the old schedule (chrome inside overlay) drops every model. */
+		OcRunFrame(disconnected != 0, nullptr, oc_layer_overlay_legacy);
+		CHECK(probe.queuedOk == 0);
+		CHECK(probe.queuedRejected == 2);
+		CHECK(probe.drawn.empty());
+	}
+
+	be->queueModelPreview = nullptr;
+	g_uirStubPreviewDrawHook = nullptr;
+	g_ocProbe = nullptr;
+	UIR_CompositorReset();
+}
+
+static bool ReadModernFixture(const char *relPath, std::string *out)
+{
+	std::string path = std::string(UID_TEST_FIXTURE_DIR) + "/" + relPath;
+	FILE       *f = std::fopen(path.c_str(), "rb");
+	CHECK(f != nullptr);
+	if (!f) {
+		return false;
+	}
+	std::fseek(f, 0, SEEK_END);
+	long sz = std::ftell(f);
+	std::fseek(f, 0, SEEK_SET);
+	out->assign((size_t)sz, '\0');
+	CHECK(std::fread(out->data(), 1, (size_t)sz, f) == (size_t)sz);
+	std::fclose(f);
+	return true;
+}
+
+static void TestDmPauseTeamModelsOverlayChrome(void)
+{
+	std::string xml;
+	if (!ReadModernFixture("menus/dm_pause.xml", &xml)) {
+		return;
+	}
+	uid_limits_t lim;
+	UID_DefaultLimits(&lim);
+	uid_document_t *doc = UID_CreateDocument();
+	uid_diag_list_t diags(lim.maxDiagnostics);
+	uid_parse_io_t  parseIo = MakeTestParseIo();
+	FakeBackendState st;
+	uid_backend_t    be = MakeFakeBackend(&st);
+	st.cvars["ui_om_pause_panel"] = FakeCvar{"team", 0};
+	st.cvars["cg_gametype"] = FakeCvar{"2", 2};
+	st.cvars["ui_dm_playermodel_set"] = FakeCvar{"american_army", 0};
+	st.cvars["ui_dm_playergermanmodel_set"] = FakeCvar{"german_wehrmacht_soldier", 0};
+
+	CHECK(UID_ParseXml("ui/modern/menus/dm_pause.xml", xml.c_str(), xml.size(), &lim, &parseIo, doc, &diags) == UID_OK);
+	CHECK(!diags.HasErrors());
+	CHECK(doc->chromeInOverlay);
+	CHECK(UID_ExpandDocument(doc, &diags) == UID_OK);
+	CHECK(UID_CompileDocument(doc, &diags) == UID_OK);
+	UID_SyncBindings(doc, &be);
+	CHECK(UID_LayoutDocument(doc, 1280, 720, 1.0f, 1.0f, &be, &diags) == UID_OK);
+	OcCheckModelsBothFramePaths(doc, &be, "team_allies_model", "team_axis_model");
+	UID_DestroyDocument(doc);
+}
+
+static void TestMainProfileModelsOverlayChrome(void)
+{
+	std::string xml;
+	if (!ReadModernFixture("main.xml", &xml)) {
+		return;
+	}
+	uid_limits_t lim;
+	UID_DefaultLimits(&lim);
+	uid_document_t *doc = UID_CreateDocument();
+	uid_diag_list_t diags(lim.maxDiagnostics);
+	uid_parse_io_t  parseIo = MakeTestParseIo();
+	FakeBackendState st;
+	uid_backend_t    be = MakeFakeBackend(&st);
+	st.cvars["ui_om_modal"] = FakeCvar{"", 0};
+	st.cvars["ui_om_main_panel"] = FakeCvar{"play", 0};
+	st.cvars["ui_dm_playermodel_set"] = FakeCvar{"american_army", 0};
+	st.cvars["ui_dm_playergermanmodel_set"] = FakeCvar{"german_wehrmacht_soldier", 0};
+
+	CHECK(UID_ParseXml("ui/modern/main.xml", xml.c_str(), xml.size(), &lim, &parseIo, doc, &diags) == UID_OK);
+	CHECK(doc->chromeInOverlay);
+	CHECK(UID_ExpandDocument(doc, &diags) == UID_OK);
+	CHECK(UID_CompileDocument(doc, &diags) == UID_OK);
+	UID_SyncBindings(doc, &be);
+	CHECK(UID_LayoutDocument(doc, 1280, 720, 1.0f, 1.0f, &be, &diags) == UID_OK);
+	OcCheckModelsBothFramePaths(doc, &be, "preview_allies", "preview_axis");
+	UID_DestroyDocument(doc);
+}
+
 static void TestScoreboardCollectionForeach(void)
 {
 	static const char *kDoc = R"(
@@ -11895,6 +12167,7 @@ int main(void)
 	TestCrosshairDisplayShape();
 	TestIntrinsicShapePropScale();
 	TestMenuMetadataParse();
+	TestMenuMetadataChromeTarget();
 	TestMenuMetadataDrawOrderBounds();
 	TestMenuMetadataMissingDrawOrder();
 	TestMenuMetadataPeekFixtures();
@@ -11918,6 +12191,8 @@ int main(void)
 	TestScoreboardMenuLoads();
 	TestDmPauseMenuLoadsAndMapsUrcRects();
 	TestDmPauseModernMenuLoads();
+	TestDmPauseTeamModelsOverlayChrome();
+	TestMainProfileModelsOverlayChrome();
 	TestScoreboardCollectionForeach();
 	TestScoreboardForeachUseTemplate();
 	TestScoreboardKdFormat();

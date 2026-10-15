@@ -29,6 +29,9 @@ source tree, or write to the Free Software Foundation, Inc.,
 
 #include "../uir_modelpreview.h"
 
+/* Optional test hook: observe compositor preview draws (phase ordering tests). */
+void (*g_uirStubPreviewDrawHook)(const uir_rect_t *destPx, const uir_model_preview_params_t *params);
+
 void UIR_ModelPreviewSetBackend(const uir_modelpreview_backend_t *backend)
 {
 	(void)backend;
@@ -36,7 +39,8 @@ void UIR_ModelPreviewSetBackend(const uir_modelpreview_backend_t *backend)
 
 uir_status_t UIR_ModelPreviewDraw(const uir_rect_t *destPx, const uir_model_preview_params_t *params)
 {
-	(void)destPx;
-	(void)params;
+	if (g_uirStubPreviewDrawHook) {
+		g_uirStubPreviewDrawHook(destPx, params);
+	}
 	return UIR_OK;
 }

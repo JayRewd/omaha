@@ -44,6 +44,8 @@ static uir_layer_fn          g_chromeFn;
 static void                 *g_chromeUd;
 static uir_layer_fn          g_overlayFn;
 static void                 *g_overlayUd;
+static uir_layer_fn          g_overlayChromeFn;
+static void                 *g_overlayChromeUd;
 static uir_stats_t           g_stats;
 static uir_rect_t            g_clipStack[UIR_MAX_CLIP_DEPTH];
 static int                   g_clipDepth;
@@ -378,6 +380,17 @@ void UIR_CompositorSetOverlayCallback(uir_layer_fn fn, void *userdata)
 	g_overlayUd = userdata;
 }
 
+void UIR_CompositorSetOverlayChromeCallback(uir_layer_fn fn, void *userdata)
+{
+	g_overlayChromeFn = fn;
+	g_overlayChromeUd = userdata;
+}
+
+static int uir_phase_paints_2d(void)
+{
+	return g_phase == UIR_PHASE_CHROME || g_phase == UIR_PHASE_OVERLAY_CHROME || g_phase == UIR_PHASE_OVERLAY;
+}
+
 static void uir_restore_fullscreen_2d(void)
 {
 	UIR_Draw2D_Begin(&g_vp);
@@ -429,7 +442,7 @@ uir_status_t UIR_BeginDisconnectedFrame(const uir_viewport_t *vp, int realtime)
 
 uir_status_t UIR_DrawSolidRect(float x, float y, float w, float h, const uir_color_t *rgba)
 {
-	if (g_phase != UIR_PHASE_CHROME && g_phase != UIR_PHASE_OVERLAY) {
+	if (!uir_phase_paints_2d()) {
 		return UIR_ERR_WRONG_PHASE;
 	}
 	return UIR_Draw2D_Box(x, y, w, h, rgba);
@@ -437,7 +450,7 @@ uir_status_t UIR_DrawSolidRect(float x, float y, float w, float h, const uir_col
 
 uir_status_t UIR_FillPolygon2D(const uir_point_t *pts, int count, const uir_color_t *rgba)
 {
-	if (g_phase != UIR_PHASE_CHROME && g_phase != UIR_PHASE_OVERLAY) {
+	if (!uir_phase_paints_2d()) {
 		return UIR_ERR_WRONG_PHASE;
 	}
 	return UIR_Draw2D_Polygon(&g_vp, pts, count, rgba, &g_stats);
@@ -445,7 +458,7 @@ uir_status_t UIR_FillPolygon2D(const uir_point_t *pts, int count, const uir_colo
 
 uir_status_t UIR_FillPath2D(const uir_path_t *path, const uir_color_t *rgba, int crisp, int noFringe)
 {
-	if (g_phase != UIR_PHASE_CHROME && g_phase != UIR_PHASE_OVERLAY) {
+	if (!uir_phase_paints_2d()) {
 		return UIR_ERR_WRONG_PHASE;
 	}
 	return UIR_Draw2D_Path(&g_vp, path, rgba, &g_stats, crisp, noFringe);
@@ -454,7 +467,7 @@ uir_status_t UIR_FillPath2D(const uir_path_t *path, const uir_color_t *rgba, int
 /* Added in Omaha */
 uir_status_t UIR_StrokePath2D(const uir_path_t *path, const uir_color_t *rgba, float widthPx, int crisp)
 {
-	if (g_phase != UIR_PHASE_CHROME && g_phase != UIR_PHASE_OVERLAY) {
+	if (!uir_phase_paints_2d()) {
 		return UIR_ERR_WRONG_PHASE;
 	}
 	return UIR_Draw2D_PathStroke(&g_vp, path, rgba, widthPx, &g_stats, crisp);
@@ -464,7 +477,8 @@ uir_status_t UIR_QueueModelPreview(const uir_rect_t *rect, const uir_model_previ
 {
 	uir_queued_preview_t *slot;
 
-	if (g_phase != UIR_PHASE_CHROME) {
+	/* Overlay (modals/dropdowns) paints above previews, so it cannot queue them. */
+	if (g_phase != UIR_PHASE_CHROME && g_phase != UIR_PHASE_OVERLAY_CHROME) {
 		return UIR_ERR_WRONG_PHASE;
 	}
 	if (!rect || !params) {
@@ -538,26 +552,42 @@ uir_status_t UIR_BeginOverlayFrame(const uir_viewport_t *vp, int realtime)
 	return UIR_OK;
 }
 
-uir_status_t UIR_EndOverlayFrame(void)
+static void uir_flush_profiled(void)
 {
-	int i;
-
-	if (g_phase != UIR_PHASE_CHROME) {
-		return UIR_ERR_WRONG_PHASE;
-	}
-
 	UID_ProfileBegin(UID_PROF_HOST_BATCH_FLUSH);
 	UIR_BatchFlush();
 	UID_ProfileEnd(UID_PROF_HOST_BATCH_FLUSH);
-	UIR_BatchTargetEnd();
+}
 
-	/*
-	 * Fixed in Omaha: connected overlays (pause/team menus) queue the same model
-	 * previews as disconnected menus.  The old overlay end path discarded that
-	 * queue, so SelectTeam rendered its wood backdrop but no player models.
-	 */
-	/* Changed in Omaha: skip empty preview phase (ui_d2d_dedup) to avoid 2x Set2DWindow. */
-	if (g_previewCount > 0 || !UIR_Draw2DDedupEnabled()) {
+/*
+ * Added in Omaha: shared tail of both frame paths, after the chrome target ended:
+ * OVERLAY_CHROME (may queue previews), PREVIEWS (3D, outside any UI target),
+ * OVERLAY (modals/dropdowns, never below previews). The overlay-chrome and
+ * overlay layers share one UI target session unless a preview pass sits between
+ * them. direct: draw both layers to the backbuffer (retained HUD target owner).
+ */
+static void uir_run_overlay_layers(int direct, int forcePreviewPass)
+{
+	int i;
+	int sessionOpen = 0;
+
+	if (g_overlayChromeFn) {
+		if (!direct) {
+			UIR_BatchTargetBegin();
+		}
+		sessionOpen = 1;
+		g_phase = UIR_PHASE_OVERLAY_CHROME;
+		UID_ProfileBegin(UID_PROF_HOST_OVERLAY);
+		g_overlayChromeFn(g_overlayChromeUd);
+		UID_ProfileEnd(UID_PROF_HOST_OVERLAY);
+		uir_flush_profiled();
+	}
+
+	if (g_previewCount > 0 || forcePreviewPass) {
+		if (sessionOpen) {
+			UIR_BatchTargetEnd();
+			sessionOpen = 0;
+		}
 		uir_restore_fullscreen_2d();
 		g_phase = UIR_PHASE_PREVIEWS;
 		UID_ProfileBegin(UID_PROF_HOST_PREVIEWS);
@@ -568,60 +598,55 @@ uir_status_t UIR_EndOverlayFrame(void)
 		uir_restore_fullscreen_2d();
 	}
 
-	UIR_BatchTargetBegin();
+	if (!sessionOpen && !direct) {
+		UIR_BatchTargetBegin();
+	}
 	g_phase = UIR_PHASE_OVERLAY;
 	UID_ProfileBegin(UID_PROF_HOST_OVERLAY);
 	if (g_overlayFn) {
 		g_overlayFn(g_overlayUd);
 	}
 	UID_ProfileEnd(UID_PROF_HOST_OVERLAY);
-	UID_ProfileBegin(UID_PROF_HOST_BATCH_FLUSH);
-	UIR_BatchFlush();
-	UID_ProfileEnd(UID_PROF_HOST_BATCH_FLUSH);
+	uir_flush_profiled();
 	UIR_BatchTargetEnd();
 	g_phase = UIR_PHASE_IDLE;
 	g_previewCount = 0;
+}
+
+uir_status_t UIR_EndOverlayFrame(void)
+{
+	if (g_phase != UIR_PHASE_CHROME) {
+		return UIR_ERR_WRONG_PHASE;
+	}
+
+	uir_flush_profiled();
+	UIR_BatchTargetEnd();
+
+	/*
+	 * Fixed in Omaha: connected overlays (pause/team menus) queue the same model
+	 * previews as disconnected menus.  The old overlay end path discarded that
+	 * queue, so SelectTeam rendered its wood backdrop but no player models.
+	 * Changed in Omaha: skip empty preview phase (ui_d2d_dedup) to avoid 2x Set2DWindow.
+	 * Changed in Omaha: the overlay session shares the MSAA target and resolve
+	 * texture with retained HUD chrome; drawing into it invalidates the kept
+	 * image every frame. While chrome is retainable, draw overlays direct.
+	 */
+	uir_run_overlay_layers(UIR_BatchRetainEnabled() && g_retainNextEligible, !UIR_Draw2DDedupEnabled());
 	return UIR_OK;
 }
 
 uir_status_t UIR_EndDisconnectedFrame(void)
 {
-	int i;
-
 	if (g_phase != UIR_PHASE_CHROME) {
 		return UIR_ERR_WRONG_PHASE;
 	}
 
-	UID_ProfileBegin(UID_PROF_HOST_BATCH_FLUSH);
-	UIR_BatchFlush();
-	UID_ProfileEnd(UID_PROF_HOST_BATCH_FLUSH);
+	uir_flush_profiled();
 	UIR_BatchTargetEnd();
 
 	/* Fixed in Omaha: clear leftover chrome scissors before 3D preview viewports. */
 	uir_restore_fullscreen_2d();
 
-	g_phase = UIR_PHASE_PREVIEWS;
-
-	UID_ProfileBegin(UID_PROF_HOST_PREVIEWS);
-	for (i = 0; i < g_previewCount; i++) {
-		UIR_ModelPreviewDraw(&g_previews[i].rect, &g_previews[i].params);
-	}
-	UID_ProfileEnd(UID_PROF_HOST_PREVIEWS);
-	uir_restore_fullscreen_2d();
-
-	UIR_BatchTargetBegin();
-	g_phase = UIR_PHASE_OVERLAY;
-	UID_ProfileBegin(UID_PROF_HOST_OVERLAY);
-	if (g_overlayFn) {
-		g_overlayFn(g_overlayUd);
-	}
-	UID_ProfileEnd(UID_PROF_HOST_OVERLAY);
-	UID_ProfileBegin(UID_PROF_HOST_BATCH_FLUSH);
-	UIR_BatchFlush();
-	UID_ProfileEnd(UID_PROF_HOST_BATCH_FLUSH);
-	UIR_BatchTargetEnd();
-
-	g_phase = UIR_PHASE_IDLE;
-	g_previewCount = 0;
+	uir_run_overlay_layers(0, 1);
 	return UIR_OK;
 }

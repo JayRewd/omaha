@@ -1602,6 +1602,42 @@ static uid_node_id_t UnwrapRegionParent(const uid_document_t *doc, uid_node_id_t
  * style props of its own) can be split into one region per child so a turning
  * compass does not redraw the kill feed sharing its row.
  */
+/*
+ * Fixed in Omaha: the loader resolves defaults onto every node (fill=#00000000,
+ * shape=rectangle, visible=true, overflow=none), so presence alone made every
+ * row look painted and the compass row was never split.
+ */
+static bool PaintPropIsNoop(const char *name, const std::string &value)
+{
+	if (value.empty()) {
+		return true;
+	}
+	if (!strcmp(name, "fill") || !strcmp(name, "stroke") || !strcmp(name, "background")) {
+		if (value == "none" || value == "transparent") {
+			return true;
+		}
+		/* #RRGGBBAA with zero alpha */
+		return value.size() == 9 && value[0] == '#' && value[7] == '0' && value[8] == '0';
+	}
+	if (!strcmp(name, "shape")) {
+		return value == "rectangle";
+	}
+	if (!strcmp(name, "visible")) {
+		return value == "true" || value == "1";
+	}
+	if (!strcmp(name, "overflow")) {
+		return value == "none" || value == "visible";
+	}
+	if (!strcmp(name, "opacity") || !strcmp(name, "scale")) {
+		return value == "1";
+	}
+	if (!strcmp(name, "stroke-width") || !strcmp(name, "rotate") || !strcmp(name, "translate-x") ||
+	    !strcmp(name, "translate-y") || !strcmp(name, "skewl") || !strcmp(name, "skewr")) {
+		return value == "0" || value == "0px";
+	}
+	return false;
+}
+
 static bool NodeIsPureWrapper(const uid_document_t *doc, uid_node_id_t id)
 {
 	static const char *const kPaintProps[] = {
@@ -1615,7 +1651,7 @@ static bool NodeIsPureWrapper(const uid_document_t *doc, uid_node_id_t id)
 	}
 	for (const char *p : kPaintProps) {
 		std::string v;
-		if (node->properties.Get(p, &v)) {
+		if (node->properties.Get(p, &v) && !PaintPropIsNoop(p, v)) {
 			return false;
 		}
 	}
@@ -2175,7 +2211,13 @@ int UID_PaintRegionsRetainPlan(
 	UIR_BatchRetainClaim();
 	if (!UIR_BatchTargetRetained()) {
 		regs->needFullClear = false;
-		g_retainOwner = doc;
+		/*
+		 * Changed in Omaha: a non-retained paint (overlay phase, stacked docs) must
+		 * not steal ownership from the document that holds the retained target.
+		 */
+		if (!g_retainOwner) {
+			g_retainOwner = doc;
+		}
 		return 0;
 	}
 	if (regs->needFullClear || g_retainOwner != doc) {

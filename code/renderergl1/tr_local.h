@@ -1860,6 +1860,8 @@ void		RE_UI2DRestoreFboBlend(void); /* Added in Omaha: restore BlendFuncSeparate
 qboolean	RE_UI2DTargetHasStencil(void);
 int		RE_UI2DTargetSamples(void);
 void		RE_UI2DTargetRebind(void);
+void		RE_UI2D_EnsureBound(void); /* Added in Omaha: lazy UI FBO bind */
+qboolean	RE_UI2D_BindPending(void);
 /* Added in Omaha: Phase 2 — dirty-rect resolve helpers. */
 void		RE_UI2D_AccumRectFb(int x, int y, int w, int h);
 void		RE_UI2D_AccumRectDraw(float x0, float y0, float x1, float y1);

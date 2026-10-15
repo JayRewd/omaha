@@ -542,6 +542,8 @@ void RE_BlitUiChromeCache(void)
 	GL_State(GLS_DEPTHTEST_DISABLE | GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA);
 	qglEnable(GL_TEXTURE_2D);
 	qglBindTexture(GL_TEXTURE_2D, s_uiChromeCache.colorTex);
+	/* Fixed in Omaha: keep glState in sync (same as soft-mask layer / UI2D composite). */
+	glState.currenttextures[glState.currenttmu] = (int)s_uiChromeCache.colorTex;
 	{
 		static const byte white[4] = {255, 255, 255, 255};
 		qglColor4ubv(white);

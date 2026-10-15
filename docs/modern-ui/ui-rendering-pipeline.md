@@ -23,17 +23,18 @@
 Per frame, `UIR_BeginDisconnectedFrame` → `UIR_EndDisconnectedFrame`:
 
 ```
-IDLE → WORLD → CHROME → PREVIEWS → OVERLAY → IDLE
+IDLE → WORLD → CHROME → OVERLAY_CHROME → PREVIEWS → OVERLAY → IDLE
 ```
 
 | Phase | What runs |
 |-------|-----------|
 | **WORLD** | `UIR_MenuWorldDraw` — full-window BSP backdrop from `menu-map-views` catalog |
 | **CHROME** | Host callback (`UID_DrawChrome`) — 2D panels, text, shapes, queued preview registration |
-| **PREVIEWS** | `UIR_ModelPreviewDraw` for each `UIR_QueueModelPreview` rect from CHROME |
+| **OVERLAY_CHROME** | Host callback (`UID_DrawChrome` for `chrome-target="overlay"` menus) — outside the retained chrome target; may queue previews |
+| **PREVIEWS** | `UIR_ModelPreviewDraw` for each `UIR_QueueModelPreview` rect from CHROME / OVERLAY_CHROME |
 | **OVERLAY** | Host callback (`UID_DrawOverlay`) — modals / dropdown overlays above previews |
 
-2D drawing (`UIR_DrawSolidRect`, `UIR_FillPolygon2D`, `UIR_FillPath2D`, `UIR_StrokePath2D`, fonts, images) is only legal in **CHROME** or **OVERLAY** phases.
+2D drawing (`UIR_DrawSolidRect`, `UIR_FillPolygon2D`, `UIR_FillPath2D`, `UIR_StrokePath2D`, fonts, images) is only legal in **CHROME**, **OVERLAY_CHROME** or **OVERLAY** phases. `UIR_QueueModelPreview` is only legal in **CHROME** or **OVERLAY_CHROME** (OVERLAY paints above previews).
 
 `UIR_EndDisconnectedFrame` restores fullscreen 2D before PREVIEWS so per-rect 3D viewports do not inherit chrome scissors.
 
@@ -42,10 +43,10 @@ IDLE → WORLD → CHROME → PREVIEWS → OVERLAY → IDLE
 `UIR_BeginOverlayFrame` skips WORLD:
 
 ```
-IDLE → CHROME → PREVIEWS → OVERLAY → IDLE
+IDLE → CHROME → OVERLAY_CHROME → PREVIEWS → OVERLAY → IDLE
 ```
 
-Gameplay world remains visible behind chrome. `<model>` widgets queued during CHROME are drawn in PREVIEWS (team selection / connected main), then dropdowns and modal overlays paint above them.
+Gameplay world remains visible behind chrome. `<model>` widgets queued during CHROME or OVERLAY_CHROME are drawn in PREVIEWS (team selection / connected main), then dropdowns and modal overlays paint above them. OVERLAY_CHROME and OVERLAY share one UI target session (or draw direct while HUD chrome is retained) unless a preview pass sits between them.
 
 ### When each path runs
 
@@ -231,7 +232,7 @@ Draw: `refdef` pixel rect → `ClearScene` → rain polys (if map has weather) �
 
 ## F. Character model previews (`<model>`)
 
-Queued in CHROME via `UIR_QueueModelPreview`; drawn in PREVIEWS phase.
+Queued in CHROME or OVERLAY_CHROME via `UIR_QueueModelPreview`; drawn in PREVIEWS phase.
 
 XML attributes (see `designformat.md`): `model` or `bind` (or `team` for cvar fallback), `anim`, `anim-variant` (0-based index into a TAF_RANDOM alias group — **required** when factions share underlying `.skc` files), `anim-phase` `[0,1)`, optional `angles`, `fov`, `scale`, `offset`, `bbox`, `bbox-from-model`, `framing-scale`, `color`.
 
@@ -305,7 +306,7 @@ Bake scripts under `artifacts/bake_mp_weapons*.sh` and `code/uirender/tools/uir_
 - [ ] GPU path: `ui_gpu_draw 1` batches paths/fonts/images via `re.DrawUI2D`; `ui_gpu_draw 0` matches legacy spans
 - [ ] CPU fallback still samples FB pixel centers when tessellation returns `UIR_ERR_UNSUPPORTED`
 - [ ] Oswald baked with em-square at destination pixel size; glyphs FB-snapped + UV inset
-- [ ] Compositor order: WORLD → CHROME → PREVIEWS → OVERLAY (disconnected)
+- [ ] Compositor order: WORLD → CHROME → OVERLAY_CHROME → PREVIEWS → OVERLAY (disconnected)
 - [ ] Overlay path skips WORLD; crosshair is separate HUD hook
 - [ ] `menu-map-views` + staged BSP swap; FOV widen from 4:3 base 80°
 - [ ] Model previews: `fov_x=30`, aspect `fov_y`, identity viewaxis, realtime anim

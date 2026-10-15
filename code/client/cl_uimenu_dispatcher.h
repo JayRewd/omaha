@@ -54,8 +54,11 @@ void     CL_UIMenu_UpdateAllWithPointer(unsigned int time, const void *pointer);
 qboolean CL_UIMenu_HasMenusUpTo(int maxDrawOrder);
 qboolean CL_UIMenu_HasPointerMenuOpen(void);
 void     CL_UIMenu_PaintChromeUpTo(int maxDrawOrder);
+/* Added in Omaha: chrome-target="overlay" chrome (compositor OVERLAY_CHROME layer). */
+void     CL_UIMenu_PaintOverlayChromeUpTo(int maxDrawOrder);
 void     CL_UIMenu_PaintOverlayUpTo(int maxDrawOrder);
 void     CL_UIMenu_PaintChrome(void);
+void     CL_UIMenu_PaintOverlayChrome(void);
 void     CL_UIMenu_PaintOverlay(void);
 qboolean CL_UIMenu_KeyEvent(int key, qboolean down, unsigned time);
 qboolean CL_UIMenu_CharEvent(int ch);

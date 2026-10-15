@@ -1,5 +1,6 @@
 <ui version="1">
-	<definitions menu-id="scoreboard" draw-order="3">
+	<!-- Fixed in Omaha: chrome-target=overlay — hold-TAB must not drop HUD retain with multi_chrome. -->
+	<definitions menu-id="scoreboard" draw-order="3" chrome-target="overlay">
 		<import src="ui/modern/lib/theme.xml"/>
 		<import src="ui/modern/lib/hud_modern_tokens.xml"/>
 		<import src="ui/modern/lib/shapes.xml"/>

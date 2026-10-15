@@ -59,6 +59,12 @@ uir_status_t UIR_EndDisconnectedFrame(void);
 /* Optional chrome/overlay callbacks invoked during the frame. */
 void UIR_CompositorSetChromeCallback(uir_layer_fn fn, void *userdata);
 void UIR_CompositorSetOverlayCallback(uir_layer_fn fn, void *userdata);
+/*
+ * Added in Omaha: overlay-chrome layer (chrome-target="overlay" menus). Paints
+ * outside the retained chrome target but before model previews, so it may queue
+ * previews. Order on both frame paths: CHROME, OVERLAY_CHROME, PREVIEWS, OVERLAY.
+ */
+void UIR_CompositorSetOverlayChromeCallback(uir_layer_fn fn, void *userdata);
 
 const uir_viewport_t *UIR_CompositorViewport(void);
 uir_stats_t *UIR_CompositorStats(void);

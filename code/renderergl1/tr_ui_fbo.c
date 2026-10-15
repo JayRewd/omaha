@@ -104,6 +104,12 @@ static qboolean       s_uiKeepFull;
 static qboolean       s_uiContentValid; /* FBO holds a complete retainable image */
 static qboolean       s_uiRetainable;   /* current session begun via Keep */
 static qboolean       s_uiRetained;     /* current session skipped the clear */
+/*
+ * Added in Omaha: the MSAA FBO is bound (and cleared) on the session's first
+ * draw or clear, so a clean retained frame never touches it.
+ */
+static qboolean       s_uiBindPending;
+static qboolean       s_uiNeedClear;    /* MSAA (+resolve if retainable) clear owed at bind */
 static int            s_win2DX, s_win2DY, s_win2DW, s_win2DH;
 static float          s_win2DLeft, s_win2DRight, s_win2DBottom, s_win2DTop;
 static qboolean       s_win2DValid;
@@ -380,6 +386,8 @@ void RE_UI2D_FboShutdown(void)
 	s_uiKeepFull = qfalse;
 	s_uiRetainable = qfalse;
 	s_uiRetained = qfalse;
+	s_uiBindPending = qfalse;
+	s_uiNeedClear = qtrue;
 }
 
 static int RE_UI2D_FboClampSamples(int samples)
@@ -527,9 +535,57 @@ void RE_UI2DTargetRebind(void)
 		return;
 	}
 	if (s_uiFbo.active && s_uiFbo.msaaFbo) {
+		if (s_uiBindPending) {
+			RE_UI2D_EnsureBound();
+			return;
+		}
 		GL_BindFramebuffer(GL_FRAMEBUFFER, s_uiFbo.msaaFbo);
 		qglViewport(0, 0, s_uiFbo.width, s_uiFbo.height);
 	}
+}
+
+/* Added in Omaha: lazy bind — first draw/clear of the session binds and pays the owed clear. */
+void RE_UI2D_EnsureBound(void)
+{
+	qboolean savedScissor;
+
+	if (!s_uiBindPending || !s_uiFbo.active || !s_uiFbo.msaaFbo) {
+		return;
+	}
+	s_uiBindPending = qfalse;
+
+	GL_BindFramebuffer(GL_FRAMEBUFFER, s_uiFbo.msaaFbo);
+	qglViewport(0, 0, s_uiFbo.width, s_uiFbo.height);
+	if (s_uiNeedClear) {
+		s_uiNeedClear = qfalse;
+		savedScissor = glState.scissorEnabled;
+		GL_ScissorEnable(qfalse);
+		qglClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+		/* Changed in Omaha: Phase 2 — color-only clear by default (r_uiClearMode 0). */
+		if (r_uiClearMode && r_uiClearMode->integer) {
+			qglClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+		} else {
+			qglClear(GL_COLOR_BUFFER_BIT);
+		}
+		/*
+		 * Added in Omaha: a retainable session composites the keep-rect union since
+		 * this clear, but only blits each frame's dirty rects. Clear the resolve
+		 * texture too so pixels inside a merged keep rect that no blit has written
+		 * read as transparent instead of a stale (closed scoreboard/menu) image.
+		 */
+		if (s_uiRetainable) {
+			GL_BindFramebuffer(GL_FRAMEBUFFER, s_uiFbo.resolveFbo);
+			qglClear(GL_COLOR_BUFFER_BIT);
+			GL_BindFramebuffer(GL_FRAMEBUFFER, s_uiFbo.msaaFbo);
+		}
+		GL_ScissorEnable(savedScissor);
+	}
+	RE_UI2DRestoreFboBlend();
+}
+
+qboolean RE_UI2D_BindPending(void)
+{
+	return (s_uiFbo.active && s_uiBindPending) ? qtrue : qfalse;
 }
 
 qboolean RE_UI2DTargetAvailable(void)
@@ -567,19 +623,17 @@ static int RE_UI2D_BeginTargetImpl(int retainable, int keep)
 
 	kept = (retainable && keep && s_uiContentValid) ? 1 : 0;
 
-	GL_BindFramebuffer(GL_FRAMEBUFFER, s_uiFbo.msaaFbo);
-	/* Added in Omaha: Phase 1 — FBO viewport change invalidates Set2DWindow dedup. */
+	/*
+	 * Changed in Omaha: bind + clear are deferred to RE_UI2D_EnsureBound. Viewport
+	 * and scissor are context state, so the UI side still sees the FBO setup.
+	 */
 	RE_InvalidateSet2DWindow();
 	qglViewport(0, 0, s_uiFbo.width, s_uiFbo.height);
 	GL_ScissorEnable(qfalse);
+	s_uiBindPending = qtrue;
 	if (!kept) {
-		qglClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-		/* Changed in Omaha: Phase 2 — color-only clear by default (r_uiClearMode 0). */
-		if (r_uiClearMode && r_uiClearMode->integer) {
-			qglClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-		} else {
-			qglClear(GL_COLOR_BUFFER_BIT);
-		}
+		/* An owed clear from an unbound session stays owed. */
+		s_uiNeedClear = qtrue;
 		s_uiKeepRectCount = 0;
 		s_uiKeepFull = qfalse;
 	}
@@ -747,76 +801,63 @@ void RE_EndUI2DTarget(void)
 	uiRectI_t blitRects[UI_FBO_MAX_RECTS * 2];
 	int blitCount;
 	int i;
+	qboolean unbound;
 
 	if (!s_uiFbo.active) {
 		return;
 	}
 
 	R_IssuePendingRenderCommands();
+	unbound = s_uiBindPending;
+	s_uiBindPending = qfalse;
 
 	/* Nested TIME_ELAPSED illegal — end ui before resolve (r_uiPerfGpu). */
 	RE_UiGpuEndUi();
 	RE_UiGpuBeginResolve();
 
+	/*
+	 * Added in Omaha: nothing touched the target. A cleared session is logically
+	 * empty (its clear stays owed); a kept one composites the retained resolve
+	 * texture without a blit.
+	 */
+	if (unbound && !s_uiRetained) {
+		RE_UI2D_LeaveTarget();
+		s_uiContentValid = s_uiRetainable;
+		s_uiRetained = qfalse;
+		RE_UiGpuEndResolve();
+		tr_uiStats.targetEnds++;
+		return;
+	}
+
 	rectsMode = (r_uiResolveRects && r_uiResolveRects->integer != 0) ? 1 : 0;
-	blitFull = (!rectsMode || s_uiFullResolve) ? 1 : 0;
+	blitFull = (!unbound && (!rectsMode || s_uiFullResolve)) ? 1 : 0;
 
 	/*
 	 * Phase 4.6: the keep list is the union of everything drawn since the last
-	 * clear. Non-retained sessions start it fresh from this frame's rects.
+	 * clear. Changed in Omaha: only this frame's dirty rects are blitted — the
+	 * retainable clear also clears the resolve texture, so keep-rect pixels no
+	 * blit wrote are transparent. Non-retainable sessions composite exactly the
+	 * blitted rects (their resolve texture is not cleared).
 	 */
 	blitCount = 0;
 	if (blitFull) {
 		s_uiKeepFull = qtrue;
 		s_uiKeepRectCount = 0;
 	} else {
-		uiRectI_t prevKeep[UI_FBO_MAX_RECTS];
-		const int prevKeepCount = s_uiKeepRectCount;
-		int j;
-
-		memcpy(prevKeep, s_uiKeepRects, sizeof(prevKeep));
 		for (i = 0; i < s_uiRectCount; i++) {
 			RE_UI2D_RectListAdd(s_uiKeepRects, &s_uiKeepRectCount, &s_uiRects[i]);
-		}
-		/*
-		 * The keep list merges into bounding boxes, so a grown or new keep rect
-		 * can cover pixels no earlier blit wrote since the last clear. The resolve
-		 * texture still holds whatever was there before (a closed scoreboard or
-		 * menu), and the composite would show it. Resolve such rects in full.
-		 */
-		if (!s_uiKeepFull) {
-			for (i = 0; i < s_uiKeepRectCount; i++) {
-				const uiRectI_t *k = &s_uiKeepRects[i];
-				qboolean unchanged = qfalse;
-				for (j = 0; j < prevKeepCount; j++) {
-					if (prevKeep[j].x == k->x && prevKeep[j].y == k->y && prevKeep[j].w == k->w && prevKeep[j].h == k->h) {
-						unchanged = qtrue;
-						break;
-					}
-				}
-				if (!unchanged) {
-					blitRects[blitCount++] = *k;
-				}
-			}
-		}
-		for (i = 0; i < s_uiRectCount; i++) {
-			const uiRectI_t *r = &s_uiRects[i];
-			qboolean covered = qfalse;
-			for (j = 0; j < blitCount; j++) {
-				const uiRectI_t *b = &blitRects[j];
-				if (r->x >= b->x && r->y >= b->y && r->x + r->w <= b->x + b->w && r->y + r->h <= b->y + b->h) {
-					covered = qtrue;
-					break;
-				}
-			}
-			if (!covered) {
-				blitRects[blitCount++] = *r;
-			}
+			blitRects[blitCount++] = s_uiRects[i];
 		}
 	}
-	compositeFull = s_uiKeepFull ? 1 : 0;
-	compRects = s_uiKeepRects;
-	compCount = s_uiKeepRectCount;
+	if (s_uiRetainable) {
+		compositeFull = s_uiKeepFull ? 1 : 0;
+		compRects = s_uiKeepRects;
+		compCount = s_uiKeepRectCount;
+	} else {
+		compositeFull = blitFull;
+		compRects = s_uiRects;
+		compCount = s_uiRectCount;
+	}
 
 	if (!compositeFull && compCount == 0) {
 		/* Nothing drawn (and nothing retained) — skip blit/composite. */
@@ -875,6 +916,13 @@ void RE_EndUI2DTarget(void)
 	GL_State(GLS_DEPTHTEST_DISABLE | GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA);
 	qglEnable(GL_TEXTURE_2D);
 	qglBindTexture(GL_TEXTURE_2D, s_uiFbo.resolveTex);
+	/*
+	 * Fixed in Omaha: raw qglBindTexture desyncs glState.currenttextures. GL_Bind then
+	 * skips rebinding when the next UI draw reuses the same font atlas, so glyphs
+	 * sample the resolve tex (tofu) after a second UI2D target in the same frame.
+	 * Soft-mask layer composite already syncs the same way.
+	 */
+	glState.currenttextures[glState.currenttmu] = (int)s_uiFbo.resolveTex;
 	/* Fixed in Omaha: composite must not inherit stale backEnd.color2D from prior UI draws. */
 	{
 		static const byte compositeWhite[4] = {255, 255, 255, 255};

@@ -1,5 +1,6 @@
 <ui version="1">
-	<definitions menu-id="main" draw-order="8" backdrop="menu-map">
+	<!-- Fixed in Omaha: chrome-target=overlay — in-game main must not drop HUD retain; <model> previews queue from overlay-chrome. -->
+	<definitions menu-id="main" draw-order="8" backdrop="menu-map" chrome-target="overlay">
 		<import src="ui/modern/lib/theme.xml"/>
 		<import src="ui/modern/lib/shapes.xml"/>
 		<import src="ui/modern/lib/crosshairs.xml"/>

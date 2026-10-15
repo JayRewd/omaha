@@ -3,8 +3,10 @@
 		Added in Omaha: classic HUD MP pause — full modern XML tree (no UIFAKK).
 		Stage = full canvas as 640×480 virtual space (same stretch as retail virtualres).
 		Author coords as % of that stage (URC /640 and /480). Base escmenu + team/weapon art.
+		Fixed in Omaha: chrome-target=overlay — keep HUD sole retain owner; team <model>
+		previews queue from the overlay-chrome layer (before the preview pass).
 	-->
-	<definitions menu-id="dm_pause" draw-order="7">
+	<definitions menu-id="dm_pause" draw-order="7" chrome-target="overlay">
 		<import src="ui/modern/lib/theme.xml"/>
 		<import src="ui/modern/lib/pause_tokens.xml"/>
 		<import src="ui/modern/lib/shapes.xml"/>

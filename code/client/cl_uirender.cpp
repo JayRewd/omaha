@@ -6990,6 +6990,12 @@ static void CL_UIR_ChromeCallback(void *userdata)
 	CL_UIMenu_PaintChrome();
 }
 
+static void CL_UIR_OverlayChromeCallback(void *userdata)
+{
+	(void)userdata;
+	CL_UIMenu_PaintOverlayChrome();
+}
+
 static void CL_UIR_OverlayCallback(void *userdata)
 {
 	(void)userdata;
@@ -7079,6 +7085,12 @@ static void CL_UIR_SniperZoomChromeCallback(void *userdata)
 	cl_uir_paint_sniper_zoom();
 }
 
+static void CL_UIR_HudOverlayChromeCallback(void *userdata)
+{
+	(void)userdata;
+	CL_UIMenu_PaintOverlayChromeUpTo(4);
+}
+
 static void CL_UIR_HudOverlayCallback(void *userdata)
 {
 	(void)userdata;
@@ -7091,9 +7103,11 @@ static void CL_UIR_SetDesignLayerCallbacks(qboolean enable)
 {
 	if (enable) {
 		UIR_CompositorSetChromeCallback(CL_UIR_ChromeCallback, NULL);
+		UIR_CompositorSetOverlayChromeCallback(CL_UIR_OverlayChromeCallback, NULL);
 		UIR_CompositorSetOverlayCallback(CL_UIR_OverlayCallback, NULL);
 	} else {
 		UIR_CompositorSetChromeCallback(NULL, NULL);
+		UIR_CompositorSetOverlayChromeCallback(NULL, NULL);
 		UIR_CompositorSetOverlayCallback(NULL, NULL);
 	}
 }
@@ -8204,10 +8218,12 @@ void CL_UIR_DrawCrosshair(void)
 	if (!hadCallbacks) {
 		if (paintHud) {
 			UIR_CompositorSetChromeCallback(CL_UIR_HudChromeCallback, NULL);
+			UIR_CompositorSetOverlayChromeCallback(CL_UIR_HudOverlayChromeCallback, NULL);
 			UIR_CompositorSetOverlayCallback(CL_UIR_HudOverlayCallback, NULL);
 		} else {
 			/* Added in Omaha: sniper scope still paints when HUD chrome is gated off. */
 			UIR_CompositorSetChromeCallback(CL_UIR_SniperZoomChromeCallback, NULL);
+			UIR_CompositorSetOverlayChromeCallback(NULL, NULL);
 			UIR_CompositorSetOverlayCallback(NULL, NULL);
 		}
 	}
@@ -8221,6 +8237,7 @@ void CL_UIR_DrawCrosshair(void)
 	}
 	if (!hadCallbacks) {
 		UIR_CompositorSetChromeCallback(NULL, NULL);
+		UIR_CompositorSetOverlayChromeCallback(NULL, NULL);
 		UIR_CompositorSetOverlayCallback(NULL, NULL);
 	}
 	CL_UIR_ProfileEndSample("hud_layer");

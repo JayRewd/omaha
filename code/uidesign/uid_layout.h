@@ -76,6 +76,11 @@ float UID_ScaleAuthoredPx(const uid_document_t *doc, float px);
  */
 void UID_ShiftSubtreeBoxes(uid_document_t *doc, uid_node_id_t id, float dx, float dy, const uid_rect_t &parentClip);
 void UID_ApplyPendingTranslateDeltas(uid_document_t *doc);
+/*
+ * Added in Omaha: re-place slider track/range/thumb from the slider's current content
+ * box after a value change. Returns false when the slider has not been laid out yet.
+ */
+bool UID_UpdateSliderParts(uid_document_t *doc, uid_node_id_t sliderId);
 /* Added in Omaha: Phase 4.1 — node → parent; rebuilt on STRUCTURE. */
 void UID_RebuildParentMap(uid_document_t *doc);
 

@@ -308,8 +308,16 @@ void SetRuntimeIfChanged(
 	st->runtimeValue.hasValue = true;
 	st->runtimeValue.stringValue = value;
 	if (kind == UID_NODE_SLIDER) {
-		/* Fixed in Omaha: playhead / other bound sliders place thumb+range in layout. */
-		UID_MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_LAYOUT | UID_DIRTY_PAINT), id, "runtime_slider");
+		/*
+		 * Fixed in Omaha: a value change only moves thumb/range inside the slider's own
+		 * box — re-place the parts and repaint (demo playhead ticks every frame).
+		 * Full layout only until the slider has been placed once.
+		 */
+		if (UID_UpdateSliderParts(doc, id)) {
+			UID_MarkDirty(doc, UID_DIRTY_PAINT, id, "runtime_slider");
+		} else {
+			UID_MarkDirty(doc, static_cast<uid_dirty_flags_t>(UID_DIRTY_LAYOUT | UID_DIRTY_PAINT), id, "runtime_slider");
+		}
 	} else if (TextSizeMayChange(kind)) {
 		const uid_node_def_t *node = UID_GetNode(doc, id);
 		if (node && TextIsContentSized(*node)) {
@@ -2627,6 +2635,7 @@ bool UID_ParseItemFieldBind(const char *bind, std::string *fieldNameOut)
 /* Added in Omaha: Phase 4.4 — cvar dependency index (skip unchanged subtrees). */
 static int g_bindDeps = 1;
 static int g_bindDepsVerify = 0;
+static const size_t BIND_VERIFY_PERIOD = 2000; /* sync frames per full safety-resync sweep */
 /* Added in Omaha: Phase 4.4 — heading/tape cvars that only drive translate-x/y. */
 static int s_bindTxChanged = 0;
 static int s_bindTxOnly = 0;
@@ -3096,6 +3105,22 @@ void UID_SyncBindings(uid_document_t *doc, const uid_backend_t *backend)
 			UID_RebuildBindDeps(doc, backend);
 		}
 		nChangedCvars += BindDepsMarkTouched(doc, backend, &subtreeTouched, commitMods);
+		/*
+		 * Fixed in Omaha: Phase 4.4 safety resync, amortized — one node in every
+		 * BIND_VERIFY_PERIOD per frame (plus ancestors) instead of a whole-tree walk
+		 * every BIND_VERIFY_PERIOD frames, which spiked sync by 200-600us.
+		 */
+		if (doc->bindDepsWarm && !g_bindDepsVerify) {
+			bool marked = false;
+			for (size_t id = static_cast<size_t>(doc->syncFrameCounter) % BIND_VERIFY_PERIOD;
+				 id < subtreeTouched.size(); id += BIND_VERIFY_PERIOD) {
+				BindDepsMarkAncestors(doc, &subtreeTouched, static_cast<uid_node_id_t>(id));
+				marked = true;
+			}
+			if (marked) {
+				s_bindTxOnly = 0;
+			}
+		}
 	};
 
 	UID_ProfileBegin(UID_PROF_FRAME_COLLECTION_CULL);
@@ -3418,7 +3443,7 @@ void UID_SyncBindings(uid_document_t *doc, const uid_backend_t *backend)
 
 
 	/* Added in Omaha: Phase 4.4 verify — full walk after targeted sync; must stay silent. */
-	if (useBindDeps && (g_bindDepsVerify || ((doc->syncFrameCounter % 2000) == 1))) {
+	if (useBindDeps && g_bindDepsVerify) {
 		bindDepsForceFull = 1;
 		applyVisibilityTree();
 		if (UID_OptEnabled(UID_OPT_BIND_CULL)) {

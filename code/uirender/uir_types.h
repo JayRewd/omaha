@@ -70,7 +70,9 @@ typedef enum {
 	UIR_PHASE_WORLD,
 	UIR_PHASE_CHROME,
 	UIR_PHASE_PREVIEWS,
-	UIR_PHASE_OVERLAY
+	UIR_PHASE_OVERLAY,
+	/* Added in Omaha: chrome-target="overlay" docs; runs after CHROME, before PREVIEWS. */
+	UIR_PHASE_OVERLAY_CHROME
 } uir_frame_phase_t;
 
 typedef struct {

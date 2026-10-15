@@ -343,6 +343,7 @@ void UID_ClearDocument(uid_document_t *doc)
 	doc->menuId.clear();
 	doc->drawOrder = 0;
 	doc->menuBackdrop = UID_MENU_BACKDROP_NONE;
+	doc->chromeInOverlay = false;
 	doc->pointerExpr.clear();
 	UID_DefaultLimits(&doc->limits);
 	doc->definitions.defaults.Clear();

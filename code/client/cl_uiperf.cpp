@@ -394,25 +394,34 @@ void CL_UIPerf_Dump(void)
 	Com_sprintf(
 		line,
 		sizeof(line),
-		"UIPERF dump: frames=%d frame=%.0fus render=%.0fus ui=%.0fus sync=%.0fus "
-		"bind=%.0fus layout=%.0fus paint=%.0fus cg2d=%.0fus replay=%.0f%% "
-		"draws=%d scissor=%d fbo=%d gets=%d set2d=%d issue=%d\n",
+		"UIPERF dump: frames=%d frame=%.0fus render=%.0fus ui=%.0fus sync=%.0fus hudcvar=%.0fus "
+		"bind=%.0fus layout=%.0fus paint=%.0fus overlay=%.0fus cg2d=%.0fus replay=%.0f%% "
+		"regDirty=%d/%d draws=%d scissor=%d fbo=%d gets=%d set2d=%d issue=%d "
+		"tgt=%d resolvePx=%d gpuUi=%.0fus gpuResolve=%.0fus\n",
 		w->frames,
 		w->frameUs,
 		w->renderUs,
 		w->uiTotalUs,
 		w->syncUs,
+		w->hudCvarUs,
 		w->bindUs,
 		w->layoutUs,
 		w->paintUs,
+		w->overlayUs,
 		w->cg2dUs,
 		w->replayHitPct,
+		w->regionDirty,
+		w->regionTotal,
 		w->gl.drawElements,
 		w->gl.scissorCalls,
 		w->gl.fboBinds,
 		w->gl.glQueries,
 		w->gl.set2DWindow,
-		w->gl.issuePending
+		w->gl.issuePending,
+		w->gl.targetBegins,
+		w->gl.resolvePixels,
+		w->gl.gpuSamplesValid ? (double)w->gl.gpuUiNs / 1000.0 : -1.0,
+		w->gl.gpuSamplesValid ? (double)w->gl.gpuResolveNs / 1000.0 : -1.0
 	);
 	Com_Printf("%s", line);
 

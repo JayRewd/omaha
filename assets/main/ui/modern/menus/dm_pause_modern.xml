@@ -3,8 +3,9 @@
 		Added in Omaha: modern HUD MP pause shell — main-menu styling, no retail art/models.
 		Panel router: ui_om_pause_panel (root | team | weapon | vote_*).
 		Added in Omaha: practice | practice_nodes (scenario editor, lib/practice_editor.xml).
+		Fixed in Omaha: chrome-target=overlay — keep HUD sole retain owner (same as demo_overlay).
 	-->
-	<definitions menu-id="dm_pause_modern" draw-order="7">
+	<definitions menu-id="dm_pause_modern" draw-order="7" chrome-target="overlay">
 		<import src="ui/modern/lib/theme.xml"/>
 		<import src="ui/modern/lib/shapes.xml"/>
 		<import src="ui/modern/lib/controls.xml"/>

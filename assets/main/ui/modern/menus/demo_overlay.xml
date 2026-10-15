@@ -2,13 +2,14 @@
 	<!--
 	  Added in Omaha: demo playback overlay (cl_demoplayback). Opened by the host while a
 	  demo plays and ui_om_demo_overlay is 1 (bind: demooverlay). Draw order 4 paints with
-	  the HUD; the canvas pointer keeps keys with the game.
+	  the HUD; the canvas pointer keeps keys with the game. chrome-target="overlay" paints
+	  it after HUD chrome in the overlay phase so the HUD keeps its retained target.
 
 	  The scrubber is a fixed 960px track so handle / dot offsets can be computed in px:
 	  translate-x = value * 960 - half handle width. drag-x maps the pointer over the
 	  parent's content box, which is the same 960px track.
 	-->
-	<definitions menu-id="demo_overlay" draw-order="4">
+	<definitions menu-id="demo_overlay" draw-order="4" chrome-target="overlay">
 		<import src="ui/modern/lib/theme.xml"/>
 		<import src="ui/modern/lib/shapes.xml"/>
 		<import src="ui/modern/lib/controls.xml"/>
@@ -28,9 +29,12 @@
 
 				<!-- Time / status row -->
 				<container type="horizontal" width="960px" height="24px" gap="6px" valign="center">
-					<label font="control" font-size="{var.text-control}" color="{var.color-white}" bind="cvar:ui_om_demo_time">0:00</label>
+					<!-- Fixed boxes: the time ticks every second and must not re-measure the row -->
+					<label width="64px" height="24px" halign="end" valign="center" font="control" font-size="{var.text-control}"
+					       color="{var.color-white}" bind="cvar:ui_om_demo_time">0:00</label>
 					<label font="control" font-size="{var.text-control}" color="{var.color-muted}">/</label>
-					<label font="control" font-size="{var.text-control}" color="{var.color-muted}" bind="cvar:ui_om_demo_length">0:00</label>
+					<label width="64px" height="24px" valign="center" font="control" font-size="{var.text-control}"
+					       color="{var.color-muted}" bind="cvar:ui_om_demo_length">0:00</label>
 					<container width="fill" height="1px"/>
 					<label font="control" font-size="{var.text-body}" color="{var.color-accent-hover}" letter-spacing="1px"
 					       visible="{cvar.ui_om_demo_seeking == 1 and cvar.ui_om_demo_exporting == 0}">SEEKING...</label>

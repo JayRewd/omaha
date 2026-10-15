@@ -537,10 +537,13 @@ void Set2DWindow(int x, int y, int w, int h, float left, float right, float bott
 	/* Added in Omaha: ui_perf_hud counter. */
 	tr_uiStats.set2DWindow++;
 	R_IssuePendingRenderCommands();
-	RE_UI2DTargetRebind();
-	if (RE_UI2DTargetIsActive()) {
-		/* Added in Omaha: Phase 2 — host/legacy FBO draws force full resolve. */
-		RE_UI2D_MarkFullResolve();
+	/* Changed in Omaha: window setup alone must not force the lazy UI FBO bind. */
+	if (!RE_UI2D_BindPending()) {
+		RE_UI2DTargetRebind();
+		if (RE_UI2DTargetIsActive()) {
+			/* Added in Omaha: Phase 2 — host/legacy FBO draws force full resolve. */
+			RE_UI2D_MarkFullResolve();
+		}
 	}
 	qglViewport(x, y, w, h);
 	/* Changed in Omaha: route through tracked scissor wrapper. */

@@ -69,6 +69,7 @@ Menus that participate in the layered dispatcher declare metadata on `<definitio
 | `menu-id` | yes | unique string | Console id for `ui_open menu <id>` |
 | `draw-order` | yes | `0`–`9` | Paint/input layer (`0` = back, `9` = top) |
 | `backdrop` | no | `none` (default), `menu-map` | Whether this menu drives the 3D menu-world backdrop |
+| `chrome-target` | no | `chrome` (default), `overlay` | `overlay` paints this menu's chrome in the compositor OVERLAY_CHROME layer (after retained chrome, before model previews), so a menu stacked on the HUD (e.g. `demo_overlay`, `dm_pause`, in-game `main`) does not disable HUD retention; `<model>` previews still work |
 
 - `<ui-library>` import files are **not** registerable (no `menu-id`).
 - Draw-order `≥ 5` is treated as interactive (captures input when open).
