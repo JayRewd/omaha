@@ -3441,9 +3441,16 @@ FS_Shutdown
 Frees all resources.
 ================
 */
+void ( *fs_shutdownHook )( void ); // Added in Omaha
+
 void FS_Shutdown( qboolean closemfp ) {
 	searchpath_t	*p, *next;
 	int	i;
+
+	/* Added in Omaha: let threads reading open handles stop first */
+	if ( fs_shutdownHook ) {
+		fs_shutdownHook();
+	}
 
 	for(i = 0; i < MAX_FILE_HANDLES; i++) {
 		if (fsh[i].fileSize) {

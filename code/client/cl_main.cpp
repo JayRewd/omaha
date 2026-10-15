@@ -2809,7 +2809,7 @@ void CL_Frame ( int msec ) {
 			static float s_aviFrameTimeAccum;
 
 			CL_TakeVideoFrame( );
-			S_OPENAL_AviCaptureFrame( cl_aviFrameRate->integer );
+			S_Capture_Frame( cl_aviFrameRate->integer );
 
 			s_aviFrameTimeAccum += (1000.0f / cl_aviFrameRate->value) * com_timescale->value;
 			msec = (int)s_aviFrameTimeAccum;

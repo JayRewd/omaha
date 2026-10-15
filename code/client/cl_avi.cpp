@@ -471,11 +471,11 @@ static qboolean CL_AVI_OpenH264ForWriting( const char *qpath )
 	afd.cBuffer = ( byte * )Z_Malloc( afd.width * afd.height * 4 );
 	afd.eBuffer = ( byte * )Z_Malloc( afd.width * afd.height * 4 );
 
-	sampleRate = S_OPENAL_AviSampleRate();
+	sampleRate = S_Capture_SampleRate();
 	if ( sampleRate <= 0 ) {
 		sampleRate = 44100;
 	}
-	if ( !S_OPENAL_AviLoopbackActive() || !Cvar_VariableIntegerValue( "s_initsound" ) ) {
+	if ( !S_Capture_Active() || !Cvar_VariableIntegerValue( "s_initsound" ) ) {
 		sampleRate = 0;
 	}
 
@@ -515,8 +515,8 @@ qboolean CL_AVI_BeginDemoExport( const char *demoFile )
 	if ( CL_UIMenu_IsOpen( "demo_overlay" ) ) {
 		CL_UIMenu_Close( "demo_overlay" );
 	}
-	if ( !S_OPENAL_BeginAviLoopback() ) {
-		Com_Printf( S_COLOR_YELLOW "Demo export: OpenAL loopback unavailable, writing video only.\n" );
+	if ( !S_Capture_Begin() ) {
+		Com_Printf( S_COLOR_YELLOW "Demo export: audio capture unavailable, writing video only.\n" );
 	}
 	CL_UIVar_Set( "ui_om_demo_phase", CL_VideoEnc_Available() ? "EXPORTING MP4..." : "EXPORTING AVI..." );
 	return qtrue;
@@ -564,7 +564,7 @@ void CL_AVI_TryStartIfNeeded( void )
 		CL_UIVar_Set( "ui_om_demo_phase", "EXPORT FAILED" );
 		cls.aviDemoExport = qfalse;
 		cls.aviDemoPath[0] = '\0';
-		S_OPENAL_EndAviLoopback();
+		S_Capture_End();
 		CL_AVI_EndExportBoost();
 	}
 }
@@ -585,7 +585,7 @@ void CL_AVI_FinishDemoExport( void )
 		}
 		CL_CloseAVI();
 	}
-	S_OPENAL_EndAviLoopback();
+	S_Capture_End();
 	CL_AVI_EndExportBoost();
 	if ( wrote[0] ) {
 		char status[ 128 ];
@@ -653,8 +653,8 @@ qboolean CL_OpenAVIForWriting( const char *fileName )
   afd.cBuffer = ( byte * )Z_Malloc( afd.width * afd.height * 4 );
   afd.eBuffer = ( byte * )Z_Malloc( afd.width * afd.height * 4 );
 
-  /* Changed in Omaha: FAKK OpenAL has no DMA mixer; loopback supplies PCM. */
-  sampleRate = S_OPENAL_AviSampleRate();
+  /* Changed in Omaha: the active sound renderer supplies PCM in pull mode. */
+  sampleRate = S_Capture_SampleRate();
   if( sampleRate <= 0 )
     sampleRate = 44100;
   afd.a.rate = sampleRate;
@@ -678,14 +678,14 @@ qboolean CL_OpenAVIForWriting( const char *fileName )
   {
     afd.audio = qfalse;
   }
-  else if( S_OPENAL_AviLoopbackActive() )
+  else if( S_Capture_Active() )
   {
     afd.audio = qtrue;
   }
   else
   {
     afd.audio = qfalse;
-    Com_Printf( S_COLOR_YELLOW "WARNING: AVI audio needs OpenAL Soft loopback.\n" );
+    Com_Printf( S_COLOR_YELLOW "WARNING: AVI audio capture unavailable.\n" );
   }
 
   // This doesn't write a real header, but allocates the

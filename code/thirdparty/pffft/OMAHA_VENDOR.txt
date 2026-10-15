@@ -1,0 +1,7 @@
+PFFFT (pretty fast FFT), BSD-like FFTPACK license, see LICENSE.txt.
+Upstream: https://github.com/marton78/pffft
+Commit:   aa16fd3db58de4ba5dae8b0438440bb9da46b6fa
+
+Vendored for Project: Omaha headphone HRTF convolution (code/client/snd_hrtf_omaha.cpp).
+Only the single-precision core is kept: pffft.c, pffft_common.c, pffft_priv_impl.h,
+pffft.h and the float SIMD headers. Built by cmake/libraries/pffft.cmake (client only).

@@ -1,0 +1,8 @@
+libmysofa (SOFA HRTF reader), BSD-3-Clause, see LICENSE.
+Upstream: https://github.com/hoene/libmysofa
+Commit:   648eed03472e6720a1ea45d1a1f86c4efb569ff9 (1.3.5)
+
+Vendored for Project: Omaha headphone HRTF (code/client/snd_hrtf_omaha.cpp).
+Only src/hdf, src/hrtf and src/resampler are kept (no tests, apps or share data).
+src/config.h and src/hrtf/mysofa_export.h are hand-written replacements for the
+CMake-generated files. Built by cmake/libraries/mysofa.cmake (client only).

@@ -193,10 +193,6 @@ extern sfx_t      s_knownSfx[];
 extern int        s_numSfx;
 extern s_entity_t s_entity[];
 
-// The current sound driver.
-// Currently OPENAL
-#define SOUND_DRIVER OPENAL
-
 //
 // snd_info.cpp
 //
@@ -223,22 +219,22 @@ qboolean S_LoadSound(const char *fileName, sfx_t *sfx, int streamed, qboolean fo
 //
 // Driver-specific functions
 //
-#define S_Call_SndDriver(driver, func)  S_##driver##_##func
-#define S_Call_SndDriverX(driver, func) S_Call_SndDriver(driver, func)
+// Changed in Omaha: the driver is the sound host selected at S_Init (snd_host.h)
+#include "snd_host.h"
 
-#define S_Driver_Init                   S_Call_SndDriverX(SOUND_DRIVER, Init)
-#define S_Driver_Shutdown               S_Call_SndDriverX(SOUND_DRIVER, Shutdown)
-#define S_Driver_StartSound             S_Call_SndDriverX(SOUND_DRIVER, StartSound)
-#define S_Driver_AddLoopingSound        S_Call_SndDriverX(SOUND_DRIVER, AddLoopingSound)
-#define S_Driver_ClearLoopingSounds     S_Call_SndDriverX(SOUND_DRIVER, ClearLoopingSounds)
-#define S_Driver_StopSound              S_Call_SndDriverX(SOUND_DRIVER, StopSound)
-#define S_Driver_StopAllSounds          S_Call_SndDriverX(SOUND_DRIVER, StopAllSounds)
-#define S_Driver_Respatialize           S_Call_SndDriverX(SOUND_DRIVER, Respatialize)
-#define S_Driver_SetReverb              S_Call_SndDriverX(SOUND_DRIVER, SetReverb)
-#define S_Driver_Update                 S_Call_SndDriverX(SOUND_DRIVER, Update)
-#define S_Driver_GetMusicFilename       S_Call_SndDriverX(SOUND_DRIVER, GetMusicFilename)
-#define S_Driver_GetMusicLoopCount      S_Call_SndDriverX(SOUND_DRIVER, GetMusicLoopCount)
-#define S_Driver_GetMusicOffset         S_Call_SndDriverX(SOUND_DRIVER, GetMusicOffset)
+#define S_Driver_Init                   S_Host_Init
+#define S_Driver_Shutdown               s_sndHost->Shutdown
+#define S_Driver_StartSound             s_sndHost->StartSound
+#define S_Driver_AddLoopingSound        s_sndHost->AddLoopingSound
+#define S_Driver_ClearLoopingSounds     s_sndHost->ClearLoopingSounds
+#define S_Driver_StopSound              s_sndHost->StopSound
+#define S_Driver_StopAllSounds          s_sndHost->StopAllSounds
+#define S_Driver_Respatialize           s_sndHost->Respatialize
+#define S_Driver_SetReverb              s_sndHost->SetReverb
+#define S_Driver_Update                 s_sndHost->Update
+#define S_Driver_GetMusicFilename       s_sndHost->GetMusicFilename
+#define S_Driver_GetMusicLoopCount      s_sndHost->GetMusicLoopCount
+#define S_Driver_GetMusicOffset         s_sndHost->GetMusicOffset
 
 void S_PrintInfo();
 void S_DumpInfo();

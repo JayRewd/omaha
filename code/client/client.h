@@ -799,6 +799,13 @@ void S_OPENAL_AviCaptureFrame( int aviFps );
 qboolean S_OPENAL_AviLoopbackActive( void );
 int S_OPENAL_AviSampleRate( void );
 
+/* Added in Omaha: capture through the active sound host (snd_host.cpp). */
+qboolean S_Capture_Begin( void );
+void     S_Capture_End( void );
+void     S_Capture_Frame( int aviFps );
+qboolean S_Capture_Active( void );
+int      S_Capture_SampleRate( void );
+
 //
 // cl_consolecmds.cpp
 //

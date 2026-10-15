@@ -30,6 +30,11 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include "../server/server.h"
 
+#ifdef USE_OMAHA_SOUND
+// Added in Omaha: Omaha sound host debug overlays (omaha/snd_omaha_overlay.cpp)
+void S_OMAHA_DrawOverlays(void);
+#endif
+
 CLASS_DECLARATION(UIWidget, View3D, NULL) {
     {&W_Activated,     &View3D::OnActivate  },
     {&W_Deactivated,   &View3D::OnDeactivate},
@@ -748,6 +753,10 @@ void View3D::Draw2D(void)
 			}
 		}
 
+#ifdef USE_OMAHA_SOUND
+		S_OMAHA_DrawOverlays();
+#endif
+
 		if ((fps->integer || CL_UIPerf_HudInteger()) && !cls.no_menus) {
 			if (fps->integer) {
 				DrawFPS();
@@ -779,6 +788,10 @@ void View3D::Draw2D(void)
 			DrawSubtitleOverlay();
 		}
 	}
+
+#ifdef USE_OMAHA_SOUND
+	S_OMAHA_DrawOverlays();
+#endif
 
 	if ((fps->integer || CL_UIPerf_HudInteger()) && !cls.no_menus) {
 		if (fps->integer) {

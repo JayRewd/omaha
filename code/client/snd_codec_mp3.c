@@ -492,12 +492,19 @@ int S_MP3_Decode(snd_stream_t* stream)
         if (samplecount < pcm->length)
         {
             // The pcm buffer was not large enough. Make it bigger.
-            byte* newbuf = Z_Malloc(cursize);
+            // Changed in Omaha: libc heap — streams may decode on the async sound worker,
+            // and the zone allocator is not thread-safe.
+            byte* newbuf = (byte*)malloc(cursize);
+
+            if (!newbuf)
+            {
+                return -1;
+            }
 
             if (mp3info->pcmbuf)
             {
                 memcpy(newbuf, mp3info->pcmbuf, mp3info->buflen);
-                Z_Free(mp3info->pcmbuf);
+                free(mp3info->pcmbuf);
             }
 
             mp3info->pcmbuf = newbuf;
@@ -594,7 +601,7 @@ void S_MP3_CodecCloseStream(snd_stream_t* stream)
         mp3info = stream->ptr;
 
         if (mp3info->pcmbuf)
-            Z_Free(mp3info->pcmbuf);
+            free(mp3info->pcmbuf); // Changed in Omaha: matches malloc in S_MP3_Decode
 
         mad_synth_finish(&mp3info->madsynth);
         mad_frame_finish(&mp3info->madframe);
