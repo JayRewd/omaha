@@ -1168,6 +1168,141 @@ void RB_Light_Fullbright(unsigned char *colors)
     }
 }
 
+/*
+==============
+RB_BakeSkelVertexColors
+
+Added in Omaha: light only [firstVert, firstVert+numVerts) into tess.vertexColors
+while verts are still entity-local (before world-space skel batching). Enables
+merging same-shader skel drawsurfs across entities without re-lighting the whole tess.
+==============
+*/
+void RB_BakeSkelVertexColors(int firstVert, int numVerts)
+{
+    int              i, j;
+    unsigned char   *color;
+    float           *normal;
+    float           *xyz;
+    vec3_t           v;
+    vec3_t           colorout;
+    float            fDot;
+    reallightinfo_t *pLight;
+    sphereor_t      *sp = backEnd.currentSphere;
+
+    if (numVerts <= 0 || firstVert < 0 || firstVert + numVerts > tess.numVertexes) {
+        return;
+    }
+
+    color = (unsigned char *)tess.vertexColors[firstVert];
+
+    if (!sp || !sp->TessFunction || sp->TessFunction == &RB_Light_Fullbright) {
+        for (i = 0; i < numVerts; i++, color += 4) {
+            color[0] = color[1] = color[2] = color[3] = 0xFF;
+        }
+        tess.vertexColorValid = qtrue;
+        return;
+    }
+
+    if (sp->TessFunction == &RB_CalcLightGridColor) {
+        byte *g;
+        if (backEnd.currentEntity && backEnd.currentEntity != &tr.worldEntity) {
+            g = (byte *)&backEnd.currentEntity->iGridLighting;
+        } else {
+            static byte s_white[4] = {0xFF, 0xFF, 0xFF, 0xFF};
+            g                     = s_white;
+        }
+        for (i = 0; i < numVerts; i++, color += 4) {
+            color[0] = g[0];
+            color[1] = g[1];
+            color[2] = g[2];
+            color[3] = g[3];
+        }
+        tess.vertexColorValid = qtrue;
+        return;
+    }
+
+    if (!sp->numRealLights) {
+        for (i = 0; i < numVerts; i++, color += 4) {
+            color[0] = sp->ambient.level[0];
+            color[1] = sp->ambient.level[1];
+            color[2] = sp->ambient.level[2];
+            color[3] = sp->ambient.level[3];
+        }
+        tess.vertexColorValid = qtrue;
+        return;
+    }
+
+    /* Cubemap path: fall back to full TessFunction into svars then copy range. */
+    if (sp->bUsesCubeMap) {
+        sp->TessFunction((unsigned char *)tess.svars.colors);
+        Com_Memcpy(tess.vertexColors[firstVert], tess.svars.colors[firstVert], (size_t)numVerts * 4);
+        tess.vertexColorValid = qtrue;
+        return;
+    }
+
+    normal = (float *)tess.normal[firstVert];
+    xyz    = (float *)tess.xyz[firstVert];
+
+    for (i = 0; i < numVerts; i++, xyz += 4, normal += 4, color += 4) {
+        colorout[0] = colorout[1] = colorout[2] = 0;
+
+        for (j = 0; j < sp->numRealLights; j++) {
+            float fDistSquared;
+            float fProjSquared;
+            float fMaxIntensity;
+
+            pLight = &sp->light[j];
+            switch (pLight->eType) {
+            case LIGHT_DIRECTIONAL:
+                fDot = DotProduct(pLight->vDirection, normal);
+                if (fDot > 0) {
+                    VectorMA(colorout, fDot, pLight->color, colorout);
+                }
+                break;
+            case LIGHT_SPOT:
+                fDot = DotProduct(pLight->vDirection, normal);
+                if (fDot > 0) {
+                    VectorSubtract(pLight->vOrigin, xyz, v);
+                    fProjSquared  = Square(DotProduct(v, pLight->vDirection));
+                    fDistSquared  = VectorLengthSquared(v);
+                    fMaxIntensity = (pLight->fSpotConst - fDistSquared / fProjSquared) * pLight->fSpotScale;
+                    if (fMaxIntensity > 0) {
+                        fDot /= fDistSquared;
+                        if (fMaxIntensity < 1) {
+                            fDot *= fMaxIntensity;
+                        }
+                        VectorMA(colorout, fDot, pLight->color, colorout);
+                    }
+                }
+                break;
+            case LIGHT_SPOT_FAST:
+                fDot = DotProduct(pLight->vDirection, normal);
+                if (fDot > 0) {
+                    VectorSubtract(pLight->vOrigin, xyz, v);
+                    fDistSquared = VectorLengthSquared(v);
+                    VectorMA(colorout, fDot / fDistSquared, pLight->color, colorout);
+                }
+                break;
+            case LIGHT_POINT:
+                VectorSubtract(pLight->vOrigin, xyz, v);
+                fDot = DotProduct(v, normal);
+                if (fDot > 0) {
+                    fDistSquared = VectorLengthSquared(v);
+                    VectorMA(colorout, fDot / fDistSquared, pLight->color, colorout);
+                }
+                break;
+            }
+        }
+
+        color[0] = Q_clamp_int((int)colorout[0] + sp->ambient.level[0], 0, 255);
+        color[1] = Q_clamp_int((int)colorout[1] + sp->ambient.level[1], 0, 255);
+        color[2] = Q_clamp_int((int)colorout[2] + sp->ambient.level[2], 0, 255);
+        color[3] = 0xff;
+    }
+
+    tess.vertexColorValid = qtrue;
+}
+
 void R_Sphere_InitLights()
 {
     const char *ents;

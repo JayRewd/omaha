@@ -191,6 +191,10 @@ typedef struct {
 	float		lodpercentage[2];
 	qboolean	sphereCalculated;
 	int			lightingSphere;
+	// Added in Omaha: bumps when the skeleton is re-evaluated (0 = not cacheable)
+	unsigned int	poseSerial;
+	// Added in Omaha: skin cache key for ENTITYNUM_NONE ents sharing a pose (0 = per-entity key)
+	int			poseShareKey;
 
 	//
 	// old lighting variables
@@ -568,6 +572,9 @@ typedef struct shader_s {
 	int			contentFlags;
 
 	qboolean	entityMergable;			// merge across entites optimizable (smoke, blood)
+	int			worldBatchCache;		// Added in Omaha: RB_ShaderAllowsWorldBatch memo (0 unknown, 1 no, 2 yes)
+	int			worldVboCache;			// Added in Omaha: RB_ShaderAllowsWorldVbo memo (0 unknown, 1 no, 2 yes)
+	int			skelWorldBatchCache;	// Added in Omaha: RB_ShaderAllowsSkelWorldBatch memo (0 unknown, 1 no, 2 yes, 3 yes with per-vertex entity alpha)
 
 	qboolean	isSky;
 	skyParms_t	sky;
@@ -847,6 +854,10 @@ typedef struct srfGridMesh_s {
 typedef struct {
 	surfaceType_t	surfaceType;
 	cplane_t	plane;
+	// Added in Omaha
+	//  Bounding sphere for per-face frustum culling
+	vec3_t		cullOrigin;
+	float		cullRadius;
 
 	// dynamic lighting information
     int			dlightBits[SMP_FRAMES];
@@ -860,6 +871,19 @@ typedef struct {
     vec3_t		lmOrigin;
     vec3_t		lmVecs[2];
     vec3_t		lmInverseVecs[2];
+	// Added in Omaha: points[][5..6] are atlas UVs; page UV = (uv - lmAtlasOfs) * lmAtlasInv
+	float		lmAtlasOfs[2];
+	float		lmAtlasInv[2];
+	// Added in Omaha: where this face's lightmap block sits in tr.lightmaps[lmTexIndex]
+	// (r_dlightInPlace); lmTexIndex -1 = can't be lit in place (shared / no lightmap)
+	int			lmTexIndex;
+	int			lmTexX, lmTexY;
+	unsigned int	lmInPlaceSerial;	// texel-cache serial now in the texture (0 = unknown)
+	int			lmInPlaceScene;		// last scene that lit it in place
+	qboolean	lmInPlaceDirty;		// texture block differs from the static lightmap
+	// Added in Omaha: world faces copy points[] into a static VBO (vbo 0 = not resident)
+	unsigned int	vbo;
+	int			vboFirstVert;
 
 	// triangle definitions (no normals at points)
 	int			numPoints;
@@ -1300,6 +1324,12 @@ typedef struct {
 	trRefEntity_t entity2D;	// currentEntity will point at this when doing 2D rendering
     int backEndMsec;
     float shaderStartTime;
+	/* Added in Omaha: tess xyz in world space (static/skel entity-mergeable). */
+	qboolean worldSpaceBatch;
+	/* Added in Omaha: world modelview is loaded for the current skel entity. */
+	qboolean skelWorldSpace;
+	/* Added in Omaha: tess holds world-space skel verts with grid light in vertexColors. */
+	qboolean skelWorldBatch;
 } backEndState_t;
 
 /*
@@ -1541,6 +1571,15 @@ extern	cvar_t	*r_offsetUnits;
 extern	cvar_t	*r_fullbright;					// avoid lightmap pass
 extern	cvar_t	*r_lightmap;					// render lightmaps only
 extern	cvar_t	*r_vertexLight;					// vertex lighting mode for better performance
+extern	cvar_t	*r_lightmapAtlas;				// Added in Omaha: pack brush-face lightmap pages into atlases
+extern	cvar_t	*r_skelPoseCache;				// Added in Omaha: reuse skeleton + skin when pose inputs repeat
+extern	cvar_t	*r_skelPoseShare;				// Added in Omaha: share pose + skin across identical ENTITYNUM_NONE skels
+extern	cvar_t	*r_skelEntityMerge;				// Added in Omaha: batch tempmodel skels across entities in world space
+extern	cvar_t	*r_worldSurfCache;				// Added in Omaha: replay the world leaf walk when the view repeats
+extern	cvar_t	*r_worldLeafGroups;			// Added in Omaha: pre-cull PVS leaves in bounding groups (exact)
+extern	cvar_t	*r_dlightCache;				// Added in Omaha: reuse dlit face texels / skip unchanged dlight uploads (exact)
+extern	cvar_t	*r_dlightInPlace;			// Added in Omaha: dlight faces inside their own lightmap (no batch split)
+extern	cvar_t	*r_vboWorld;					// Added in Omaha: draw VBO-safe world faces from a static VBO
 
 extern	cvar_t	*r_logFile;						// number of frames to emit GL logs
 extern	cvar_t	*r_showtris;					// enables wireframe rendering of the world
@@ -2031,9 +2070,28 @@ typedef struct shaderCommands_s
 	shaderStage_t	**xstages;
     qboolean no_global_fog;
     qboolean vertexColorValid;
+
+	// Added in Omaha: indexes address the world VBO directly; numVertexes stays 0
+	qboolean	vboMode;
+	unsigned int	vboId;
+	int			vboMinVert;
+	int			vboMaxVert;
 } shaderCommands_t;
 
 extern	shaderCommands_t	tess;
+
+void RB_LeaveWorldVbo(void);
+
+/*
+ * Added in Omaha: only faces can join a world-VBO batch, so any other surface
+ * type flushes it first.
+ */
+static ID_INLINE void RB_TessSurface(surfaceType_t *surface) {
+	if (tess.vboMode && *surface != SF_FACE) {
+		RB_LeaveWorldVbo();
+	}
+	rb_surfaceTable[*surface](surface);
+}
 
 void RB_BeginSurface(shader_t *shader );
 void RB_EndSurface(void);
@@ -2107,6 +2165,16 @@ int R_RealDlightFace(srfSurfaceFace_t* srf, int dlightBits);
 int R_RealDlightTerrain(cTerraPatchUnpacked_t* srf, int dlightBits);
 void R_TransformDlights( int count, dlight_t *dl, orientationr_t *ori );
 void RB_Light_Real(unsigned char* colors);
+/* Added in Omaha: bake sphere/grid light into tess.vertexColors[first..first+num). */
+void RB_BakeSkelVertexColors(int firstVert, int numVerts);
+/* Added in Omaha: world-space entity merge is unsafe for dist-fade / alpha foliage. */
+qboolean RB_ShaderAllowsWorldBatch(const shader_t *shader);
+qboolean RB_ShaderAllowsWorldVbo(const shader_t *shader);
+/* Added in Omaha: tempmodel skels drawn in world space so the backend can merge them. */
+qboolean RB_ShaderAllowsSkelWorldBatch(const shader_t *shader);
+qboolean RB_SkelEntityWantsWorldBatch(const trRefEntity_t *ent, const shader_t *shader, int dlightMap);
+void RB_StageIteratorWorldVbo(void);
+void R_FreeWorldVbos(void);
 void RB_Sphere_BuildDLights();
 void RB_Sphere_SetupEntity();
 void RB_Grid_SetupEntity();
@@ -2116,6 +2184,9 @@ void R_Sphere_InitLights();
 int R_GatherLightSources(const vec3_t vPos, vec3_t* pvLightPos, vec3_t* pvLightIntensity, int iMaxLights);
 void R_ClearRealDlights();
 void R_UploadDlights();
+void R_FlushDlightCache(); // Added in Omaha
+void R_RestoreInPlaceDlights(qboolean all); // Added in Omaha
+void R_ColorShiftLightingBytes(byte in[3], byte out[3]);
 
 int R_LightForPoint(vec3_t point, vec3_t ambientLight, vec3_t directedLight, vec3_t lightDir);
 
@@ -2339,12 +2410,23 @@ void R_GetFrame(refEntity_t* model, struct skelAnimFrame_s* newFrame);
 void RE_ForceUpdatePose(refEntity_t* model);
 void RE_SetFrameNumber(int frameNumber);
 void R_UpdatePoseInternal(refEntity_t* model);
-void RB_SkelMesh(skelSurfaceGame_t* sf);
+/* Added in Omaha: drawsurf wrapper carries meshNum so RB_SkelMesh skips the surface search */
+typedef struct skelDrawSurface_s {
+	int                ident;
+	int                meshNum;
+	skelSurfaceGame_t *surface;
+} skelDrawSurface_t;
+void RB_SkelMesh(skelDrawSurface_t* sf);
 void RB_StaticMesh(staticSurface_t* staticSurf);
-void RB_Static_BuildDLights();
+void RB_Static_BuildDLights(cStaticModelUnpacked_t *sm);
 void R_InfoStaticModels_f(void);
 void R_PrintInfoStaticModels();
 void R_AddSkelSurfaces(trRefEntity_t* ent);
+// Added in Omaha: skeleton pose / skin caches (free on map load and shutdown)
+void R_SkelPoseCacheClear(void);
+void RB_SkelSkinCacheClear(void);
+// Added in Omaha: world leaf-walk replay (msurface_t / mnode_t pointers die with the map)
+void R_WorldSurfCacheClear(void);
 void R_AddStaticModelSurfaces(void);
 void R_CountTikiLodTris(dtiki_t* tiki, float lodpercentage, int* render_tris, int* total_tris);
 float R_CalcLod(const vec3_t origin, float radius);

@@ -35,7 +35,32 @@ qboolean   g_bInfoworldtris = qfalse;
 static int entityNumIndexes[MAX_ENTITIES];
 static int staticModelNumIndexes[4095];
 
+/* Added in Omaha: per-view pool of skel drawsurfs with mesh index */
+#define MAX_SKEL_DRAW_SURFS 4096
+static skelDrawSurface_t s_skelDrawSurfs[MAX_SKEL_DRAW_SURFS];
+static int               s_numSkelDrawSurfs;
+static int               s_skelDrawViewCount;
+
 static int R_CullSkelModel(dtiki_t *tiki, refEntity_t *e, skelAnimFrame_t *newFrame, float fScale, float *vLocalOrg);
+
+static skelDrawSurface_t *R_AllocSkelDrawSurf(skelSurfaceGame_t *surface, int meshNum)
+{
+    skelDrawSurface_t *ds;
+
+    if (s_skelDrawViewCount != tr.viewCount) {
+        s_skelDrawViewCount = tr.viewCount;
+        s_numSkelDrawSurfs  = 0;
+    }
+    if (s_numSkelDrawSurfs >= MAX_SKEL_DRAW_SURFS) {
+        ri.Printf(PRINT_DEVELOPER, "R_AllocSkelDrawSurf: MAX_SKEL_DRAW_SURFS hit\n");
+        return NULL;
+    }
+    ds            = &s_skelDrawSurfs[s_numSkelDrawSurfs++];
+    ds->ident     = SF_TIKI_SKEL;
+    ds->meshNum   = meshNum;
+    ds->surface   = surface;
+    return ds;
+}
 
 /*
 ** R_GetModelByHandle
@@ -720,6 +745,138 @@ surfaceType_t skelSurface = SF_TIKI_SKEL;
 R_AddSkelSurfaces
 ==============
 */
+/*
+ * Added in Omaha: skeleton pose cache.
+ *
+ * GetFrameInternal output depends only on (tiki, frameInfo, bone controllers,
+ * actionWeight). At high fps consecutive frames often share one client ms, so the
+ * inputs repeat and the evaluation (and the BE skin, keyed by poseSerial) can be
+ * reused. Eye target and blink only feed morph weights, which are not cached.
+ */
+typedef struct {
+    dtiki_t         *tiki;
+    frameInfo_t      frameInfo[MAX_FRAMEINFOS];
+    int              boneTag[5];
+    vec4_t           boneQuat[5];
+    float            actionWeight;
+    qboolean         hasControllers;
+    int              numTags;
+    int              capacity;
+    unsigned int     serial;
+    skelAnimFrame_t *frame;
+} skelPoseCache_t;
+
+static skelPoseCache_t s_skelPoseCache[MAX_GENTITIES];
+static unsigned int    s_skelPoseSerial;
+
+static size_t R_SkelFrameSize(int numTags)
+{
+    return sizeof(skelAnimFrame_t) + numTags * sizeof(SkelMat4);
+}
+
+enum {
+    SKEL_POSE_MATCH,
+    SKEL_POSE_MISS_OTHER,
+    SKEL_POSE_MISS_FI,
+    SKEL_POSE_MISS_CTRL
+};
+
+static int R_SkelPoseKeyDiff(const skelPoseCache_t *pc, const refEntity_t *e, int numTags)
+{
+    const qboolean hasControllers = e->bone_tag && e->bone_quat;
+
+    if (!pc->frame || pc->tiki != e->tiki || pc->numTags != numTags || pc->hasControllers != hasControllers
+        || pc->actionWeight != e->actionWeight) {
+        return SKEL_POSE_MISS_OTHER;
+    }
+    if (memcmp(pc->frameInfo, e->frameInfo, sizeof(pc->frameInfo))) {
+        return SKEL_POSE_MISS_FI;
+    }
+    if (hasControllers
+        && (memcmp(pc->boneTag, e->bone_tag, sizeof(pc->boneTag))
+            || memcmp(pc->boneQuat, e->bone_quat, sizeof(pc->boneQuat)))) {
+        return SKEL_POSE_MISS_CTRL;
+    }
+    return SKEL_POSE_MATCH;
+}
+
+static qboolean R_SkelPoseKeyMatches(const skelPoseCache_t *pc, const refEntity_t *e, int numTags)
+{
+    const int diff = R_SkelPoseKeyDiff(pc, e, numTags);
+
+    return diff == SKEL_POSE_MATCH;
+}
+
+static void R_SkelPoseStore(skelPoseCache_t *pc, const refEntity_t *e, int numTags, const skelAnimFrame_t *frame)
+{
+    const size_t size = R_SkelFrameSize(numTags);
+
+    if (pc->capacity < numTags) {
+        if (pc->frame) {
+            ri.Free(pc->frame);
+        }
+        pc->frame    = (skelAnimFrame_t *)ri.Malloc(size);
+        pc->capacity = numTags;
+    }
+    memcpy(pc->frame, frame, size);
+    pc->tiki           = e->tiki;
+    pc->numTags        = numTags;
+    pc->actionWeight   = e->actionWeight;
+    pc->hasControllers = e->bone_tag && e->bone_quat;
+    memcpy(pc->frameInfo, e->frameInfo, sizeof(pc->frameInfo));
+    if (pc->hasControllers) {
+        memcpy(pc->boneTag, e->bone_tag, sizeof(pc->boneTag));
+        memcpy(pc->boneQuat, e->bone_quat, sizeof(pc->boneQuat));
+    }
+    if (++s_skelPoseSerial == 0) {
+        s_skelPoseSerial = 1;
+    }
+    pc->serial = s_skelPoseSerial;
+}
+
+/*
+ * Added in Omaha: shared pose pool for ENTITYNUM_NONE skels (tempmodels such as
+ * spent brass). They have no entity slot, but GetFrameInternal is still a pure
+ * function of the pose inputs, so identical shells evaluate the skeleton once and
+ * share one skin cache key (poseShareKey).
+ */
+#define SKEL_POSE_SHARE_SIZE 32
+
+static skelPoseCache_t s_skelPoseShare[SKEL_POSE_SHARE_SIZE];
+static int             s_skelPoseShareNext;
+
+static int R_SkelPoseShareFind(const refEntity_t *e, int numTags)
+{
+    int i;
+
+    for (i = 0; i < SKEL_POSE_SHARE_SIZE; i++) {
+        if (R_SkelPoseKeyDiff(&s_skelPoseShare[i], e, numTags) == SKEL_POSE_MATCH) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+void R_SkelPoseCacheClear(void)
+{
+    int i;
+
+    for (i = 0; i < MAX_GENTITIES; i++) {
+        if (s_skelPoseCache[i].frame) {
+            ri.Free(s_skelPoseCache[i].frame);
+        }
+    }
+    memset(s_skelPoseCache, 0, sizeof(s_skelPoseCache));
+    for (i = 0; i < SKEL_POSE_SHARE_SIZE; i++) {
+        if (s_skelPoseShare[i].frame) {
+            ri.Free(s_skelPoseShare[i].frame);
+        }
+    }
+    memset(s_skelPoseShare, 0, sizeof(s_skelPoseShare));
+    s_skelPoseShareNext = 0;
+    RB_SkelSkinCacheClear();
+}
+
 void R_AddSkelSurfaces(trRefEntity_t *ent)
 {
     dtiki_t         *tiki;
@@ -803,6 +960,12 @@ void R_AddSkelSurfaces(trRefEntity_t *ent)
             tr.pc.c_sphere_cull_md3_out++;
             break;
         }
+
+        // Added in Omaha
+        //  Skip skinning and submitting models outside the view frustum
+        if (iRadiusCull == CULL_OUT && !(ent->e.renderfx & RF_DEPTHHACK)) {
+            return;
+        }
     }
 
     if (tiki->a->bIsCharacter) {
@@ -819,10 +982,39 @@ void R_AddSkelSurfaces(trRefEntity_t *ent)
         }
     }
 
-    newFrame = (skelAnimFrame_t *)ri.Hunk_AllocateTempMemory(
-        sizeof(skelAnimFrame_t) + ri.TIKI_GetNumChannels(tiki) * sizeof(SkelMat4)
-    );
-    R_GetFrame(&ent->e, newFrame);
+    newFrame = (skelAnimFrame_t *)ri.Hunk_AllocateTempMemory(R_SkelFrameSize(num_tags));
+    ent->poseSerial   = 0;
+    ent->poseShareKey = 0;
+    if (r_skelPoseCache->integer && ent->e.entityNumber >= 0 && ent->e.entityNumber < ENTITYNUM_NONE) {
+        skelPoseCache_t *pc = &s_skelPoseCache[ent->e.entityNumber];
+
+        if (R_SkelPoseKeyMatches(pc, &ent->e, num_tags)) {
+            memcpy(newFrame, pc->frame, R_SkelFrameSize(num_tags));
+        } else {
+            R_GetFrame(&ent->e, newFrame);
+            R_SkelPoseStore(pc, &ent->e, num_tags, newFrame);
+        }
+        ent->poseSerial = pc->serial;
+    } else if (r_skelPoseCache->integer && r_skelPoseShare->integer && ent->e.entityNumber == ENTITYNUM_NONE) {
+        // Added in Omaha: anonymous skels share poses by content
+        int              slot = R_SkelPoseShareFind(&ent->e, num_tags);
+        skelPoseCache_t *pc;
+
+        if (slot >= 0) {
+            pc = &s_skelPoseShare[slot];
+            memcpy(newFrame, pc->frame, R_SkelFrameSize(num_tags));
+        } else {
+            slot                = s_skelPoseShareNext;
+            s_skelPoseShareNext = (s_skelPoseShareNext + 1) % SKEL_POSE_SHARE_SIZE;
+            pc                  = &s_skelPoseShare[slot];
+            R_GetFrame(&ent->e, newFrame);
+            R_SkelPoseStore(pc, &ent->e, num_tags, newFrame);
+        }
+        ent->poseSerial   = pc->serial;
+        ent->poseShareKey = slot + 1;
+    } else {
+        R_GetFrame(&ent->e, newFrame);
+    }
 
     if (lod_tool->integer || iRadiusCull != CULL_CLIP
         || R_CullSkelModel(tiki, &ent->e, newFrame, tiki_scale, tiki_localorigin) != CULL_OUT) {
@@ -868,9 +1060,25 @@ void R_AddSkelSurfaces(trRefEntity_t *ent)
     ent->e.morphstart = skeletorMorphCacheIndex;
 
     if (added) {
-        // found morphs
+        /*
+         * Changed in Omaha: GetMorphWeightFrame returns channel count even when
+         * every weight is zero. Only take the slow morph skin path when at least
+         * one morph is active this frame.
+         */
+        int       mi;
+        qboolean  anyMorph = qfalse;
+        const int *mw      = &skeletorMorphCache[skeletorMorphCacheIndex];
+
+        for (mi = 0; mi < added; mi++) {
+            if (mw[mi]) {
+                anyMorph = qtrue;
+                break;
+            }
+        }
         skeletorMorphCacheIndex += added;
-        ent->e.hasMorph = qtrue;
+        if (anyMorph) {
+            ent->e.hasMorph = qtrue;
+        }
     }
 
     //
@@ -907,8 +1115,7 @@ void R_AddSkelSurfaces(trRefEntity_t *ent)
                 continue;
             }
 
-            shader         = NULL;
-            surface->ident = SF_TIKI_SKEL;
+            shader = NULL;
 
             // use a custom shader if specified
             if (!(ent->e.customShader) || (ent->e.renderfx & RF_CUSTOMSHADERPASS)) {
@@ -923,19 +1130,33 @@ void R_AddSkelSurfaces(trRefEntity_t *ent)
             }
 
             if (!personalModel) {
+                skelDrawSurface_t *ds;
+
                 if ((*bsurf & 0x40) && (dsurf->numskins > 1)) {
                     int iShaderNum = ent->e.skinNum + (*bsurf & 2);
 
-                    R_AddDrawSurf((surfaceType_t *)surface, tr.shaders[dsurf->hShader[iShaderNum]], 0);
-                    R_AddDrawSurf((surfaceType_t *)surface, tr.shaders[dsurf->hShader[iShaderNum + 1]], 0);
+                    ds = R_AllocSkelDrawSurf(surface, mesh);
+                    if (ds) {
+                        R_AddDrawSurf((surfaceType_t *)ds, tr.shaders[dsurf->hShader[iShaderNum]], 0);
+                    }
+                    ds = R_AllocSkelDrawSurf(surface, mesh);
+                    if (ds) {
+                        R_AddDrawSurf((surfaceType_t *)ds, tr.shaders[dsurf->hShader[iShaderNum + 1]], 0);
+                    }
                 } else {
-                    R_AddDrawSurf((surfaceType_t *)surface, shader, 0);
+                    ds = R_AllocSkelDrawSurf(surface, mesh);
+                    if (ds) {
+                        R_AddDrawSurf((surfaceType_t *)ds, shader, 0);
+                    }
                 }
             }
 
             if ((ent->e.customShader) && (ent->e.renderfx & RF_CUSTOMSHADERPASS)) {
+                skelDrawSurface_t *ds = R_AllocSkelDrawSurf(surface, mesh);
                 shader = R_GetShaderByHandle(ent->e.customShader);
-                R_AddDrawSurf((surfaceType_t *)surface, shader, 0);
+                if (ds) {
+                    R_AddDrawSurf((surfaceType_t *)ds, shader, 0);
+                }
             }
         }
     }
@@ -993,6 +1214,124 @@ inline static void SkelWeightGetXyz(skelWeight_t *weight, skelBoneCache_t *bone,
             * weight->boneWeight;
 }
 
+/* Added in Omaha: single-weight skin writes scaled xyz directly (common path) */
+inline static void SkelWeight1GetXyzScaled(skelWeight_t *weight, skelBoneCache_t *bone, float scale, float *outXyz)
+{
+    const float ox = weight->offset[0];
+    const float oy = weight->offset[1];
+    const float oz = weight->offset[2];
+    /* Changed in Omaha: 1-weight verts almost always store boneWeight==1. */
+    const float w  = (weight->boneWeight == 1.0f) ? scale : (weight->boneWeight * scale);
+    outXyz[0] = (ox * bone->matrix[0][0] + oy * bone->matrix[1][0] + oz * bone->matrix[2][0] + bone->offset[0]) * w;
+    outXyz[1] = (ox * bone->matrix[0][1] + oy * bone->matrix[1][1] + oz * bone->matrix[2][1] + bone->offset[1]) * w;
+    outXyz[2] = (ox * bone->matrix[0][2] + oy * bone->matrix[1][2] + oz * bone->matrix[2][2] + bone->offset[2]) * w;
+}
+
+/*
+ * Added in Omaha: 1-weight xyz + normal share one bone matrix load (normals are
+ * nearly always required via needsLSpherical on character shaders).
+ */
+inline static void SkelWeight1GetXyzNormalScaled(
+    skeletorVertex_t *vert, skelWeight_t *weight, skelBoneCache_t *bone, float scale, float *outXyz, float *outNormal
+)
+{
+    const float ox = weight->offset[0];
+    const float oy = weight->offset[1];
+    const float oz = weight->offset[2];
+    const float nx = vert->normal[0];
+    const float ny = vert->normal[1];
+    const float nz = vert->normal[2];
+    const float w  = (weight->boneWeight == 1.0f) ? scale : (weight->boneWeight * scale);
+    const float m00 = bone->matrix[0][0], m01 = bone->matrix[0][1], m02 = bone->matrix[0][2];
+    const float m10 = bone->matrix[1][0], m11 = bone->matrix[1][1], m12 = bone->matrix[1][2];
+    const float m20 = bone->matrix[2][0], m21 = bone->matrix[2][1], m22 = bone->matrix[2][2];
+
+    outXyz[0] = (ox * m00 + oy * m10 + oz * m20 + bone->offset[0]) * w;
+    outXyz[1] = (ox * m01 + oy * m11 + oz * m21 + bone->offset[1]) * w;
+    outXyz[2] = (ox * m02 + oy * m12 + oz * m22 + bone->offset[2]) * w;
+    outNormal[0] = nx * m00 + ny * m10 + nz * m20;
+    outNormal[1] = nx * m01 + ny * m11 + nz * m21;
+    outNormal[2] = nx * m02 + ny * m12 + nz * m22;
+}
+
+/* Added in Omaha: dual-weight skin fused into scaled xyz (next most common path) */
+inline static void SkelWeight2GetXyzScaled(
+    skelWeight_t *w0, skelBoneCache_t *b0, skelWeight_t *w1, skelBoneCache_t *b1, float scale, float *outXyz
+)
+{
+    float x, y, z;
+
+    x = ((w0->offset[0] * b0->matrix[0][0] + w0->offset[1] * b0->matrix[1][0] + w0->offset[2] * b0->matrix[2][0])
+         + b0->offset[0])
+      * w0->boneWeight;
+    y = ((w0->offset[0] * b0->matrix[0][1] + w0->offset[1] * b0->matrix[1][1] + w0->offset[2] * b0->matrix[2][1])
+         + b0->offset[1])
+      * w0->boneWeight;
+    z = ((w0->offset[0] * b0->matrix[0][2] + w0->offset[1] * b0->matrix[1][2] + w0->offset[2] * b0->matrix[2][2])
+         + b0->offset[2])
+      * w0->boneWeight;
+
+    x += ((w1->offset[0] * b1->matrix[0][0] + w1->offset[1] * b1->matrix[1][0] + w1->offset[2] * b1->matrix[2][0])
+          + b1->offset[0])
+       * w1->boneWeight;
+    y += ((w1->offset[0] * b1->matrix[0][1] + w1->offset[1] * b1->matrix[1][1] + w1->offset[2] * b1->matrix[2][1])
+          + b1->offset[1])
+       * w1->boneWeight;
+    z += ((w1->offset[0] * b1->matrix[0][2] + w1->offset[1] * b1->matrix[1][2] + w1->offset[2] * b1->matrix[2][2])
+          + b1->offset[2])
+       * w1->boneWeight;
+
+    outXyz[0] = x * scale;
+    outXyz[1] = y * scale;
+    outXyz[2] = z * scale;
+}
+
+/* Added in Omaha: 2-weight xyz + first-bone normal (matches prior normal bone choice). */
+inline static void SkelWeight2GetXyzNormalScaled(
+    skeletorVertex_t *vert,
+    skelWeight_t     *w0,
+    skelBoneCache_t  *b0,
+    skelWeight_t     *w1,
+    skelBoneCache_t  *b1,
+    float             scale,
+    float            *outXyz,
+    float            *outNormal
+)
+{
+    const float nx = vert->normal[0];
+    const float ny = vert->normal[1];
+    const float nz = vert->normal[2];
+    float       x, y, z;
+
+    x = ((w0->offset[0] * b0->matrix[0][0] + w0->offset[1] * b0->matrix[1][0] + w0->offset[2] * b0->matrix[2][0])
+         + b0->offset[0])
+      * w0->boneWeight;
+    y = ((w0->offset[0] * b0->matrix[0][1] + w0->offset[1] * b0->matrix[1][1] + w0->offset[2] * b0->matrix[2][1])
+         + b0->offset[1])
+      * w0->boneWeight;
+    z = ((w0->offset[0] * b0->matrix[0][2] + w0->offset[1] * b0->matrix[1][2] + w0->offset[2] * b0->matrix[2][2])
+         + b0->offset[2])
+      * w0->boneWeight;
+
+    outNormal[0] = nx * b0->matrix[0][0] + ny * b0->matrix[1][0] + nz * b0->matrix[2][0];
+    outNormal[1] = nx * b0->matrix[0][1] + ny * b0->matrix[1][1] + nz * b0->matrix[2][1];
+    outNormal[2] = nx * b0->matrix[0][2] + ny * b0->matrix[1][2] + nz * b0->matrix[2][2];
+
+    x += ((w1->offset[0] * b1->matrix[0][0] + w1->offset[1] * b1->matrix[1][0] + w1->offset[2] * b1->matrix[2][0])
+          + b1->offset[0])
+       * w1->boneWeight;
+    y += ((w1->offset[0] * b1->matrix[0][1] + w1->offset[1] * b1->matrix[1][1] + w1->offset[2] * b1->matrix[2][1])
+          + b1->offset[1])
+       * w1->boneWeight;
+    z += ((w1->offset[0] * b1->matrix[0][2] + w1->offset[1] * b1->matrix[1][2] + w1->offset[2] * b1->matrix[2][2])
+          + b1->offset[2])
+       * w1->boneWeight;
+
+    outXyz[0] = x * scale;
+    outXyz[1] = y * scale;
+    outXyz[2] = z * scale;
+}
+
 /*
 =============
 SkelWeightMorphGetXyz
@@ -1022,7 +1361,104 @@ inline static void SkelWeightMorphGetXyz(skelWeight_t *weight, skelBoneCache_t *
 RB_SkelMesh
 =============
 */
-void RB_SkelMesh(skelSurfaceGame_t *sf)
+/*
+ * Added in Omaha: skinned-vertex cache per (entity, surface), valid while the
+ * entity's poseSerial (see R_AddSkelSurfaces) and the draw parameters match.
+ */
+#define SKEL_SKIN_CACHE_SIZE  2048
+#define SKEL_SKIN_CACHE_PROBE 8
+
+typedef struct {
+    const skelSurfaceGame_t *sf;
+    int                      entNum;
+    unsigned int             serial;
+    int                      count;
+    float                    scale;
+    qboolean                 hasNormal;
+    int                      capacity;
+    vec4_t                  *xyz;
+    vec4_t                  *normal;
+    vec2_t                  *st;
+} skelSkinCache_t;
+
+static skelSkinCache_t s_skelSkinCache[SKEL_SKIN_CACHE_SIZE];
+
+void RB_SkelSkinCacheClear(void)
+{
+    int i;
+
+    for (i = 0; i < SKEL_SKIN_CACHE_SIZE; i++) {
+        if (s_skelSkinCache[i].xyz) {
+            ri.Free(s_skelSkinCache[i].xyz);
+        }
+    }
+    memset(s_skelSkinCache, 0, sizeof(s_skelSkinCache));
+}
+
+static skelSkinCache_t *RB_SkelSkinCacheSlot(int entNum, const skelSurfaceGame_t *sf)
+{
+    const unsigned int home = ((unsigned int)entNum * 2654435761u ^ (unsigned int)((size_t)sf >> 4))
+                            & (SKEL_SKIN_CACHE_SIZE - 1);
+    int i;
+
+    for (i = 0; i < SKEL_SKIN_CACHE_PROBE; i++) {
+        skelSkinCache_t *sc = &s_skelSkinCache[(home + i) & (SKEL_SKIN_CACHE_SIZE - 1)];
+        if (!sc->sf || (sc->sf == sf && sc->entNum == entNum)) {
+            return sc;
+        }
+    }
+    // table crowded: evict the home slot
+    s_skelSkinCache[home].sf = NULL;
+    return &s_skelSkinCache[home];
+}
+
+static void RB_SkelSkinCacheStore(
+    skelSkinCache_t *sc, int entNum, const skelSurfaceGame_t *sf, unsigned int serial, int count, float scale,
+    qboolean hasNormal, int baseVertex
+)
+{
+    int i;
+
+    if (sc->capacity < count) {
+        if (sc->xyz) {
+            ri.Free(sc->xyz);
+        }
+        sc->xyz      = (vec4_t *)ri.Malloc(count * (sizeof(vec4_t) * 2 + sizeof(vec2_t)));
+        sc->normal   = sc->xyz + count;
+        sc->st       = (vec2_t *)(sc->normal + count);
+        sc->capacity = count;
+    }
+    memcpy(sc->xyz, tess.xyz[baseVertex], count * sizeof(vec4_t));
+    if (hasNormal) {
+        memcpy(sc->normal, tess.normal[baseVertex], count * sizeof(vec4_t));
+    }
+    for (i = 0; i < count; i++) {
+        sc->st[i][0] = tess.texCoords[baseVertex + i][0][0];
+        sc->st[i][1] = tess.texCoords[baseVertex + i][0][1];
+    }
+    sc->sf        = sf;
+    sc->entNum    = entNum;
+    sc->serial    = serial;
+    sc->count     = count;
+    sc->scale     = scale;
+    sc->hasNormal = hasNormal;
+}
+
+static void RB_SkelSkinCacheLoad(const skelSkinCache_t *sc, qboolean needNormal, int baseVertex)
+{
+    int i;
+
+    memcpy(tess.xyz[baseVertex], sc->xyz, sc->count * sizeof(vec4_t));
+    if (needNormal) {
+        memcpy(tess.normal[baseVertex], sc->normal, sc->count * sizeof(vec4_t));
+    }
+    for (i = 0; i < sc->count; i++) {
+        tess.texCoords[baseVertex + i][0][0] = sc->st[i][0];
+        tess.texCoords[baseVertex + i][0][1] = sc->st[i][1];
+    }
+}
+
+void RB_SkelMesh(skelDrawSurface_t *ds)
 {
     unsigned int       baseIndex, baseVertex;
     unsigned int       render_count;
@@ -1039,49 +1475,43 @@ void RB_SkelMesh(skelSurfaceGame_t *sf)
     int                weightNum;
     skelBoneCache_t   *bones;
     skelBoneCache_t   *bone;
+    skelBoneCache_t   *bonePtr[TIKI_MAX_BONES];
     int               *morphs;
     int               *morphcache;
     float              scale;
     dtiki_t           *tiki;
     int                mesh;
-    int                surf;
     int                i;
     skelHeaderGame_t  *skelmodel;
-    skelSurfaceGame_t *psurface;
-    qboolean           bFound;
+    skelSurfaceGame_t *sf;
     short              collapse[TIKI_MAX_VERTEXES];
+    qboolean           needNormal;
 
     if (!r_drawentitypoly->integer) {
         return;
     }
 
     tiki = backEnd.currentEntity->e.tiki;
+    sf   = ds->surface;
+    mesh = ds->meshNum;
 
     scale = tiki->load_scale * backEnd.currentEntity->e.scale;
 
-    //
-    // get the mesh associated with the surface
-    //
-    bFound = qfalse;
-    for (mesh = 0; mesh < tiki->numMeshes; mesh++) {
-        skelmodel = ri.TIKI_GetSkel(tiki->mesh[mesh]);
-        psurface  = skelmodel->pSurfaces;
+    // Added in Omaha: mesh index comes from the drawsurf wrapper (no surface search)
+    assert(mesh >= 0 && mesh < tiki->numMeshes);
+    skelmodel = ri.TIKI_GetSkel(tiki->mesh[mesh]);
+    assert(skelmodel);
 
-        // find the surface
-        for (surf = 0; surf < skelmodel->numSurfaces; surf++) {
-            if (psurface == sf) {
-                bFound = qtrue;
-                break;
-            }
-            psurface = psurface->pNext;
-        }
-
-        if (bFound) {
-            break;
+    // Added in Omaha: remap skel bone indices → entity bone cache once per surface
+    bones = &TIKI_Skel_Bones[backEnd.currentEntity->e.bonestart];
+    if (mesh > 0) {
+        for (i = 0; i < skelmodel->numBones; i++) {
+            bonePtr[i] = &bones[ri.TIKI_GetLocalChannel(tiki, skelmodel->pBones[i].channel)];
         }
     }
 
-    assert(bFound);
+    needNormal = (qboolean)(tess.shader->needsNormal || tess.shader->needsLSpherical
+                            || (tess.dlightBits && !tess.dlightMap));
 
     //
     // Process LOD
@@ -1191,23 +1621,36 @@ void RB_SkelMesh(skelSurfaceGame_t *sf)
         tess.numIndexes += i;
     }
 
-    //
-    // just copy the vertexes
-    //
-    bones  = &TIKI_Skel_Bones[backEnd.currentEntity->e.bonestart];
+
+    /* skin the vertexes (Added in Omaha: bonePtr remap + 1-weight fast path) */
     morphs = &skeletorMorphCache[backEnd.currentEntity->e.morphstart];
 
-    if (backEnd.currentEntity->e.hasMorph) {
+    // Changed in Omaha: shared-pose ents key by (pool slot, LOD count), negative to stay off entity numbers
+    const int skinEntNum = backEnd.currentEntity->poseShareKey
+                             ? -(backEnd.currentEntity->poseShareKey + SKEL_POSE_SHARE_SIZE * (int)render_count)
+                             : backEnd.currentEntity->e.entityNumber;
+    const unsigned   poseSerial = backEnd.currentEntity->poseSerial;
+    skelSkinCache_t *skinCache  = NULL;
+    qboolean         skinHit    = qfalse;
+
+    if (poseSerial && !backEnd.currentEntity->e.hasMorph && r_skelPoseCache->integer) {
+        skinCache = RB_SkelSkinCacheSlot(skinEntNum, sf);
+        skinHit   = skinCache->sf == sf && skinCache->entNum == skinEntNum && skinCache->serial == poseSerial
+               && skinCache->count == (int)render_count && skinCache->scale == scale
+               && (skinCache->hasNormal || !needNormal);
+    }
+
+    if (skinHit) {
+        RB_SkelSkinCacheLoad(skinCache, needNormal, baseVertex);
+    } else if (backEnd.currentEntity->e.hasMorph) {
         if (mesh > 0) {
             for (vertNum = 0; vertNum < render_count; vertNum++) {
                 vec3_t normal;
                 vec3_t out;
                 vec3_t totalmorph;
-                int    channelNum;
-                int    boneNum;
+                const int nw = newVerts->numWeights;
 
                 VectorClear(out);
-                VectorClear(outXyz);
                 VectorClear(totalmorph);
 
                 weight = (skelWeight_t *)((byte *)newVerts + sizeof(skeletorVertex_t)
@@ -1225,20 +1668,18 @@ void RB_SkelMesh(skelSurfaceGame_t *sf)
                 }
 
                 if (newVerts->numMorphs) {
-                    channelNum = skelmodel->pBones[morph->morphIndex].channel;
+                    bone = bonePtr[morph->morphIndex];
                 } else {
-                    channelNum = skelmodel->pBones[weight->boneIndex].channel;
+                    bone = bonePtr[weight->boneIndex];
                 }
 
-                boneNum = ri.TIKI_GetLocalChannel(tiki, channelNum);
-                bone    = &bones[boneNum];
+                if (needNormal) {
+                    SkelVertGetNormal(newVerts, bone, normal);
+                    VectorCopy(normal, *outNormal);
+                }
 
-                SkelVertGetNormal(newVerts, bone, normal);
-
-                for (weightNum = 0; weightNum < newVerts->numWeights; weightNum++) {
-                    channelNum = skelmodel->pBones[weight->boneIndex].channel;
-                    boneNum    = ri.TIKI_GetLocalChannel(tiki, channelNum);
-                    bone       = &bones[boneNum];
+                for (weightNum = 0; weightNum < nw; weightNum++) {
+                    bone = bonePtr[weight->boneIndex];
 
                     if (!weightNum) {
                         SkelWeightMorphGetXyz(weight, bone, totalmorph, out);
@@ -1249,16 +1690,14 @@ void RB_SkelMesh(skelSurfaceGame_t *sf)
                     weight++;
                 }
 
-                VectorCopy(normal, *outNormal);
                 VectorScale(out, scale, outXyz);
 
                 tess.texCoords[baseVertex + vertNum][0][0] = newVerts->texCoords[0];
                 tess.texCoords[baseVertex + vertNum][0][1] = newVerts->texCoords[1];
-                // FIXME: fill in lightmapST for completeness?
 
                 newVerts = (skeletorVertex_t *)((byte *)newVerts + sizeof(skeletorVertex_t)
                                                 + sizeof(skeletorMorph_t) * newVerts->numMorphs
-                                                + sizeof(skelWeight_t) * newVerts->numWeights);
+                                                + sizeof(skelWeight_t) * nw);
                 outXyz += 4;
                 outNormal++;
             }
@@ -1267,9 +1706,9 @@ void RB_SkelMesh(skelSurfaceGame_t *sf)
                 vec3_t normal;
                 vec3_t out;
                 vec3_t totalmorph;
+                const int nw = newVerts->numWeights;
 
                 VectorClear(out);
-                VectorClear(outXyz);
                 VectorClear(totalmorph);
 
                 weight = (skelWeight_t *)((byte *)newVerts + sizeof(skeletorVertex_t)
@@ -1292,9 +1731,12 @@ void RB_SkelMesh(skelSurfaceGame_t *sf)
                     bone = &bones[weight->boneIndex];
                 }
 
-                SkelVertGetNormal(newVerts, bone, normal);
+                if (needNormal) {
+                    SkelVertGetNormal(newVerts, bone, normal);
+                    VectorCopy(normal, *outNormal);
+                }
 
-                for (weightNum = 0; weightNum < newVerts->numWeights; weightNum++) {
+                for (weightNum = 0; weightNum < nw; weightNum++) {
                     bone = &bones[weight->boneIndex];
 
                     if (!weightNum) {
@@ -1306,99 +1748,185 @@ void RB_SkelMesh(skelSurfaceGame_t *sf)
                     weight++;
                 }
 
-                VectorCopy(normal, *outNormal);
                 VectorScale(out, scale, outXyz);
 
                 tess.texCoords[baseVertex + vertNum][0][0] = newVerts->texCoords[0];
                 tess.texCoords[baseVertex + vertNum][0][1] = newVerts->texCoords[1];
-                // FIXME: fill in lightmapST for completeness?
 
                 newVerts = (skeletorVertex_t *)((byte *)newVerts + sizeof(skeletorVertex_t)
                                                 + sizeof(skeletorMorph_t) * newVerts->numMorphs
-                                                + sizeof(skelWeight_t) * newVerts->numWeights);
+                                                + sizeof(skelWeight_t) * nw);
                 outXyz += 4;
                 outNormal++;
             }
+        }
+    } else if (mesh > 0) {
+        for (vertNum = 0; vertNum < render_count; vertNum++) {
+            vec3_t normal;
+            vec3_t out;
+            const int nw = newVerts->numWeights;
+
+            weight = (skelWeight_t *)((byte *)newVerts + sizeof(skeletorVertex_t)
+                                      + sizeof(skeletorMorph_t) * newVerts->numMorphs);
+            bone   = bonePtr[weight->boneIndex];
+
+            if (needNormal) {
+                if (nw == 1) {
+                    SkelWeight1GetXyzNormalScaled(newVerts, weight, bone, scale, outXyz, (*outNormal));
+                } else if (nw == 2) {
+                    SkelWeight2GetXyzNormalScaled(
+                        newVerts, weight, bone, weight + 1, bonePtr[weight[1].boneIndex], scale, outXyz, (*outNormal)
+                    );
+                } else {
+                    SkelVertGetNormal(newVerts, bone, normal);
+                    VectorCopy(normal, *outNormal);
+                    VectorClear(out);
+                    for (weightNum = 0; weightNum < nw; weightNum++) {
+                        bone = bonePtr[weight->boneIndex];
+                        SkelWeightGetXyz(weight, bone, out);
+                        weight++;
+                    }
+                    VectorScale(out, scale, outXyz);
+                }
+            } else if (nw == 1) {
+                SkelWeight1GetXyzScaled(weight, bone, scale, outXyz);
+            } else if (nw == 2) {
+                SkelWeight2GetXyzScaled(weight, bone, weight + 1, bonePtr[weight[1].boneIndex], scale, outXyz);
+            } else {
+                VectorClear(out);
+                for (weightNum = 0; weightNum < nw; weightNum++) {
+                    bone = bonePtr[weight->boneIndex];
+                    SkelWeightGetXyz(weight, bone, out);
+                    weight++;
+                }
+                VectorScale(out, scale, outXyz);
+            }
+
+            tess.texCoords[baseVertex + vertNum][0][0] = newVerts->texCoords[0];
+            tess.texCoords[baseVertex + vertNum][0][1] = newVerts->texCoords[1];
+
+            newVerts = (skeletorVertex_t *)((byte *)newVerts + sizeof(skeletorVertex_t)
+                                            + sizeof(skeletorMorph_t) * newVerts->numMorphs
+                                            + sizeof(skelWeight_t) * nw);
+            outXyz += 4;
+            outNormal++;
+        }
+    } else if (needNormal) {
+        /* Hot path: mesh 0, no morph, normals required (sphere light / dlight). */
+        for (vertNum = 0; vertNum < render_count; vertNum++) {
+            vec3_t    normal;
+            vec3_t    out;
+            const int nw = newVerts->numWeights;
+
+            weight = (skelWeight_t *)((byte *)newVerts + sizeof(skeletorVertex_t)
+                                      + sizeof(skeletorMorph_t) * newVerts->numMorphs);
+            bone   = &bones[weight->boneIndex];
+
+            if (nw == 1) {
+                SkelWeight1GetXyzNormalScaled(newVerts, weight, bone, scale, outXyz, (*outNormal));
+            } else if (nw == 2) {
+                SkelWeight2GetXyzNormalScaled(
+                    newVerts, weight, bone, weight + 1, &bones[weight[1].boneIndex], scale, outXyz, (*outNormal)
+                );
+            } else {
+                SkelVertGetNormal(newVerts, bone, normal);
+                VectorCopy(normal, *outNormal);
+                VectorClear(out);
+                for (weightNum = 0; weightNum < nw; weightNum++) {
+                    bone = &bones[weight->boneIndex];
+                    SkelWeightGetXyz(weight, bone, out);
+                    weight++;
+                }
+                VectorScale(out, scale, outXyz);
+            }
+
+            tess.texCoords[baseVertex + vertNum][0][0] = newVerts->texCoords[0];
+            tess.texCoords[baseVertex + vertNum][0][1] = newVerts->texCoords[1];
+
+            newVerts = (skeletorVertex_t *)((byte *)newVerts + sizeof(skeletorVertex_t)
+                                            + sizeof(skeletorMorph_t) * newVerts->numMorphs
+                                            + sizeof(skelWeight_t) * nw);
+            outXyz += 4;
+            outNormal++;
         }
     } else {
-        if (mesh > 0) {
-            for (vertNum = 0; vertNum < render_count; vertNum++) {
-                vec3_t normal;
-                vec3_t out;
-                int    channelNum;
-                int    boneNum;
+        /* Hot path: mesh 0, no morph, no normals. */
+        for (vertNum = 0; vertNum < render_count; vertNum++) {
+            vec3_t    out;
+            const int nw = newVerts->numWeights;
 
+            weight = (skelWeight_t *)((byte *)newVerts + sizeof(skeletorVertex_t)
+                                      + sizeof(skeletorMorph_t) * newVerts->numMorphs);
+            bone   = &bones[weight->boneIndex];
+
+            if (nw == 1) {
+                SkelWeight1GetXyzScaled(weight, bone, scale, outXyz);
+            } else if (nw == 2) {
+                SkelWeight2GetXyzScaled(weight, bone, weight + 1, &bones[weight[1].boneIndex], scale, outXyz);
+            } else {
                 VectorClear(out);
-                VectorClear(outXyz);
-
-                weight = (skelWeight_t *)((byte *)newVerts + sizeof(skeletorVertex_t)
-                                          + sizeof(skeletorMorph_t) * newVerts->numMorphs);
-
-                channelNum = skelmodel->pBones[weight->boneIndex].channel;
-                boneNum    = ri.TIKI_GetLocalChannel(tiki, channelNum);
-                bone       = &bones[boneNum];
-
-                SkelVertGetNormal(newVerts, bone, normal);
-
-                for (weightNum = 0; weightNum < newVerts->numWeights; weightNum++) {
-                    channelNum = skelmodel->pBones[weight->boneIndex].channel;
-                    boneNum    = ri.TIKI_GetLocalChannel(tiki, channelNum);
-                    bone       = &bones[boneNum];
-
-                    SkelWeightGetXyz(weight, bone, out);
-
-                    weight++;
-                }
-
-                VectorCopy(normal, *outNormal);
-                VectorScale(out, scale, outXyz);
-
-                tess.texCoords[baseVertex + vertNum][0][0] = newVerts->texCoords[0];
-                tess.texCoords[baseVertex + vertNum][0][1] = newVerts->texCoords[1];
-                // FIXME: fill in lightmapST for completeness?
-
-                newVerts = (skeletorVertex_t *)((byte *)newVerts + sizeof(skeletorVertex_t)
-                                                + sizeof(skeletorMorph_t) * newVerts->numMorphs
-                                                + sizeof(skelWeight_t) * newVerts->numWeights);
-                outXyz += 4;
-                outNormal++;
-            }
-        } else {
-            for (vertNum = 0; vertNum < render_count; vertNum++) {
-                vec3_t normal;
-                vec3_t out;
-
-                VectorClear(out);
-                VectorClear(outXyz);
-
-                weight = (skelWeight_t *)((byte *)newVerts + sizeof(skeletorVertex_t)
-                                          + sizeof(skeletorMorph_t) * newVerts->numMorphs);
-
-                bone = &bones[weight->boneIndex];
-                SkelVertGetNormal(newVerts, bone, normal);
-
-                for (weightNum = 0; weightNum < newVerts->numWeights; weightNum++) {
+                for (weightNum = 0; weightNum < nw; weightNum++) {
                     bone = &bones[weight->boneIndex];
-
                     SkelWeightGetXyz(weight, bone, out);
-
                     weight++;
                 }
-
-                VectorCopy(normal, *outNormal);
                 VectorScale(out, scale, outXyz);
-
-                tess.texCoords[baseVertex + vertNum][0][0] = newVerts->texCoords[0];
-                tess.texCoords[baseVertex + vertNum][0][1] = newVerts->texCoords[1];
-                // FIXME: fill in lightmapST for completeness?
-
-                newVerts = (skeletorVertex_t *)((byte *)newVerts + sizeof(skeletorVertex_t)
-                                                + sizeof(skeletorMorph_t) * newVerts->numMorphs
-                                                + sizeof(skelWeight_t) * newVerts->numWeights);
-                outXyz += 4;
-                outNormal++;
             }
+
+            tess.texCoords[baseVertex + vertNum][0][0] = newVerts->texCoords[0];
+            tess.texCoords[baseVertex + vertNum][0][1] = newVerts->texCoords[1];
+
+            newVerts = (skeletorVertex_t *)((byte *)newVerts + sizeof(skeletorVertex_t)
+                                            + sizeof(skeletorMorph_t) * newVerts->numMorphs
+                                            + sizeof(skelWeight_t) * nw);
+            outXyz += 4;
         }
+    }
+
+    if (skinCache && !skinHit) {
+        RB_SkelSkinCacheStore(skinCache, skinEntNum, sf, poseSerial, render_count, scale, needNormal, baseVertex);
+    }
+
+
+
+    /*
+     * Added in Omaha: the backend loaded the world modelview for this tempmodel
+     * (RB_SkelEntityWantsWorldBatch), so emit world-space verts and carry the
+     * entity's grid color per vertex; same-shader shells then share one batch.
+     */
+    if (backEnd.skelWorldSpace) {
+        const orientationr_t *o = &backEnd.ori;
+        const byte           *g = (const byte *)&backEnd.currentEntity->iGridLighting;
+        const byte            a = tess.shader && tess.shader->skelWorldBatchCache == 3
+                                    ? backEnd.currentEntity->e.shaderRGBA[3]
+                                    : g[3];
+
+        for (i = 0; i < (int)render_count; i++) {
+            float      *px = tess.xyz[baseVertex + i];
+            const float x  = px[0];
+            const float y  = px[1];
+            const float z  = px[2];
+
+            px[0] = x * o->axis[0][0] + y * o->axis[1][0] + z * o->axis[2][0] + o->origin[0];
+            px[1] = x * o->axis[0][1] + y * o->axis[1][1] + z * o->axis[2][1] + o->origin[1];
+            px[2] = x * o->axis[0][2] + y * o->axis[1][2] + z * o->axis[2][2] + o->origin[2];
+            if (needNormal) {
+                float      *pn = tess.normal[baseVertex + i];
+                const float nx = pn[0];
+                const float ny = pn[1];
+                const float nz = pn[2];
+
+                pn[0] = nx * o->axis[0][0] + ny * o->axis[1][0] + nz * o->axis[2][0];
+                pn[1] = nx * o->axis[0][1] + ny * o->axis[1][1] + nz * o->axis[2][1];
+                pn[2] = nx * o->axis[0][2] + ny * o->axis[1][2] + nz * o->axis[2][2];
+            }
+            tess.vertexColors[baseVertex + i][0] = g[0];
+            tess.vertexColors[baseVertex + i][1] = g[1];
+            tess.vertexColors[baseVertex + i][2] = g[2];
+            tess.vertexColors[baseVertex + i][3] = a;
+        }
+        backEnd.worldSpaceBatch = qtrue;
+        backEnd.skelWorldBatch  = qtrue;
     }
 
 #if 0
@@ -1586,13 +2114,55 @@ void RB_StaticMesh(staticSurface_t *staticSurf)
         tess.numIndexes += j;
     }
 
-    for (j = 0; j < render_count; j++) {
-        Vector4Copy(surf->pStaticXyz[j], tess.xyz[baseVertex + j]);
-        Vector4Copy(surf->pStaticNormal[j], tess.normal[baseVertex + j]);
-        tess.texCoords[baseVertex + j][0][0] = surf->pStaticTexCoords[j][0][0];
-        tess.texCoords[baseVertex + j][0][1] = surf->pStaticTexCoords[j][0][1];
-        tess.texCoords[baseVertex + j][1][0] = surf->pStaticTexCoords[j][1][0];
-        tess.texCoords[baseVertex + j][1][1] = surf->pStaticTexCoords[j][1][1];
+    /*
+     * Changed in Omaha: when lighting is baked into vertexColors (no special
+     * per-model dlights), emit world-space xyz/normal so the backend can merge
+     * same-shader static models across entity indices.
+     * Fixed in Omaha: apply load_scale * SM->scale (same as R_RotateForStaticModel);
+     * ori->axis is unscaled — omitting tiki_scale blew models up to raw TIKI size.
+     */
+    {
+        /* Changed in Omaha: refuse world-batch for dist-fade / alpha foliage shaders. */
+        const qboolean worldBatch =
+            tess.dlightMap == 0 && backEnd.currentStaticModel
+            && !backEnd.currentStaticModel->useSpecialLighting
+            && RB_ShaderAllowsWorldBatch(tess.shader);
+        const orientationr_t *o = &backEnd.ori;
+        const float           tiki_scale =
+            worldBatch
+                ? (backEnd.currentStaticModel->tiki->load_scale * backEnd.currentStaticModel->scale)
+                : 1.f;
+
+        for (j = 0; j < render_count; j++) {
+            if (worldBatch) {
+                const float *lx = surf->pStaticXyz[j];
+                const float *ln = surf->pStaticNormal[j];
+                float       *px = tess.xyz[baseVertex + j];
+                float       *pn = (float *)tess.normal[baseVertex + j];
+                const float  sx = lx[0] * tiki_scale;
+                const float  sy = lx[1] * tiki_scale;
+                const float  sz = lx[2] * tiki_scale;
+
+                px[0] = sx * o->axis[0][0] + sy * o->axis[1][0] + sz * o->axis[2][0] + o->origin[0];
+                px[1] = sx * o->axis[0][1] + sy * o->axis[1][1] + sz * o->axis[2][1] + o->origin[1];
+                px[2] = sx * o->axis[0][2] + sy * o->axis[1][2] + sz * o->axis[2][2] + o->origin[2];
+                px[3] = 0.f;
+                pn[0] = ln[0] * o->axis[0][0] + ln[1] * o->axis[1][0] + ln[2] * o->axis[2][0];
+                pn[1] = ln[0] * o->axis[0][1] + ln[1] * o->axis[1][1] + ln[2] * o->axis[2][1];
+                pn[2] = ln[0] * o->axis[0][2] + ln[1] * o->axis[1][2] + ln[2] * o->axis[2][2];
+                pn[3] = 0.f;
+            } else {
+                Vector4Copy(surf->pStaticXyz[j], tess.xyz[baseVertex + j]);
+                Vector4Copy(surf->pStaticNormal[j], tess.normal[baseVertex + j]);
+            }
+            tess.texCoords[baseVertex + j][0][0] = surf->pStaticTexCoords[j][0][0];
+            tess.texCoords[baseVertex + j][0][1] = surf->pStaticTexCoords[j][0][1];
+            tess.texCoords[baseVertex + j][1][0] = surf->pStaticTexCoords[j][1][0];
+            tess.texCoords[baseVertex + j][1][1] = surf->pStaticTexCoords[j][1][1];
+        }
+        if (worldBatch) {
+            backEnd.worldSpaceBatch = qtrue;
+        }
     }
 
     if (backEndData->staticModelData) {

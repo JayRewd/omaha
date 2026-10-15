@@ -28,6 +28,75 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 static qboolean cg_forceModelAllowed = qfalse;
 
+/* Added in Omaha: per-tiki cache of hot tag indices (avoids stricmp bone-table search) */
+#define CG_TAG_CACHE_SIZE 64
+typedef struct {
+    const dtiki_t *tiki;
+    int            footL;
+    int            footR;
+    int            eyes;
+    int            weapL;
+    int            weapR;
+} cgTikiTagCache_t;
+
+static cgTikiTagCache_t s_tagCache[CG_TAG_CACHE_SIZE];
+static int              s_tagCacheCount;
+
+static cgTikiTagCache_t *CG_GetTikiTagCache(dtiki_t *tiki)
+{
+    int               i;
+    cgTikiTagCache_t *c;
+
+    if (!tiki) {
+        return NULL;
+    }
+
+    for (i = 0; i < s_tagCacheCount; i++) {
+        if (s_tagCache[i].tiki == tiki) {
+            return &s_tagCache[i];
+        }
+    }
+
+    if (s_tagCacheCount >= CG_TAG_CACHE_SIZE) {
+        /* simple overwrite of slot 0 on overflow — still correct, just colder */
+        c = &s_tagCache[0];
+    } else {
+        c = &s_tagCache[s_tagCacheCount++];
+    }
+
+    c->tiki  = tiki;
+    c->footL = cgi.Tag_NumForName(tiki, "Bip01 L Foot");
+    c->footR = cgi.Tag_NumForName(tiki, "Bip01 R Foot");
+    c->eyes  = cgi.Tag_NumForName(tiki, "eyes bone");
+    c->weapL = cgi.Tag_NumForName(tiki, "tag_weapon_left");
+    c->weapR = cgi.Tag_NumForName(tiki, "tag_weapon_right");
+    return c;
+}
+
+void CG_ClearTikiTagCache(dtiki_t *tiki)
+{
+    int i;
+
+    if (!tiki) {
+        s_tagCacheCount = 0;
+        return;
+    }
+
+    for (i = 0; i < s_tagCacheCount; i++) {
+        if (s_tagCache[i].tiki == tiki) {
+            s_tagCache[i] = s_tagCache[--s_tagCacheCount];
+            return;
+        }
+    }
+}
+
+/* Added in Omaha: cached eyes-bone tag for view/team-icon paths */
+int CG_TikiEyesTag(dtiki_t *tiki)
+{
+    cgTikiTagCache_t *tags = CG_GetTikiTagCache(tiki);
+    return tags ? tags->eyes : -1;
+}
+
 /*
 ===============
 CG_GetPlayerModelTiki
@@ -133,7 +202,8 @@ void CG_PlayerTeamIcon(refEntity_t *pModel, entityState_t *pPlayerState)
         iconEnt.shaderRGBA[2]      = -1;
         VectorCopy(pModel->origin, iconEnt.origin);
 
-        iTag = cgi.Tag_NumForName(pModel->tiki, "eyes bone");
+        /* Changed in Omaha: use cached eyes tag index */
+        iTag = CG_TikiEyesTag(pModel->tiki);
         if (iTag == -1) {
             iconEnt.origin[2] = iconEnt.origin[2] + 96.0f;
         } else {
@@ -566,10 +636,9 @@ qboolean CG_EntityShadow(centity_t *cent, refEntity_t *model)
     }
 
     if (cg_shadows->integer == 2 && (model->renderfx & RF_SHADOW_PRECISE)) {
-        iTagL = cgi.Tag_NumForName(model->tiki, "Bip01 L Foot");
-        if (iTagL != -1) {
-            iTagR = cgi.Tag_NumForName(model->tiki, "Bip01 R Foot");
-        }
+        cgTikiTagCache_t *tags = CG_GetTikiTagCache(model->tiki);
+        iTagL                  = tags ? tags->footL : -1;
+        iTagR                  = tags ? tags->footR : -1;
 
         if (iTagR != -1) {
             int    iNumLights, iCurrLight;
@@ -622,10 +691,9 @@ qboolean CG_EntityShadow(centity_t *cent, refEntity_t *model)
     alpha = (1.0 - trace.fraction) * 0.65f;
 
     if (model->renderfx & RF_SHADOW_PRECISE) {
-        iTagL = cgi.Tag_NumForName(model->tiki, "Bip01 L Foot");
-        if (iTagL != -1) {
-            iTagR = cgi.Tag_NumForName(model->tiki, "Bip01 R Foot");
-        }
+        cgTikiTagCache_t *tags = CG_GetTikiTagCache(model->tiki);
+        iTagL                  = tags ? tags->footL : -1;
+        iTagR                  = tags ? tags->footR : -1;
 
         if (iTagR != -1) {
             if (cg_shadows->integer == 2) {
@@ -1027,7 +1095,9 @@ void CG_ModelAnim(centity_t *cent, qboolean bDoShaderTime)
         return;
     }
 
-    memset(&model, 0, sizeof(model));
+    /* Changed in Omaha: skip clearing frameInfo[] (filled by CG_InterpolateAnimParms) */
+    Com_Memset(&model, 0, offsetof(refEntity_t, frameInfo));
+    Com_Memset(&model.wasframe, 0, sizeof(model) - offsetof(refEntity_t, wasframe));
 
     if (cent->interpolate) {
         sNext = &cent->nextState;
@@ -1237,21 +1307,26 @@ void CG_ModelAnim(centity_t *cent, qboolean bDoShaderTime)
             tiki = cg.pPlayerFPSModel;
 
             // attach to the first person model
-            if (cg.pLastPlayerWorldModel) {
-                szTagName = cgi.Tag_NameForNum(cg.pLastPlayerWorldModel, s1->tag_num & TAG_MASK);
-            } else {
-                szTagName = cgi.Tag_NameForNum(tiki, s1->tag_num & TAG_MASK);
-            }
+            {
+                cgTikiTagCache_t *tags = CG_GetTikiTagCache(tiki);
 
-            if (!Q_stricmp(szTagName, "eyes bone")) {
-                iTagNum = cgi.Tag_NumForName(tiki, szTagName);
-                CG_AttachEyeEntity(&model, parent, tiki, iTagNum & TAG_MASK, s1->attach_use_angles, s1->attach_offset);
-            } else if (!Q_stricmp(szTagName, "tag_weapon_right") || !Q_stricmp(szTagName, "tag_weapon_left")) {
-                iTagNum = cgi.Tag_NumForName(tiki, szTagName);
-                CG_AttachEntity(&model, parent, tiki, iTagNum & TAG_MASK, s1->attach_use_angles, s1->attach_offset);
-            } else {
-                // Don't show the model at all
-                return;
+                if (cg.pLastPlayerWorldModel) {
+                    szTagName = cgi.Tag_NameForNum(cg.pLastPlayerWorldModel, s1->tag_num & TAG_MASK);
+                } else {
+                    szTagName = cgi.Tag_NameForNum(tiki, s1->tag_num & TAG_MASK);
+                }
+
+                iTagNum = szTagName ? cgi.Tag_NumForName(tiki, szTagName) : -1;
+
+                /* Added in Omaha: compare cached tag indices instead of Q_stricmp */
+                if (tags && iTagNum == tags->eyes) {
+                    CG_AttachEyeEntity(&model, parent, tiki, iTagNum & TAG_MASK, s1->attach_use_angles, s1->attach_offset);
+                } else if (tags && (iTagNum == tags->weapR || iTagNum == tags->weapL)) {
+                    CG_AttachEntity(&model, parent, tiki, iTagNum & TAG_MASK, s1->attach_use_angles, s1->attach_offset);
+                } else {
+                    // Don't show the model at all
+                    return;
+                }
             }
         }
 
@@ -1326,22 +1401,23 @@ void CG_ModelAnim(centity_t *cent, qboolean bDoShaderTime)
     }
 
     if (iAnimFlags & TAF_AUTOSTEPS) {
-        int iTagNum;
+        int               iTagNum;
+        cgTikiTagCache_t *tags = CG_GetTikiTagCache(model.tiki);
         // Automatically calculate the footsteps sounds
 
+        iTagNum = tags ? tags->footR : -1;
         if (cent->bFootOnGround_Right) {
-            iTagNum = cgi.Tag_NumForName(model.tiki, "Bip01 R Foot");
             if (iTagNum >= 0) {
                 cent->bFootOnGround_Right = cgi.TIKI_IsOnGround(&model, iTagNum, 13.653847f);
             } else {
                 cent->bFootOnGround_Right = qtrue;
             }
         } else {
-            iTagNum = cgi.Tag_NumForName(model.tiki, "Bip01 R Foot");
             if (iTagNum >= 0) {
                 if (cgi.TIKI_IsOnGround(&model, iTagNum, 13.461539f)) {
-                    CG_Footstep(
-                        "Bip01 R Foot",
+                    /* Changed in Omaha: use cached footR tag index */
+                    CG_FootstepByTag(
+                        iTagNum,
                         cent,
                         &model,
                         (iAnimFlags & TAF_AUTOSTEPS_RUNNING),
@@ -1354,19 +1430,19 @@ void CG_ModelAnim(centity_t *cent, qboolean bDoShaderTime)
             }
         }
 
+        iTagNum = tags ? tags->footL : -1;
         if (cent->bFootOnGround_Left) {
-            iTagNum = cgi.Tag_NumForName(model.tiki, "Bip01 L Foot");
             if (iTagNum >= 0) {
                 cent->bFootOnGround_Left = cgi.TIKI_IsOnGround(&model, iTagNum, 13.653847f);
             } else {
                 cent->bFootOnGround_Left = qtrue;
             }
         } else {
-            iTagNum = cgi.Tag_NumForName(model.tiki, "Bip01 L Foot");
             if (iTagNum >= 0) {
                 if (cgi.TIKI_IsOnGround(&model, iTagNum, 13.461539f)) {
-                    CG_Footstep(
-                        "Bip01 L Foot",
+                    /* Changed in Omaha: use cached footL tag index */
+                    CG_FootstepByTag(
+                        iTagNum,
                         cent,
                         &model,
                         (iAnimFlags & TAF_AUTOSTEPS_RUNNING),
@@ -1476,40 +1552,48 @@ void CG_ModelAnim(centity_t *cent, qboolean bDoShaderTime)
                     model.surfaces[i] |= MDL_SURFACE_NODRAW;
                 }
             } else {
-                // show/hide the garand hand depending if it's a rifle or not
-                // so the hand can hold the rifle correctly
+                /* Changed in Omaha: cache bolt-rifle check + hand surface indices
+                 * (avoid per-frame Q_stricmp + Surface_NameToNum) */
+                static int         s_boltItem   = -2;
+                static dtiki_t    *s_boltTiki   = NULL;
+                static qboolean    s_isBoltRifle = qfalse;
+                static int         s_iLeftHand   = -1;
+                static int         s_iGarandHand = -1;
+                int                itemIndex;
 
-                const char *weaponstring = "";
-                int         iSurfaceNum;
+                itemIndex = cg.snap->ps.activeItems[1];
+                if (itemIndex != s_boltItem || model.tiki != s_boltTiki) {
+                    const char *weaponstring = "";
 
-                if (cg.snap->ps.activeItems[1] >= 0) {
-                    weaponstring = CG_ConfigString(CS_WEAPONS + cg.snap->ps.activeItems[1]);
+                    s_boltItem = itemIndex;
+                    s_boltTiki = model.tiki;
+                    if (itemIndex >= 0) {
+                        weaponstring = CG_ConfigString(CS_WEAPONS + itemIndex);
+                    }
+                    s_isBoltRifle =
+                        (!Q_stricmp(weaponstring, "M1 Garand") || !Q_stricmp(weaponstring, "Springfield '03 Sniper")
+                         || !Q_stricmp(weaponstring, "Mauser KAR 98K") || !Q_stricmp(weaponstring, "KAR98 - Sniper"))
+                            ? qtrue
+                            : qfalse;
+                    s_iLeftHand   = cgi.Surface_NameToNum(model.tiki, "lefthand");
+                    s_iGarandHand = cgi.Surface_NameToNum(model.tiki, "garandhand");
                 }
 
-                if (!Q_stricmp(weaponstring, "M1 Garand") || !Q_stricmp(weaponstring, "Springfield '03 Sniper")
-                    || !Q_stricmp(weaponstring, "Mauser KAR 98K") || !Q_stricmp(weaponstring, "KAR98 - Sniper")) {
+                if (s_isBoltRifle) {
                     // show the garand hands
-
-                    iSurfaceNum = cgi.Surface_NameToNum(model.tiki, "lefthand");
-                    if (iSurfaceNum >= 0) {
-                        model.surfaces[iSurfaceNum] |= MDL_SURFACE_NODRAW;
+                    if (s_iLeftHand >= 0) {
+                        model.surfaces[s_iLeftHand] |= MDL_SURFACE_NODRAW;
                     }
-
-                    iSurfaceNum = cgi.Surface_NameToNum(model.tiki, "garandhand");
-                    if (iSurfaceNum >= 0) {
-                        model.surfaces[iSurfaceNum] &= ~MDL_SURFACE_NODRAW;
+                    if (s_iGarandHand >= 0) {
+                        model.surfaces[s_iGarandHand] &= ~MDL_SURFACE_NODRAW;
                     }
                 } else {
                     // hide the garand hands
-
-                    iSurfaceNum = cgi.Surface_NameToNum(model.tiki, "garandhand");
-                    if (iSurfaceNum >= 0) {
-                        model.surfaces[iSurfaceNum] |= MDL_SURFACE_NODRAW;
+                    if (s_iGarandHand >= 0) {
+                        model.surfaces[s_iGarandHand] |= MDL_SURFACE_NODRAW;
                     }
-
-                    iSurfaceNum = cgi.Surface_NameToNum(model.tiki, "lefthand");
-                    if (iSurfaceNum >= 0) {
-                        model.surfaces[iSurfaceNum] &= ~MDL_SURFACE_NODRAW;
+                    if (s_iLeftHand >= 0) {
+                        model.surfaces[s_iLeftHand] &= ~MDL_SURFACE_NODRAW;
                     }
                 }
             }

@@ -2743,6 +2743,8 @@ void R_CreateBuiltinImages(void) {
 		tr.dlightImages[i] = R_CreateImageOld(filename, lightmap_buffer, LIGHTMAP_SIZE, LIGHTMAP_SIZE, 0, 1, qfalse, qfalse, qfalse, 0, GL_CLAMP, GL_CLAMP);
 		tr.dlightImages[i]->r_sequence = -1;
 	}
+	// Added in Omaha: atlases were recreated; forget what was uploaded to them
+	R_FlushDlightCache();
 
 	tr.identityLightImage = R_CreateImageOld("*identityLight", (byte *)data, 8, 8, 0, 1, qfalse, qfalse, qfalse, qfalse, GL_REPEAT, GL_REPEAT);
 	tr.identityLightImage->r_sequence = -1;

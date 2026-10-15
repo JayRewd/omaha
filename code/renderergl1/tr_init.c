@@ -110,6 +110,15 @@ cvar_t	*r_drawBuffer;
 cvar_t  *r_glDriver;
 cvar_t	*r_lightmap;
 cvar_t	*r_vertexLight;
+cvar_t	*r_lightmapAtlas; // Added in Omaha
+cvar_t	*r_skelPoseCache; // Added in Omaha
+cvar_t	*r_skelPoseShare; // Added in Omaha
+cvar_t	*r_skelEntityMerge; // Added in Omaha
+cvar_t	*r_worldSurfCache; // Added in Omaha
+cvar_t	*r_worldLeafGroups; // Added in Omaha
+cvar_t	*r_dlightCache; // Added in Omaha
+cvar_t	*r_dlightInPlace; // Added in Omaha
+cvar_t	*r_vboWorld; // Added in Omaha
 cvar_t	*r_shadows;
 cvar_t	*r_entlight_scale;
 cvar_t	*r_entlight_errbound;
@@ -1509,6 +1518,18 @@ void R_Register( void )
 	r_customheight = ri.Cvar_Get( "r_customheight", "1024", CVAR_ARCHIVE | CVAR_LATCH );
 	r_customaspect = ri.Cvar_Get( "r_customaspect", "1", CVAR_ARCHIVE | CVAR_LATCH );
 	r_vertexLight = ri.Cvar_Get("r_vertexLight", "0", CVAR_ARCHIVE | CVAR_LATCH);
+	// Added in Omaha: fewer world batches (one shader_t per atlas instead of per 128x128 page)
+	r_lightmapAtlas = ri.Cvar_Get("r_lightmapAtlas", "1", CVAR_ARCHIVE | CVAR_LATCH);
+	// Added in Omaha: at high fps several frames share one client ms, so poses repeat
+	r_skelPoseCache = ri.Cvar_Get("r_skelPoseCache", "1", CVAR_ARCHIVE);
+	r_skelPoseShare = ri.Cvar_Get("r_skelPoseShare", "1", CVAR_ARCHIVE);
+	// Added in Omaha: merge tempmodel skels (brass) into world-space batches
+	r_skelEntityMerge = ri.Cvar_Get("r_skelEntityMerge", "1", CVAR_ARCHIVE);
+	r_worldSurfCache = ri.Cvar_Get("r_worldSurfCache", "1", CVAR_ARCHIVE);
+	r_worldLeafGroups = ri.Cvar_Get("r_worldLeafGroups", "1", CVAR_ARCHIVE);
+	r_dlightCache = ri.Cvar_Get("r_dlightCache", "1", CVAR_ARCHIVE);
+	r_dlightInPlace = ri.Cvar_Get("r_dlightInPlace", "1", CVAR_ARCHIVE);
+	r_vboWorld = ri.Cvar_Get("r_vboWorld", "1", CVAR_ARCHIVE);
 	r_ignoreFastPath = ri.Cvar_Get("r_ignoreFastPath", "0", CVAR_ARCHIVE | CVAR_LATCH);
 	r_subdivisions = ri.Cvar_Get("r_subdivisions", "3", CVAR_ARCHIVE | CVAR_LATCH);
 	ri.Cvar_CheckRange(r_subdivisions, 2, 24, qtrue);
@@ -1878,6 +1899,10 @@ RE_Shutdown
 ===============
 */
 void RE_Shutdown( qboolean destroyWindow ) {	
+
+	R_SkelPoseCacheClear(); /* Added in Omaha */
+	R_WorldSurfCacheClear(); /* Added in Omaha */
+	R_FreeWorldVbos(); /* Added in Omaha */
 
 	ri.Printf( PRINT_ALL, "RE_Shutdown( %i )\n", destroyWindow );
 

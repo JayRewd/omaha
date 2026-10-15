@@ -141,7 +141,8 @@ R_ColorShiftLightingBytes
 
 ===============
 */
-static	void R_ColorShiftLightingBytes( byte in[3], byte out[3] ) {
+/* Changed in Omaha: shared with r_dlightInPlace lightmap restores (tr_light.c). */
+void R_ColorShiftLightingBytes( byte in[3], byte out[3] ) {
     int		r, g, b;
 
     // shift the data based on overbright range
@@ -203,14 +204,59 @@ R_LoadLightmaps
 ===============
 */
 #define	LIGHTMAP_SIZE	128
+
+/*
+ * Added in Omaha: brush faces sample lightmap atlases so surfaces that only differ
+ * by 128x128 page share one shader_t (and one batch). Terrain, patches and the
+ * dlight path keep using the original pages at tr.lightmaps[0..pages-1].
+ */
+#define LIGHTMAP_ATLAS_COLS		16
+#define LIGHTMAP_ATLAS_PAGES	(LIGHTMAP_ATLAS_COLS * LIGHTMAP_ATLAS_COLS)
+
+static int s_lmNumPages;
+static int s_lmAtlasBase;
+static int s_lmNumAtlases;
+static int s_lmAtlasCols[MAX_LIGHTMAPS];
+static int s_lmAtlasW[MAX_LIGHTMAPS];
+static int s_lmAtlasH[MAX_LIGHTMAPS];
+
+static int R_LightmapAtlasForPage(int page) {
+    if (!s_lmNumAtlases || page < 0 || page >= s_lmNumPages) {
+        return -1;
+    }
+    return page / LIGHTMAP_ATLAS_PAGES;
+}
+
+static void R_LightmapAtlasPagePlacement(int page, float ofs[2], float scale[2]) {
+    const int a = page / LIGHTMAP_ATLAS_PAGES;
+    const int k = page % LIGHTMAP_ATLAS_PAGES;
+
+    scale[0] = (float)LIGHTMAP_SIZE / s_lmAtlasW[a];
+    scale[1] = (float)LIGHTMAP_SIZE / s_lmAtlasH[a];
+    ofs[0]   = (k % s_lmAtlasCols[a]) * scale[0];
+    ofs[1]   = (k / s_lmAtlasCols[a]) * scale[1];
+}
+
+static int R_LightmapNextPow2(int v) {
+    int p = 1;
+    while (p < v) {
+        p <<= 1;
+    }
+    return p;
+}
+
 static	void R_LoadLightmaps(gamelump_t* l) {
     byte		*buf, *buf_p;
     int			len;
     MAC_STATIC byte		image[LIGHTMAP_SIZE*LIGHTMAP_SIZE*4];
     int			i, j;
     float maxIntensity = 0;
+    byte		*atlas[MAX_LIGHTMAPS];
 
     tr.numLightmaps = 0;
+    s_lmNumPages = 0;
+    s_lmAtlasBase = 0;
+    s_lmNumAtlases = 0;
 
     len = l->length;
     if (!len) {
@@ -227,6 +273,28 @@ static	void R_LoadLightmaps(gamelump_t* l) {
 	// if we are in r_vertexLight mode, we don't need the lightmaps at all
 	if ( r_vertexLight->integer || glConfig.hardwareType == GLHW_PERMEDIA2 ) {
         return;
+    }
+
+    s_lmNumPages = tr.numLightmaps;
+    if (r_lightmapAtlas->integer && s_lmNumPages > 1
+        && glConfig.maxTextureSize >= LIGHTMAP_SIZE * LIGHTMAP_ATLAS_COLS) {
+        const int numAtlases = (s_lmNumPages + LIGHTMAP_ATLAS_PAGES - 1) / LIGHTMAP_ATLAS_PAGES;
+
+        if (s_lmNumPages + numAtlases <= MAX_LIGHTMAPS) {
+            s_lmAtlasBase  = s_lmNumPages;
+            s_lmNumAtlases = numAtlases;
+            for (i = 0; i < numAtlases; i++) {
+                const int count = Q_min(LIGHTMAP_ATLAS_PAGES, s_lmNumPages - i * LIGHTMAP_ATLAS_PAGES);
+                const int cols  = Q_min(LIGHTMAP_ATLAS_COLS, R_LightmapNextPow2(count));
+                const int rows  = R_LightmapNextPow2((count + cols - 1) / cols);
+
+                s_lmAtlasCols[i] = cols;
+                s_lmAtlasW[i]    = cols * LIGHTMAP_SIZE;
+                s_lmAtlasH[i]    = rows * LIGHTMAP_SIZE;
+                atlas[i]         = ri.Malloc(s_lmAtlasW[i] * s_lmAtlasH[i] * 4);
+                Com_Memset(atlas[i], 0, s_lmAtlasW[i] * s_lmAtlasH[i] * 4);
+            }
+        }
     }
 
     for ( i = 0 ; i < tr.numLightmaps ; i++ ) {
@@ -269,7 +337,27 @@ static	void R_LoadLightmaps(gamelump_t* l) {
         }
 		tr.lightmaps[i] = R_CreateImageOld(va("*lightmap%d", i), image,
             LIGHTMAP_SIZE, LIGHTMAP_SIZE, 0, 1, qfalse, qfalse, qfalse, qfalse, GL_CLAMP, GL_CLAMP);
+
+        if (s_lmNumAtlases) {
+            const int a    = i / LIGHTMAP_ATLAS_PAGES;
+            const int k    = i % LIGHTMAP_ATLAS_PAGES;
+            const int x0   = (k % s_lmAtlasCols[a]) * LIGHTMAP_SIZE;
+            const int y0   = (k / s_lmAtlasCols[a]) * LIGHTMAP_SIZE;
+            const int rowB = LIGHTMAP_SIZE * 4;
+
+            for (j = 0; j < LIGHTMAP_SIZE; j++) {
+                Com_Memcpy(&atlas[a][((y0 + j) * s_lmAtlasW[a] + x0) * 4], &image[j * rowB], rowB);
+            }
+        }
     }
+
+    for (i = 0; i < s_lmNumAtlases; i++) {
+        tr.lightmaps[s_lmAtlasBase + i] = R_CreateImageOld(va("*lightmapatlas%d", i), atlas[i],
+            s_lmAtlasW[i], s_lmAtlasH[i], 0, 1, qfalse, qfalse, qfalse, qfalse, GL_CLAMP, GL_CLAMP);
+        ri.Free(atlas[i]);
+        ri.Printf(PRINT_DEVELOPER, "lightmap atlas %d: %dx%d\n", i, s_lmAtlasW[i], s_lmAtlasH[i]);
+    }
+    tr.numLightmaps += s_lmNumAtlases;
 
     /* Fixed in Omaha: cached world shaders keep image* into prior *lightmap slots;
      * after menu backdrop free/recreate those pointers are wrong/NULL. */
@@ -628,11 +716,16 @@ static void ParseFace( dsurface_t *ds, drawVert_t *verts, msurface_t *surf, int 
     int			lightmapNum;
     int			sfaceSize, ofsIndexes;
     static surfaceType_t skipData = SF_SKIP;
+    int			atlasNum;
+    float		atlasOfs[2], atlasScale[2];
 
     lightmapNum = LittleLong( ds->lightmapNum );
+    // Added in Omaha: brush faces bind the page's atlas instead of the page itself
+    atlasNum = R_LightmapAtlasForPage( lightmapNum );
 
     // get shader value
-    surf->shader = ShaderForShaderNum(LittleLong(ds->shaderNum), lightmapNum);
+    surf->shader = ShaderForShaderNum(LittleLong(ds->shaderNum),
+        atlasNum >= 0 ? s_lmAtlasBase + atlasNum : lightmapNum);
     if ( r_singleShader->integer && !surf->shader->isSky ) {
         surf->shader = tr.defaultShader;
     }
@@ -675,6 +768,21 @@ static void ParseFace( dsurface_t *ds, drawVert_t *verts, msurface_t *surf, int 
         R_ColorShiftLightingBytesAlpha( verts[i].color, (byte *)&cv->points[i][7] );
     }
 
+    cv->lmAtlasOfs[0] = cv->lmAtlasOfs[1] = 0.f;
+    cv->lmAtlasInv[0] = cv->lmAtlasInv[1] = 1.f;
+    cv->lmTexIndex = -1;
+    if (atlasNum >= 0 && surf->shader->lightmapIndex == s_lmAtlasBase + atlasNum) {
+        R_LightmapAtlasPagePlacement(lightmapNum, atlasOfs, atlasScale);
+        for ( i = 0 ; i < numPoints ; i++ ) {
+            cv->points[i][5] = cv->points[i][5] * atlasScale[0] + atlasOfs[0];
+            cv->points[i][6] = cv->points[i][6] * atlasScale[1] + atlasOfs[1];
+        }
+        cv->lmAtlasOfs[0] = atlasOfs[0];
+        cv->lmAtlasOfs[1] = atlasOfs[1];
+        cv->lmAtlasInv[0] = 1.f / atlasScale[0];
+        cv->lmAtlasInv[1] = 1.f / atlasScale[1];
+    }
+
     indexes += LittleLong( ds->firstIndex );
     for ( i = 0 ; i < numIndexes ; i++ ) {
         ((int *)((byte *)cv + cv->ofsIndices ))[i] = LittleLong( indexes[ i ] );
@@ -688,6 +796,20 @@ static void ParseFace( dsurface_t *ds, drawVert_t *verts, msurface_t *surf, int 
     SetPlaneSignbits( &cv->plane );
     cv->plane.type = PlaneTypeForNormal( cv->plane.normal );
 
+    // Added in Omaha
+    //  Bounding sphere for per-face frustum culling
+    {
+        vec3_t bounds[2];
+
+        ClearBounds( bounds[0], bounds[1] );
+        for ( i = 0 ; i < numPoints ; i++ ) {
+            AddPointToBounds( cv->points[i], bounds[0], bounds[1] );
+        }
+        VectorAdd( bounds[0], bounds[1], cv->cullOrigin );
+        VectorScale( cv->cullOrigin, 0.5f, cv->cullOrigin );
+        cv->cullRadius = 0.5f * Distance( bounds[0], bounds[1] );
+    }
+
     if (tr.numLightmaps && lightmapNum != -1 && surf->shader->lightmapIndex >= 0)
     {
         float inv;
@@ -696,6 +818,23 @@ static void ParseFace( dsurface_t *ds, drawVert_t *verts, msurface_t *surf, int 
         cv->lmY = LittleLong(ds->lightmapY);
         cv->lmWidth = LittleLong(ds->lightmapWidth);
         cv->lmHeight = LittleLong(ds->lightmapHeight);
+
+        // Added in Omaha: texel position of the block in the bound lightmap (r_dlightInPlace)
+        cv->lmTexIndex = surf->shader->lightmapIndex;
+        cv->lmTexX     = cv->lmX;
+        cv->lmTexY     = cv->lmY;
+        if (atlasNum >= 0 && surf->shader->lightmapIndex == s_lmAtlasBase + atlasNum) {
+            const int k = lightmapNum % LIGHTMAP_ATLAS_PAGES;
+            cv->lmTexX += (k % s_lmAtlasCols[atlasNum]) * LIGHTMAP_SIZE;
+            cv->lmTexY += (k / s_lmAtlasCols[atlasNum]) * LIGHTMAP_SIZE;
+        } else if (surf->shader->lightmapIndex != lightmapNum) {
+            cv->lmTexIndex = -1;
+        }
+        if (cv->lmX < 0 || cv->lmY < 0 || cv->lmWidth <= 0 || cv->lmHeight <= 0
+            || cv->lmX + cv->lmWidth > LIGHTMAP_SIZE || cv->lmY + cv->lmHeight > LIGHTMAP_SIZE
+            || lightmapNum < 0 || lightmapNum >= s_lmNumPages) {
+            cv->lmTexIndex = -1;
+        }
 
         if (s_worldData.lighting) {
             cv->lmData = &s_worldData.lighting[lightmapNum * (LIGHTMAP_SIZE * LIGHTMAP_SIZE * 3) + 3 * cv->lmX + 3 * LIGHTMAP_SIZE * cv->lmY];
@@ -1609,6 +1748,48 @@ void R_MovePatchSurfacesToHunk(void) {
 R_LoadSurfaces
 ===============
 */
+/*
+ * Added in Omaha: r_dlightInPlace writes a lit face's block into its own lightmap,
+ * which is only safe when no other face samples those texels.
+ */
+static void R_MarkSharedFaceLightmaps(void) {
+    const int   pageTexels = LIGHTMAP_SIZE * LIGHTMAP_SIZE;
+    int        *owner;
+    int         i, x, y;
+
+    if (!s_lmNumPages || !s_worldData.lighting) {
+        return;
+    }
+
+    owner = ri.Malloc(s_lmNumPages * pageTexels * sizeof(int));
+    Com_Memset(owner, 0, s_lmNumPages * pageTexels * sizeof(int));
+
+    for (i = 0; i < s_worldData.numsurfaces; i++) {
+        srfSurfaceFace_t *f = (srfSurfaceFace_t *)s_worldData.surfaces[i].data;
+        int               page, *o;
+
+        if (*s_worldData.surfaces[i].data != SF_FACE || f->lmTexIndex < 0) {
+            continue;
+        }
+
+        page = (int)((f->lmData - s_worldData.lighting) / (pageTexels * 3));
+        o    = &owner[page * pageTexels];
+        for (y = f->lmY; y < f->lmY + f->lmHeight; y++) {
+            for (x = f->lmX; x < f->lmX + f->lmWidth; x++) {
+                int *t = &o[y * LIGHTMAP_SIZE + x];
+                if (*t && *t != i + 1) {
+                    srfSurfaceFace_t *other = (srfSurfaceFace_t *)s_worldData.surfaces[*t - 1].data;
+                    other->lmTexIndex = -1;
+                    f->lmTexIndex     = -1;
+                }
+                *t = i + 1;
+            }
+        }
+    }
+
+    ri.Free(owner);
+}
+
 static	void R_LoadSurfaces(gamelump_t* surfs, gamelump_t* verts, gamelump_t* indexLump) {
     dsurface_t	*in;
     msurface_t	*out;
@@ -1663,6 +1844,8 @@ static	void R_LoadSurfaces(gamelump_t* surfs, gamelump_t* verts, gamelump_t* ind
             ri.Error( ERR_DROP, "Bad surfaceType" );
         }
     }
+
+    R_MarkSharedFaceLightmaps();
 
 #ifdef PATCH_STITCHING
     R_StitchAllPatches();
@@ -2250,6 +2433,83 @@ void R_FreeLump(gamelump_t* lump)
     }
 }
 
+/*
+=================
+R_BuildWorldVbo
+
+Added in Omaha: one static VBO per world slot holding the points[] of every
+world (bmodel 0) face. The 32-byte VERTEXSIZE layout uploads as-is:
+xyz @0, st @12, lightmap (atlas) st @20, packed rgba @28.
+=================
+*/
+static GLuint s_worldVbo[2];
+
+static void R_FreeWorldVbo(int slot) {
+    if (s_worldVbo[slot] && qglDeleteBuffers) {
+        qglDeleteBuffers(1, &s_worldVbo[slot]);
+    }
+    s_worldVbo[slot] = 0;
+}
+
+void R_FreeWorldVbos(void) {
+    R_FreeWorldVbo(0);
+    R_FreeWorldVbo(1);
+}
+
+static void R_BuildWorldVbo(void) {
+    const bmodel_t   *bm;
+    srfSurfaceFace_t *face;
+    float            *buf;
+    int               i, numVerts, ofs;
+
+    R_FreeWorldVbo(s_worldLoadIndex);
+
+    if (!qglGenBuffers || !qglBindBuffer || !qglBufferData || !qglDeleteBuffers || !qglDrawRangeElements) {
+        return;
+    }
+    if (!s_worldData.numBmodels) {
+        return;
+    }
+
+    bm       = &s_worldData.bmodels[0];
+    numVerts = 0;
+    for (i = 0; i < bm->numSurfaces; i++) {
+        if (*bm->firstSurface[i].data == SF_FACE) {
+            numVerts += ((srfSurfaceFace_t *)bm->firstSurface[i].data)->numPoints;
+        }
+    }
+    if (!numVerts) {
+        return;
+    }
+
+    buf = ri.Hunk_AllocateTempMemory(numVerts * sizeof(float) * VERTEXSIZE);
+    ofs = 0;
+    for (i = 0; i < bm->numSurfaces; i++) {
+        if (*bm->firstSurface[i].data != SF_FACE) {
+            continue;
+        }
+        face               = (srfSurfaceFace_t *)bm->firstSurface[i].data;
+        face->vboFirstVert = ofs;
+        Com_Memcpy(buf + ofs * VERTEXSIZE, face->points, face->numPoints * sizeof(float) * VERTEXSIZE);
+        ofs += face->numPoints;
+    }
+
+    RE_UI2D_ReleaseBuffersForClientArrays();
+    qglGenBuffers(1, &s_worldVbo[s_worldLoadIndex]);
+    qglBindBuffer(GL_ARRAY_BUFFER, s_worldVbo[s_worldLoadIndex]);
+    qglBufferData(GL_ARRAY_BUFFER, numVerts * sizeof(float) * VERTEXSIZE, buf, GL_STATIC_DRAW);
+    qglBindBuffer(GL_ARRAY_BUFFER, 0);
+    ri.Hunk_FreeTempMemory(buf);
+
+    for (i = 0; i < bm->numSurfaces; i++) {
+        if (*bm->firstSurface[i].data == SF_FACE) {
+            ((srfSurfaceFace_t *)bm->firstSurface[i].data)->vbo = s_worldVbo[s_worldLoadIndex];
+        }
+    }
+
+    ri.Printf(PRINT_DEVELOPER, "world VBO: %i verts (%i KB)\n", numVerts, (numVerts * VERTEXSIZE * 4) >> 10);
+}
+
 #define _R( id ) ri.UI_LoadResource( "*" #id )
 
 /*
@@ -2271,6 +2531,9 @@ void RE_LoadWorldMap( const char *name ) {
 		s_worldLoadIndex = 0;
 	}
 
+	// Added in Omaha: face pointers are about to be reused
+	R_FlushDlightCache();
+
     vDefSundir[0] = 0.45f;
     vDefSundir[1] = 0.3f;
     vDefSundir[2] = 0.9f;
@@ -2283,6 +2546,10 @@ void RE_LoadWorldMap( const char *name ) {
     VectorNormalize( tr.sunDirection );
 
     tr.worldMapLoaded = qtrue;
+
+    // Added in Omaha: cached poses key on dtiki_t pointers that a map change frees
+    R_SkelPoseCacheClear();
+    R_WorldSurfCacheClear();
 
     // load it
     length = ri.FS_OpenFile(name, &h, qtrue, qtrue);
@@ -2453,6 +2720,8 @@ void RE_LoadWorldMap( const char *name ) {
         g_nStaticModelIndices = 0;
     }
 
+    R_BuildWorldVbo(); /* Added in Omaha */
+
     world_t *prevActiveWorld = tr.world;
 
     // only set tr.world now that we know the entire level has loaded properly
@@ -2463,6 +2732,11 @@ void RE_LoadWorldMap( const char *name ) {
 	} else {
 		tr.world = &s_worldDataMem[s_worldLoadIndex];
 	}
+
+    /* Fixed in Omaha: on a same-map reload (demo rewind) tr.viewCluster can still
+     * match from the previous world; MarkLeaves would early-out and leave the new
+     * nodes unmarked. */
+    tr.viewCluster = -1;
 
     ri.FS_CloseFile(h);
 

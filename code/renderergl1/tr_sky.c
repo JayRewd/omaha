@@ -373,27 +373,45 @@ static int	sky_texorder[6] = {0,2,1,3,4,5};
 static vec3_t	s_skyPoints[SKY_SUBDIVISIONS+1][SKY_SUBDIVISIONS+1];
 static float	s_skyTexCoords[SKY_SUBDIVISIONS+1][SKY_SUBDIVISIONS+1][2];
 
+/*
+ * Changed in Omaha: one indexed draw per side instead of immediate-mode strips
+ * (~1.7k glVertex/glTexCoord calls per frame). Triangle order matches the strips.
+ */
 static void DrawSkySide( struct image_s *image, const int mins[2], const int maxs[2] )
 {
-	int s, t;
+	static glIndex_t indexes[SKY_SUBDIVISIONS * SKY_SUBDIVISIONS * 6];
+	const int stride = SKY_SUBDIVISIONS + 1;
+	int s, t, n;
+
+	n = 0;
+	for ( t = mins[1]+HALF_SKY_SUBDIVISIONS; t < maxs[1]+HALF_SKY_SUBDIVISIONS; t++ )
+	{
+		for ( s = mins[0]+HALF_SKY_SUBDIVISIONS; s < maxs[0]+HALF_SKY_SUBDIVISIONS; s++ )
+		{
+			const glIndex_t a = t * stride + s;
+			const glIndex_t b = a + stride;
+
+			indexes[n++] = a;
+			indexes[n++] = b;
+			indexes[n++] = a + 1;
+			indexes[n++] = a + 1;
+			indexes[n++] = b;
+			indexes[n++] = b + 1;
+		}
+	}
+
+	if ( !n ) {
+		return;
+	}
 
 	GL_Bind( image );
 
-	for ( t = mins[1]+HALF_SKY_SUBDIVISIONS; t < maxs[1]+HALF_SKY_SUBDIVISIONS; t++ )
-	{
-		qglBegin( GL_TRIANGLE_STRIP );
-
-		for ( s = mins[0]+HALF_SKY_SUBDIVISIONS; s <= maxs[0]+HALF_SKY_SUBDIVISIONS; s++ )
-		{
-			qglTexCoord2fv( s_skyTexCoords[t][s] );
-			qglVertex3fv( s_skyPoints[t][s] );
-
-			qglTexCoord2fv( s_skyTexCoords[t+1][s] );
-			qglVertex3fv( s_skyPoints[t+1][s] );
-		}
-
-		qglEnd();
-	}
+	GL_SelectTexture( 0 );
+	qglDisableClientState( GL_COLOR_ARRAY );
+	qglEnableClientState( GL_TEXTURE_COORD_ARRAY );
+	qglTexCoordPointer( 2, GL_FLOAT, 0, s_skyTexCoords );
+	qglVertexPointer( 3, GL_FLOAT, 0, s_skyPoints );
+	qglDrawElements( GL_TRIANGLES, n, GL_INDEX_TYPE, indexes );
 }
 
 static void DrawSkyBox( shader_t *shader )

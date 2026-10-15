@@ -28,6 +28,40 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #define MARKER_OFFSET			0	// 1
 
+// Added in Omaha
+//  R_ChopPolyBehindPlane drops a polygon with no point more than 0.5 in front of a
+//  plane, and clipped points stay inside the input hull, so a polygon whose input
+//  points are all below this (rounding margin included) yields no fragment.
+#define MARK_REJECT_EPSILON		0.25f
+
+static qboolean R_MarkTriOutside(const vec3_t tri[3], int numPlanes, const vec3_t *normals, const float *dists)
+{
+	int i;
+
+	for (i = 0; i < numPlanes; i++) {
+		if (DotProduct(tri[0], normals[i]) - dists[i] < MARK_REJECT_EPSILON
+			&& DotProduct(tri[1], normals[i]) - dists[i] < MARK_REJECT_EPSILON
+			&& DotProduct(tri[2], normals[i]) - dists[i] < MARK_REJECT_EPSILON) {
+			return qtrue;
+		}
+	}
+	return qfalse;
+}
+
+static qboolean R_MarkSphereOutside(const vec3_t origin, float radius, int numPlanes, const vec3_t *normals, const float *dists)
+{
+	int i;
+
+	// normals come from VectorNormalizeFast, so pad the radius for non-unit length
+	radius = radius * 1.01f + 0.01f;
+	for (i = 0; i < numPlanes; i++) {
+		if (DotProduct(origin, normals[i]) - dists[i] + radius < MARK_REJECT_EPSILON) {
+			return qtrue;
+		}
+	}
+	return qfalse;
+}
+
 /*
 =============
 R_ChopPolyBehindPlane
@@ -200,6 +234,10 @@ void R_AddMarkFragments(int numClipPoints, vec3_t clipPoints[2][MAX_VERTS_ON_POL
 	int pingPong, i;
 	markFragment_t	*mf;
 
+	// Added in Omaha
+	if (numClipPoints == 3 && R_MarkTriOutside((const vec3_t*)clipPoints[0], numPlanes, normals, dists)) {
+		return;
+	}
 	// chop the surface by all the bounding planes of the to be projected polygon
 	pingPong = 0;
 
@@ -528,6 +566,10 @@ void R_TessellateMarkFragments(
             surf = (srfSurfaceFace_t*)surfaces[i];
             // check the normal of this face
             if (DotProduct(surf->plane.normal, projectionDir) > -0.5) {
+                continue;
+            }
+            // Added in Omaha: skip faces / triangles that cannot produce a fragment
+            if (R_MarkSphereOutside(surf->cullOrigin, surf->cullRadius + fabs(MARKER_OFFSET), numPlanes, normals, dists)) {
                 continue;
             }
 

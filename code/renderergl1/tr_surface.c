@@ -372,6 +372,63 @@ void RB_SurfaceBeam( void )
 
 /*
 ==============
+RB_WorldVboActive
+
+Added in Omaha: debug views that rewrite colors / texcoords / primitives in
+the client-array iterators keep the tess path.
+==============
+*/
+static qboolean RB_WorldVboActive(void) {
+	return r_vboWorld->integer && !r_lightmap->integer && !r_vertexLight->integer
+		&& !(r_developer->integer && (r_showtris->integer || r_shownormals->integer))
+		&& (r_primitives->integer == 0 || r_primitives->integer == 2);
+}
+
+/*
+==============
+RB_SurfaceFaceVbo
+
+Added in Omaha: append a world face as indexes into its world VBO.
+==============
+*/
+static void RB_SurfaceFaceVbo( srfSurfaceFace_t *surf ) {
+	const unsigned *indices;
+	glIndex_t		*tessIndexes;
+	int				i;
+	const int		base = surf->vboFirstVert;
+
+	if (tess.numIndexes
+		&& (!tess.vboMode || tess.vboId != surf->vbo
+			|| tess.numIndexes + surf->numIndices >= SHADER_MAX_INDEXES)) {
+		RB_LeaveWorldVbo();
+	}
+	if (!tess.vboMode) {
+		tess.vboMode					= qtrue;
+		tess.vboId						= surf->vbo;
+		tess.vboMinVert					= base;
+		tess.vboMaxVert					= base;
+		tess.currentStageIteratorFunc	= RB_StageIteratorWorldVbo;
+	}
+
+	indices		= ( const unsigned * ) ( ( ( const char * ) surf ) + surf->ofsIndices );
+	tessIndexes	= tess.indexes + tess.numIndexes;
+	for ( i = 0; i < surf->numIndices; i++ ) {
+		tessIndexes[i] = indices[i] + base;
+	}
+	tess.numIndexes += surf->numIndices;
+
+	if (base < tess.vboMinVert) {
+		tess.vboMinVert = base;
+	}
+	if (base + surf->numPoints - 1 > tess.vboMaxVert) {
+		tess.vboMaxVert = base + surf->numPoints - 1;
+	}
+
+	backEnd.worldSpaceBatch = qtrue;
+}
+
+/*
+==============
 RB_SurfaceFace
 ==============
 */
@@ -385,6 +442,16 @@ void RB_SurfaceFace( srfSurfaceFace_t *surf ) {
 	int			Bob;
 	int			numPoints;
 	int			dlightBits;
+
+	if (surf->vbo && backEnd.currentEntity == &tr.worldEntity && !tess.dlightMap
+		&& !surf->dlightBits[backEnd.smpFrame] && RB_WorldVboActive()
+		&& RB_ShaderAllowsWorldVbo(tess.shader)) {
+		RB_SurfaceFaceVbo(surf);
+		return;
+	}
+	if (tess.vboMode) {
+		RB_LeaveWorldVbo();
+	}
 
 	RB_CHECKOVERFLOW( surf->numPoints, surf->numIndices );
 
@@ -423,33 +490,80 @@ void RB_SurfaceFace( srfSurfaceFace_t *surf ) {
 		}
 	}
 
-	if (tess.dlightMap)
+	/*
+	 * Changed in Omaha: opaque lightmapped faces (no dist-fade / alpha) can emit
+	 * world-space xyz so brush+world batches merge. Gated by RB_ShaderAllowsWorldBatch
+	 * — foliage DIST_FADE assumes model-local verts and zeroed alpha when batched.
+	 */
 	{
-		for (i = 0, v = surf->points[0], ndx = tess.numVertexes; i < numPoints; i++, v += VERTEXSIZE, ndx++) {
-			VectorCopy(v, tess.xyz[ndx]);
-			tess.texCoords[ndx][0][0] = v[3];
-			tess.texCoords[ndx][0][1] = v[4];
-			tess.texCoords[ndx][1][0] = v[5] + surf->lightmapOffset[0];
-			tess.texCoords[ndx][1][1] = v[6] + surf->lightmapOffset[1];
-			*(unsigned int*)&tess.vertexColors[ndx] = *(unsigned int*)&v[7];
-			tess.vertexDlightBits[ndx] = dlightBits;
+		const qboolean worldBatch =
+			tess.dlightMap == 0
+			&& backEnd.currentEntity
+			&& !(backEnd.currentEntity->e.renderfx & RF_DEPTHHACK)
+			&& RB_ShaderAllowsWorldBatch(tess.shader);
+		const qboolean xform =
+			worldBatch && backEnd.currentEntity != &tr.worldEntity;
+		const orientationr_t *o = &backEnd.ori;
+
+		if (tess.dlightMap) {
+			for (i = 0, v = surf->points[0], ndx = tess.numVertexes; i < numPoints;
+				 i++, v += VERTEXSIZE, ndx++) {
+				VectorCopy(v, tess.xyz[ndx]);
+				tess.texCoords[ndx][0][0] = v[3];
+				tess.texCoords[ndx][0][1] = v[4];
+				// Changed in Omaha: dlight pages are addressed in page UVs, not atlas UVs
+				tess.texCoords[ndx][1][0] = (v[5] - surf->lmAtlasOfs[0]) * surf->lmAtlasInv[0] + surf->lightmapOffset[0];
+				tess.texCoords[ndx][1][1] = (v[6] - surf->lmAtlasOfs[1]) * surf->lmAtlasInv[1] + surf->lightmapOffset[1];
+				*(unsigned int *)&tess.vertexColors[ndx] = *(unsigned int *)&v[7];
+				tess.vertexDlightBits[ndx] = dlightBits;
+			}
+		} else if (xform) {
+			for (i = 0, v = surf->points[0], ndx = tess.numVertexes; i < numPoints;
+				 i++, v += VERTEXSIZE, ndx++) {
+				float *px = tess.xyz[ndx];
+				px[0] = v[0] * o->axis[0][0] + v[1] * o->axis[1][0] + v[2] * o->axis[2][0]
+						+ o->origin[0];
+				px[1] = v[0] * o->axis[0][1] + v[1] * o->axis[1][1] + v[2] * o->axis[2][1]
+						+ o->origin[1];
+				px[2] = v[0] * o->axis[0][2] + v[1] * o->axis[1][2] + v[2] * o->axis[2][2]
+						+ o->origin[2];
+				px[3] = 0.f;
+				tess.texCoords[ndx][0][0] = v[3];
+				tess.texCoords[ndx][0][1] = v[4];
+				tess.texCoords[ndx][1][0] = v[5];
+				tess.texCoords[ndx][1][1] = v[6];
+				*(unsigned int *)&tess.vertexColors[ndx] = *(unsigned int *)&v[7];
+				tess.vertexDlightBits[ndx] = dlightBits;
+			}
+			if (needsNormal) {
+				const float *ln = surf->plane.normal;
+				for (i = 0, ndx = tess.numVertexes; i < numPoints; i++, ndx++) {
+					float *pn = tess.normal[ndx];
+					pn[0] = ln[0] * o->axis[0][0] + ln[1] * o->axis[1][0] + ln[2] * o->axis[2][0];
+					pn[1] = ln[0] * o->axis[0][1] + ln[1] * o->axis[1][1] + ln[2] * o->axis[2][1];
+					pn[2] = ln[0] * o->axis[0][2] + ln[1] * o->axis[1][2] + ln[2] * o->axis[2][2];
+					pn[3] = 0.f;
+				}
+			}
+		} else {
+			for (i = 0, v = surf->points[0], ndx = tess.numVertexes; i < numPoints;
+				 i++, v += VERTEXSIZE, ndx++) {
+				VectorCopy(v, tess.xyz[ndx]);
+				tess.texCoords[ndx][0][0] = v[3];
+				tess.texCoords[ndx][0][1] = v[4];
+				tess.texCoords[ndx][1][0] = v[5];
+				tess.texCoords[ndx][1][1] = v[6];
+				*(unsigned int *)&tess.vertexColors[ndx] = *(unsigned int *)&v[7];
+				tess.vertexDlightBits[ndx] = dlightBits;
+			}
+		}
+
+		tess.numVertexes += surf->numPoints;
+		if (worldBatch) {
+			backEnd.worldSpaceBatch = qtrue;
+			tess.vertexColorValid = qtrue;
 		}
 	}
-	else
-	{
-		for (i = 0, v = surf->points[0], ndx = tess.numVertexes; i < numPoints; i++, v += VERTEXSIZE, ndx++) {
-			VectorCopy(v, tess.xyz[ndx]);
-			tess.texCoords[ndx][0][0] = v[3];
-			tess.texCoords[ndx][0][1] = v[4];
-			tess.texCoords[ndx][1][0] = v[5];
-			tess.texCoords[ndx][1][1] = v[6];
-			*(unsigned int*)&tess.vertexColors[ndx] = *(unsigned int*)&v[7];
-			tess.vertexDlightBits[ndx] = dlightBits;
-		}
-	}
-
-
-	tess.numVertexes += surf->numPoints;
 }
 
 

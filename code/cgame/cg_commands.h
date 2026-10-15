@@ -253,6 +253,11 @@ public:
     qboolean      lastEntValid;
     spawnthing_t *m_spawnthing;
 
+    /* Added in Omaha: cached smoke lighting until origin moves */
+    vec3_t   lightCache;
+    vec3_t   lightCacheOrigin;
+    qboolean lightCacheValid;
+
     void (*touchfcn)(ctempmodel_t *ct, trace_t *trace);
 
 public:
@@ -271,6 +276,9 @@ inline ctempmodel_t::ctempmodel_t()
     aliveTime             = 0;
     addedOnce             = qfalse;
     lastEntValid          = qfalse;
+    lightCacheValid       = qfalse;
+    VectorClear(lightCache);
+    VectorClear(lightCacheOrigin);
 }
 
 enum class vsstypes_t : unsigned char {

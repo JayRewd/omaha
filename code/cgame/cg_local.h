@@ -564,6 +564,10 @@ extern "C" {
     void CG_ServerModelLoaded(const char* name, qhandle_t handle);
     void CG_ServerModelUnloaded(qhandle_t handle);
     void CG_ModelAnim(centity_t *cent, qboolean bDoShaderTime);
+    /* Added in Omaha: invalidate per-tiki tag index cache when a tiki is freed */
+    void CG_ClearTikiTagCache(dtiki_t *tiki);
+    /* Added in Omaha: cached "eyes bone" tag index for this tiki (-1 if missing) */
+    int  CG_TikiEyesTag(dtiki_t *tiki);
     void CG_AttachEntity(
         refEntity_t *entity, refEntity_t *parent, dtiki_t *tiki, int tagnum, qboolean use_angles, vec3_t attach_offset
     );
@@ -981,6 +985,8 @@ qboolean CG_LightStyleColor(int style, int realtime, vec4_t color, qboolean clam
     //
     // cg_specialfx.cpp
     void CG_Footstep(const char *szTagName, centity_t *ent, refEntity_t *pREnt, int iRunning, int iEquipment);
+    /* Added in Omaha: footstep with pre-resolved tag index */
+    void CG_FootstepByTag(int iTagNum, centity_t *ent, refEntity_t *pREnt, int iRunning, int iEquipment);
     void CG_MeleeImpact(vec3_t vStart, vec3_t vEnd);
     void CG_LandingSound(centity_t *ent, refEntity_t *pREnt, float volume, int iEquipment);
     void CG_BodyFallSound(centity_t *ent, refEntity_t *pREnt, float volume);

@@ -691,14 +691,13 @@ static void CG_FootstepMain(trace_t *trace, int iRunning, int iEquipment)
     }
 }
 
-void CG_Footstep(const char *szTagName, centity_t *ent, refEntity_t *pREnt, int iRunning, int iEquipment)
+/* Added in Omaha: footstep using a pre-resolved tag index (skips Tag_NumForName) */
+void CG_FootstepByTag(int iTagNum, centity_t *ent, refEntity_t *pREnt, int iRunning, int iEquipment)
 {
     int           i;
-    int           iTagNum;
     vec3_t        vStart, vEnd;
     vec3_t        midlegs;
     vec3_t        vMins, vMaxs;
-    str           sSoundName;
     trace_t       trace;
     orientation_t oTag;
 
@@ -706,14 +705,11 @@ void CG_Footstep(const char *szTagName, centity_t *ent, refEntity_t *pREnt, int 
     VectorCopy(ent->lerpOrigin, vStart);
     vStart[2] += GROUND_DISTANCE;
 
-    if (szTagName) {
-        iTagNum = cgi.Tag_NumForName(pREnt->tiki, szTagName);
-        if (iTagNum != -1) {
-            oTag = cgi.TIKI_Orientation(pREnt, iTagNum);
+    if (iTagNum != -1) {
+        oTag = cgi.TIKI_Orientation(pREnt, iTagNum);
 
-            for (i = 0; i < 2; i++) {
-                VectorMA(vStart, oTag.origin[i], pREnt->axis[i], vStart);
-            }
+        for (i = 0; i < 2; i++) {
+            VectorMA(vStart, oTag.origin[i], pREnt->axis[i], vStart);
         }
     }
 
@@ -771,6 +767,17 @@ void CG_Footstep(const char *szTagName, centity_t *ent, refEntity_t *pREnt, int 
     }
 
     CG_FootstepMain(&trace, iRunning, iEquipment);
+}
+
+void CG_Footstep(const char *szTagName, centity_t *ent, refEntity_t *pREnt, int iRunning, int iEquipment)
+{
+    int iTagNum = -1;
+
+    if (szTagName) {
+        iTagNum = cgi.Tag_NumForName(pREnt->tiki, szTagName);
+    }
+
+    CG_FootstepByTag(iTagNum, ent, pREnt, iRunning, iEquipment);
 }
 
 void CG_MeleeImpact(vec3_t vStart, vec3_t vEnd)

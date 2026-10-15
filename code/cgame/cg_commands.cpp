@@ -5155,6 +5155,52 @@ void CG_CleanUpTempModels()
     commandManager.FreeSomeTempModels();
 }
 
+/* Added in Omaha: intern Event::FindEventNum for hot anim/init client commands */
+#define CG_EVNUM_CACHE_SIZE 128
+static struct {
+    const char  *name;
+    unsigned int eventnum;
+} s_evNumCache[CG_EVNUM_CACHE_SIZE];
+static int s_evNumCacheCount;
+
+static unsigned int CG_InternEventNum(const char *name)
+{
+    int i;
+
+    if (!name) {
+        return 0;
+    }
+
+    /* pointer identity first — tiki cmd args are stable hunk pointers */
+    for (i = 0; i < s_evNumCacheCount; i++) {
+        if (s_evNumCache[i].name == name) {
+            return s_evNumCache[i].eventnum;
+        }
+    }
+
+    {
+        unsigned int eventnum = Event::FindEventNum(name);
+        if (s_evNumCacheCount < CG_EVNUM_CACHE_SIZE) {
+            s_evNumCache[s_evNumCacheCount].name     = name;
+            s_evNumCache[s_evNumCacheCount].eventnum = eventnum;
+            s_evNumCacheCount++;
+        } else {
+            /* ring overwrite */
+            static int s_evNumCacheNext;
+            s_evNumCache[s_evNumCacheNext].name     = name;
+            s_evNumCache[s_evNumCacheNext].eventnum = eventnum;
+            s_evNumCacheNext = (s_evNumCacheNext + 1) % CG_EVNUM_CACHE_SIZE;
+        }
+        return eventnum;
+    }
+}
+
+/* Added in Omaha: tiki cmd strings die with their tiki; drop keys that could be recycled */
+static void CG_ClearEventNumCache()
+{
+    s_evNumCacheCount = 0;
+}
+
 //=================
 // CG_ProcessInitCommands
 //=================
@@ -5181,8 +5227,8 @@ void CG_ProcessInitCommands(dtiki_t *tiki, refEntity_t *ent)
         pcmd     = &tiki->a->client_initcmds[i];
         num_args = pcmd->num_args;
 
-        // Create the event and Process it.
-        ev = new Event(pcmd->args[0]);
+        // Changed in Omaha: construct by interned eventnum (skip FindEventNum string search)
+        ev = new Event((int)CG_InternEventNum(pcmd->args[0]), num_args > 1 ? num_args - 1 : 0);
 
         for (j = 1; j < num_args; j++) {
             ev->AddToken(pcmd->args[j]);
@@ -5225,8 +5271,8 @@ void CG_ProcessCacheInitCommands(dtiki_t *tiki)
         pcmd     = &tiki->a->client_initcmds[i];
         num_args = pcmd->num_args;
 
-        // Create the event and Process it.
-        ev = new Event(pcmd->args[0]);
+        // Changed in Omaha: construct by interned eventnum (skip FindEventNum string search)
+        ev = new Event((int)CG_InternEventNum(pcmd->args[0]), num_args > 1 ? num_args - 1 : 0);
         if (commandManager.GetFlags(ev) & EV_CACHE) {
             // only process even in which the cache flag is set
 
@@ -5252,6 +5298,8 @@ void CG_ProcessCacheInitCommands(dtiki_t *tiki)
 void CG_EndTiki(dtiki_t *tiki)
 {
     CG_DeleteEmitters(tiki);
+    CG_ClearTikiTagCache(tiki); // Added in Omaha
+    CG_ClearEventNumCache();    // Added in Omaha
 }
 
 //=================
@@ -5316,8 +5364,8 @@ qboolean CG_ProcessEntityCommands(int frame, int anim, int entnum, refEntity_t *
             num_args = tikicmds.cmds[i].num_args;
 
             if (num_args > 0) {
-                // Create the event and Process it.
-                ev = new Event(tikicmds.cmds[i].args[0]);
+                // Added in Omaha: construct by interned eventnum (skip FindEventNum string search)
+                ev = new Event((int)CG_InternEventNum(tikicmds.cmds[i].args[0]), num_args > 1 ? num_args - 1 : 0);
 
                 for (j = 1; j < num_args; j++) {
                     ev->AddToken(tikicmds.cmds[i].args[j]);
@@ -5795,13 +5843,24 @@ void ClientGameCommandManager::CGEvent(centity_t *cent)
     m_spawnthing->cgd.color[3] = cent->color[3];
 
     Event *ev;
-    ev = new Event("model");
-    ev->AddString(modelname);
-    ProcessEvent(ev);
+    // Changed in Omaha: construct by static eventnums (skip FindEventNum string search)
+    {
+        static qboolean s_evReady = qfalse;
+        static int      s_evModel;
+        static int      s_evAnim;
+        if (!s_evReady) {
+            s_evModel = (int)Event::FindEventNum("model");
+            s_evAnim  = (int)Event::FindEventNum("anim");
+            s_evReady = qtrue;
+        }
+        ev = new Event(s_evModel, 1);
+        ev->AddString(modelname);
+        ProcessEvent(ev);
 
-    ev = new Event("anim");
-    ev->AddString("idle");
-    ProcessEvent(ev);
+        ev = new Event(s_evAnim, 1);
+        ev->AddString("idle");
+        ProcessEvent(ev);
+    }
 
     SpawnEffect(1, 0);
 }
@@ -6227,6 +6286,10 @@ void ctempmodel_t::ArchiveToMemory(MemArchiver& archiver)
     archiver.ArchiveBoolean(&addedOnce);
     archiver.ArchiveBoolean(&lastEntValid);
     commandManager.ArchiveSpawnThingPointerToMemory(archiver, &m_spawnthing);
+    /* Added in Omaha */
+    archiver.ArchiveVec3(lightCache);
+    archiver.ArchiveVec3(lightCacheOrigin);
+    archiver.ArchiveBoolean(&lightCacheValid);
 }
 
 void enttracker_t::ArchiveToMemory(MemArchiver& archiver)

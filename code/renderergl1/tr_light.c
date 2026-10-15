@@ -59,6 +59,430 @@ qboolean R_DlightSample(byte *src, const vec3_t vec, byte *dst);
 qboolean R_AllocLMBlock(int w, int h, int *x, int *y);
 
 /*
+ * Added in Omaha: dlight texel cache + upload skip (r_dlightCache).
+ *
+ * A dlit face's texels depend only on its static lightmap and the ordered list of
+ * lights reaching it (transformed origin, radius, color). At high fps the same
+ * light set repeats for several frames (client time is in ms), for every dlight
+ * — local or remote muzzle flashes alike — so the texels are cached per face.
+ *
+ * Every write into dli.lightmap_buffer is also recorded. When a scene's write
+ * sequence matches the previous scene's (and that one matched the one before),
+ * the buffer holds exactly what was last uploaded to each atlas, including
+ * unallocated filler texels, so the glTexSubImage2D is skipped.
+ */
+#define DLIGHT_CACHE_SIZE       2048
+#define DLIGHT_CACHE_WAYS       4
+#define DLIGHT_CACHE_MAX_LIGHTS 8
+#define DLIGHT_CACHE_POOL       (4 * 1024 * 1024)
+#define DLIGHT_MAX_WRITES       1024
+#define DLIGHT_MAX_ATLASES      15
+
+typedef struct {
+    const void   *surf;
+    const byte   *lmData;
+    int           w, h;
+    int           numLights;
+    int           overbrightShift;
+    float         lights[DLIGHT_CACHE_MAX_LIGHTS][7];
+    qboolean      added;
+    qboolean      valid;
+    unsigned int  serial;
+    byte         *texels; // faces: the whole lmWidth x lmHeight block
+    int          *ops;    // patches / terrain: recorded (byte offset, rgba) writes, in order
+    int           numOps;
+    int           maxOps;
+    int           lastUse;
+} dlightFaceCache_t;
+
+typedef struct {
+    const void  *surf;
+    int          atlas;
+    int          x, y;
+    unsigned int serial;
+} dlightWrite_t;
+
+typedef struct {
+    int numWrites;
+    int h;
+    int texnum;
+} dlightUpload_t;
+
+static dlightFaceCache_t s_dlCache[DLIGHT_CACHE_SIZE];
+static int               s_dlPoolStore[DLIGHT_CACHE_POOL / sizeof(int)];
+static byte *const       s_dlPool = (byte *)s_dlPoolStore;
+static int               s_dlPoolUsed;
+static unsigned int      s_dlSerial;
+static int               s_dlScene;
+
+static dlightWrite_t  s_dlWrites[2][DLIGHT_MAX_WRITES];
+static int            s_dlNumWrites[2];
+static qboolean       s_dlOverflow[2];
+static dlightUpload_t s_dlUploads[2][DLIGHT_MAX_ATLASES];
+static int            s_dlCur;
+static qboolean       s_dlPrevStable;
+static qboolean       s_dlPrefixMatch;
+
+static dlightFaceCache_t *s_dlRecord;
+static const byte        *s_dlRecordBase;
+
+static void R_DlightCacheClear(void);
+
+#define DLIGHT_MAX_INPLACE 1024
+
+static srfSurfaceFace_t *s_ipFaces[DLIGHT_MAX_INPLACE];
+static int               s_ipNumFaces;
+static const world_t    *s_ipWorld;
+
+void R_FlushDlightCache()
+{
+    // faces / lightmaps are being replaced; nothing left to restore
+    s_ipNumFaces = 0;
+    s_ipWorld    = NULL;
+    R_DlightCacheClear();
+}
+
+static void R_DlightCacheClear(void)
+{
+    int i;
+
+    Com_Memset(s_dlCache, 0, sizeof(s_dlCache));
+    s_dlPoolUsed = 0;
+
+    for (i = 0; i < 2; i++) {
+        s_dlNumWrites[i] = 0;
+        s_dlOverflow[i]  = qtrue;
+        Com_Memset(s_dlUploads[i], 0, sizeof(s_dlUploads[i]));
+    }
+    s_dlPrevStable  = qfalse;
+    s_dlPrefixMatch = qfalse;
+}
+
+static void R_DlightNoteWrite(const void *surf, int x, int y, unsigned int serial)
+{
+    const int      cur = s_dlCur;
+    dlightWrite_t *w;
+    int            n;
+
+    if (!serial) {
+        // uncached content: treat as never repeating
+        s_dlOverflow[cur] = qtrue;
+        s_dlPrefixMatch   = qfalse;
+        return;
+    }
+
+    n = s_dlNumWrites[cur];
+    if (n >= DLIGHT_MAX_WRITES) {
+        s_dlOverflow[cur] = qtrue;
+        s_dlPrefixMatch   = qfalse;
+        return;
+    }
+
+    w         = &s_dlWrites[cur][n];
+    w->surf   = surf;
+    w->atlas  = dli.dlightMap;
+    w->x      = x;
+    w->y      = y;
+    w->serial = serial;
+    s_dlNumWrites[cur] = n + 1;
+
+    if (s_dlPrefixMatch) {
+        const dlightWrite_t *p = &s_dlWrites[!cur][n];
+        if (n >= s_dlNumWrites[!cur] || p->surf != surf || p->atlas != w->atlas || p->x != x || p->y != y
+            || p->serial != serial) {
+            s_dlPrefixMatch = qfalse;
+        }
+    }
+}
+
+static void R_DlightBeginScene()
+{
+    const int prev = !s_dlCur;
+    const int cur  = s_dlCur;
+
+    // the scene that just ended becomes "previous"; stable if it repeated the one before
+    s_dlPrevStable = !s_dlOverflow[cur] && !s_dlOverflow[prev] && s_dlNumWrites[cur] == s_dlNumWrites[prev]
+                  && !memcmp(s_dlWrites[cur], s_dlWrites[prev], s_dlNumWrites[cur] * sizeof(dlightWrite_t));
+
+    s_dlScene++;
+    s_dlCur = prev;
+    s_dlNumWrites[prev] = 0;
+    s_dlOverflow[prev]  = !r_dlightCache->integer;
+    Com_Memset(s_dlUploads[prev], 0, sizeof(s_dlUploads[prev]));
+    s_dlPrefixMatch = r_dlightCache->integer != 0;
+}
+
+static dlightFaceCache_t *
+R_DlightCacheFind(const void *srf, const byte *lmData, int w, int h, int maxOps, qboolean *hit)
+{
+    dlightFaceCache_t *e, *set;
+    size_t             slot;
+    int                k;
+
+    *hit = qfalse;
+    if (dli.numLights > DLIGHT_CACHE_MAX_LIGHTS) {
+        return NULL;
+    }
+
+    slot = ((size_t)srf >> 4) ^ ((size_t)srf >> 14);
+    set  = &s_dlCache[(slot & (DLIGHT_CACHE_SIZE / DLIGHT_CACHE_WAYS - 1)) * DLIGHT_CACHE_WAYS];
+    e    = set;
+    for (k = 0; k < DLIGHT_CACHE_WAYS; k++) {
+        if (set[k].surf == srf) {
+            e = &set[k];
+            break;
+        }
+        if (set[k].lastUse < e->lastUse) {
+            e = &set[k];
+        }
+    }
+    e->lastUse = s_dlScene;
+
+    if (e->surf == srf && e->valid && e->lmData == lmData && e->numLights == dli.numLights
+        && e->overbrightShift == tr.overbrightShift) {
+        for (k = 0; k < dli.numLights; k++) {
+            const incidentLight_t *l = &dli.lights[k];
+            const float           *c = e->lights[k];
+            if (c[0] != l->origin[0] || c[1] != l->origin[1] || c[2] != l->origin[2] || c[3] != l->dl->radius
+                || c[4] != l->dl->color[0] || c[5] != l->dl->color[1] || c[6] != l->dl->color[2]) {
+                break;
+            }
+        }
+        if (k == dli.numLights) {
+            *hit = qtrue;
+            return e;
+        }
+    }
+
+    if (e->surf != srf || e->lmData != lmData || e->w != w || e->h != h || e->maxOps != maxOps) {
+        const int size = maxOps ? maxOps * 2 * (int)sizeof(int) : w * h * 4;
+        if (size > DLIGHT_CACHE_POOL / 16) {
+            e->surf = NULL;
+            return NULL;
+        }
+        if (s_dlPoolUsed + size > DLIGHT_CACHE_POOL) {
+            R_DlightCacheClear();
+            // the flush cleared the scene's write record; it can no longer match
+            s_dlOverflow[s_dlCur] = qtrue;
+        }
+        e->surf   = srf;
+        e->lmData = lmData;
+        e->w      = w;
+        e->h      = h;
+        e->maxOps = maxOps;
+        e->texels = maxOps ? NULL : &s_dlPool[s_dlPoolUsed];
+        e->ops    = maxOps ? (int *)&s_dlPool[s_dlPoolUsed] : NULL;
+        s_dlPoolUsed += size;
+    }
+
+    e->valid           = qtrue;
+    e->numOps          = 0;
+    e->numLights       = dli.numLights;
+    e->overbrightShift = tr.overbrightShift;
+    for (k = 0; k < dli.numLights; k++) {
+        const incidentLight_t *l = &dli.lights[k];
+        float                 *c = e->lights[k];
+        c[0] = l->origin[0];
+        c[1] = l->origin[1];
+        c[2] = l->origin[2];
+        c[3] = l->dl->radius;
+        c[4] = l->dl->color[0];
+        c[5] = l->dl->color[1];
+        c[6] = l->dl->color[2];
+    }
+    e->serial = ++s_dlSerial;
+    if (!e->serial) {
+        e->serial = ++s_dlSerial;
+    }
+
+    return e;
+}
+
+static void R_DlightRecordBegin(dlightFaceCache_t *e, const byte *base)
+{
+    s_dlRecord     = e;
+    s_dlRecordBase = base;
+}
+
+static void R_DlightRecordEnd(int added)
+{
+    if (s_dlRecord) {
+        s_dlRecord->added = added;
+        s_dlRecord        = NULL;
+    }
+}
+
+static void R_DlightRecordWrite(const byte *dst)
+{
+    dlightFaceCache_t *e = s_dlRecord;
+    int               *op;
+
+    if (e->numOps >= e->maxOps) {
+        e->valid = qfalse;
+        return;
+    }
+    op    = &e->ops[e->numOps * 2];
+    op[0] = (int)(dst - s_dlRecordBase);
+    Com_Memcpy(&op[1], dst, 4);
+    e->numOps++;
+}
+
+static int R_DlightReplay(const dlightFaceCache_t *e, byte *base)
+{
+    const int *op = e->ops;
+    int        n;
+
+    for (n = 0; n < e->numOps; n++, op += 2) {
+        Com_Memcpy(base + op[0], &op[1], 4);
+    }
+    return e->added;
+}
+
+/*
+ * Added in Omaha: r_dlightInPlace. A lit face writes its block straight into its own
+ * lightmap texture, so it stays in its normal (VBO, unsplit) world batch. Texel values
+ * are the same as the dlight-atlas path; only bilinear neighbours at block edges
+ * differ (its real lightmap neighbours instead of the atlas packing). Blocks no longer
+ * lit at the end of a world scene are restored from the static lightmap.
+ */
+static byte s_ipScratch[LIGHTMAP_SIZE * LIGHTMAP_SIZE * 4];
+
+static void R_DlightUploadFaceBlock(const srfSurfaceFace_t *srf, const byte *texels)
+{
+    GL_Bind(tr.lightmaps[srf->lmTexIndex]);
+    qglTexSubImage2D(
+        GL_TEXTURE_2D, 0, srf->lmTexX, srf->lmTexY, srf->lmWidth, srf->lmHeight, GL_RGBA, GL_UNSIGNED_BYTE, texels
+    );
+}
+
+static qboolean R_DlightFaceInPlace(srfSurfaceFace_t *srf)
+{
+    dlightFaceCache_t *cached;
+    const byte        *texels;
+    qboolean           hit, added;
+    unsigned int       serial;
+
+    if (!r_dlightInPlace->integer || srf->lmTexIndex < 0 || srf->lmTexIndex >= tr.numLightmaps
+        || !tr.lightmaps[srf->lmTexIndex] || !srf->lmData || r_lightmap->integer == 2) {
+        return qfalse;
+    }
+    if (s_ipWorld != tr.world) {
+        s_ipNumFaces = 0;
+        s_ipWorld    = tr.world;
+    }
+    if (!srf->lmInPlaceDirty && s_ipNumFaces >= DLIGHT_MAX_INPLACE) {
+        return qfalse;
+    }
+
+    cached = NULL;
+    hit    = qfalse;
+    if (r_dlightCache->integer) {
+        cached = R_DlightCacheFind(srf, srf->lmData, srf->lmWidth, srf->lmHeight, 0, &hit);
+    }
+
+    tr.pc.c_dlightTexels += srf->lmWidth * srf->lmHeight;
+
+    if (hit) {
+        texels = cached->texels;
+        added  = cached->added;
+    } else {
+        byte       *dst = cached ? cached->texels : s_ipScratch;
+        const byte *src = srf->lmData;
+        vec3_t      vec, vecStepS, vecStepT;
+        int         i, j;
+
+        texels = dst;
+
+        VectorCopy(srf->lmVecs[0], vecStepS);
+        VectorMA(srf->lmVecs[1], -srf->lmWidth, srf->lmVecs[0], vecStepT);
+        VectorCopy(srf->lmOrigin, vec);
+
+        added = qfalse;
+        for (i = 0; i < srf->lmHeight; i++) {
+            for (j = 0; j < srf->lmWidth; j++) {
+                added |= R_DlightSample((byte *)src, vec, dst);
+                VectorAdd(vec, vecStepS, vec);
+                src += 3;
+                dst += 4;
+            }
+            VectorAdd(vec, vecStepT, vec);
+            src += (LIGHTMAP_SIZE - j) * 3;
+        }
+
+        if (cached) {
+            cached->added = added;
+        }
+    }
+
+    if (!added) {
+        // nothing reached a texel: draw from the static lightmap (restored at scene end)
+        return qtrue;
+    }
+
+    serial              = cached && cached->valid ? cached->serial : 0;
+    srf->lmInPlaceScene = s_dlScene;
+    if (!srf->lmInPlaceDirty) {
+        s_ipFaces[s_ipNumFaces++] = srf;
+        srf->lmInPlaceDirty       = qtrue;
+        srf->lmInPlaceSerial      = 0;
+    }
+    if (!serial || serial != srf->lmInPlaceSerial) {
+        R_DlightUploadFaceBlock(srf, texels);
+        srf->lmInPlaceSerial = serial;
+    }
+    return qtrue;
+}
+
+/*
+===============
+R_RestoreInPlaceDlights
+
+Added in Omaha: put back the static lightmap under faces that weren't lit in place
+by the scene that just walked the world (all = every dirty face).
+===============
+*/
+void R_RestoreInPlaceDlights(qboolean all)
+{
+    int i, n, k;
+
+    if (s_ipWorld != tr.world) {
+        s_ipNumFaces = 0;
+        s_ipWorld    = tr.world;
+        return;
+    }
+
+    n = 0;
+    for (i = 0; i < s_ipNumFaces; i++) {
+        srfSurfaceFace_t *f = s_ipFaces[i];
+        const byte       *src;
+        byte             *dst;
+
+        if (!all && r_dlightInPlace->integer && f->lmInPlaceScene == s_dlScene) {
+            s_ipFaces[n++] = f;
+            continue;
+        }
+
+        f->lmInPlaceDirty  = qfalse;
+        f->lmInPlaceSerial = 0;
+        if (f->lmTexIndex < 0 || f->lmTexIndex >= tr.numLightmaps || !tr.lightmaps[f->lmTexIndex]) {
+            continue;
+        }
+
+        dst = s_ipScratch;
+        for (k = 0; k < f->lmHeight; k++) {
+            int j;
+            src = f->lmData + k * LIGHTMAP_SIZE * 3;
+            for (j = 0; j < f->lmWidth; j++, src += 3, dst += 4) {
+                R_ColorShiftLightingBytes((byte *)src, dst);
+                dst[3] = 255;
+            }
+        }
+        R_DlightUploadFaceBlock(f, s_ipScratch);
+    }
+    s_ipNumFaces = n;
+}
+
+/*
 ===============
 R_RecursiveDlightPatch
 ===============
@@ -137,6 +561,8 @@ int R_RealDlightPatch(srfGridMesh_t *srf, int dlightBits)
     qboolean    added;
     float      *origin;
     drawVert_t *dv;
+    dlightFaceCache_t *cached;
+    qboolean           hit;
 
     if (!srf->lmHeight || !srf->lmWidth) {
         srf->dlightMap[tr.smpFrame] = 0;
@@ -185,6 +611,27 @@ int R_RealDlightPatch(srfGridMesh_t *srf, int dlightBits)
     tr.pc.c_dlightTexels += srf->lmWidth * srf->lmHeight;
 
     added = qfalse;
+
+    // Added in Omaha: replay the writes the subdivision made for this light set
+    cached = NULL;
+    hit    = qfalse;
+    if (r_dlightCache->integer) {
+        cached = R_DlightCacheFind(
+            srf,
+            srf->lmData,
+            srf->lmWidth,
+            srf->lmHeight,
+            2 * (srf->lmWidth + 1) * (srf->lmHeight + 1) + 4 * srf->width * srf->height,
+            &hit
+        );
+    }
+
+    if (hit) {
+        added = R_DlightReplay(cached, dli.dstBase);
+        goto patchDone;
+    }
+
+    R_DlightRecordBegin(cached, dli.dstBase);
 
     if (srf->verts[srf->width - 1].lightmap[0] != srf->verts[0].lightmap[0]) {
         if (srf->verts[srf->width - 1].lightmap[0] < srf->verts[0].lightmap[0]) {
@@ -274,6 +721,11 @@ int R_RealDlightPatch(srfGridMesh_t *srf, int dlightBits)
         }
     }
 
+    R_DlightRecordEnd(added);
+
+patchDone:
+    R_DlightNoteWrite(srf, x, y, cached && cached->valid ? cached->serial : 0);
+
     if (!added) {
         srf->dlightMap[tr.smpFrame] = 0;
         return 0;
@@ -303,6 +755,8 @@ int R_RealDlightFace(srfSurfaceFace_t *srf, int dlightBits)
     float     d;
     qboolean  added;
     float    *origin;
+    dlightFaceCache_t *cached;
+    qboolean           hit;
 
     if (!srf->lmHeight || !srf->lmWidth) {
         srf->dlightMap[tr.smpFrame] = 0;
@@ -336,6 +790,11 @@ int R_RealDlightFace(srfSurfaceFace_t *srf, int dlightBits)
         return 0;
     }
 
+    if (R_DlightFaceInPlace(srf)) {
+        srf->dlightMap[tr.smpFrame] = 0;
+        return 0;
+    }
+
     if (!R_AllocLMBlock(srf->lmWidth, srf->lmHeight, &x, &y)) {
         srf->dlightMap[tr.smpFrame] = 0;
         return 0;
@@ -350,24 +809,51 @@ int R_RealDlightFace(srfSurfaceFace_t *srf, int dlightBits)
     tr.pc.c_dlightSurfaces++;
     tr.pc.c_dlightTexels += srf->lmWidth * srf->lmHeight;
 
-    VectorCopy(srf->lmVecs[0], vecStepS);
-    VectorMA(srf->lmVecs[1], -srf->lmWidth, srf->lmVecs[0], vecStepT);
+    // Added in Omaha: serve repeated light sets from the texel cache
+    cached = NULL;
+    hit    = qfalse;
+    if (r_dlightCache->integer) {
+        cached = R_DlightCacheFind(srf, srf->lmData, srf->lmWidth, srf->lmHeight, 0, &hit);
+    }
 
-    added = qfalse;
-    VectorCopy(srf->lmOrigin, vec);
 
-    for (i = 0; i < srf->lmHeight; i++) {
-        for (j = 0; j < srf->lmWidth; j++) {
-            added |= R_DlightSample(src, vec, dst);
-            VectorAdd(vec, vecStepS, vec);
-            src += 3;
-            dst += 4;
+    if (hit) {
+        for (i = 0; i < srf->lmHeight; i++) {
+            Com_Memcpy(dst + i * LIGHTMAP_SIZE * 4, cached->texels + i * srf->lmWidth * 4, srf->lmWidth * 4);
+        }
+        added = cached->added;
+    } else {
+        byte *dst0 = dst;
+
+        VectorCopy(srf->lmVecs[0], vecStepS);
+        VectorMA(srf->lmVecs[1], -srf->lmWidth, srf->lmVecs[0], vecStepT);
+
+        added = qfalse;
+        VectorCopy(srf->lmOrigin, vec);
+
+        for (i = 0; i < srf->lmHeight; i++) {
+            for (j = 0; j < srf->lmWidth; j++) {
+                added |= R_DlightSample(src, vec, dst);
+                VectorAdd(vec, vecStepS, vec);
+                src += 3;
+                dst += 4;
+            }
+
+            VectorAdd(vec, vecStepT, vec);
+            src += (LIGHTMAP_SIZE - j) * 3;
+            dst += (LIGHTMAP_SIZE - j) * 4;
         }
 
-        VectorAdd(vec, vecStepT, vec);
-        src += (LIGHTMAP_SIZE - j) * 3;
-        dst += (LIGHTMAP_SIZE - j) * 4;
+        if (cached) {
+            for (i = 0; i < srf->lmHeight; i++) {
+                Com_Memcpy(cached->texels + i * srf->lmWidth * 4, dst0 + i * LIGHTMAP_SIZE * 4, srf->lmWidth * 4);
+            }
+            cached->added = added;
+        }
     }
+
+
+    R_DlightNoteWrite(srf, x, y, cached && cached->valid ? cached->serial : 0);
 
     if (!added) {
         srf->dlightMap[tr.smpFrame] = 0;
@@ -403,6 +889,8 @@ int R_RealDlightTerrain(cTerraPatchUnpacked_t *srf, int dlightBits)
     float     heightPerLumelSquared;
     float     z00, z01;
     float     z10, z11;
+    dlightFaceCache_t *cached;
+    qboolean           hit;
 
     dli.numLights = 0;
 
@@ -478,6 +966,27 @@ int R_RealDlightTerrain(cTerraPatchUnpacked_t *srf, int dlightBits)
     tr.pc.c_dlightTexels += srf->drawinfo.lmapSize * srf->drawinfo.lmapSize;
 
     added = qfalse;
+
+    // Added in Omaha: replay the writes made for this light set
+    cached = NULL;
+    hit    = qfalse;
+    if (r_dlightCache->integer) {
+        cached = R_DlightCacheFind(
+            srf,
+            srf->drawinfo.lmData,
+            srf->drawinfo.lmapSize,
+            srf->drawinfo.lmapSize,
+            srf->drawinfo.lmapSize * srf->drawinfo.lmapSize + 64,
+            &hit
+        );
+    }
+
+    if (hit) {
+        added = R_DlightReplay(cached, dst);
+        goto terrainDone;
+    }
+
+    R_DlightRecordBegin(cached, dst);
 
     lumelsPerHeight = 64.f / srf->drawinfo.lmapStep;
     if (lumelsPerHeight == 1) {
@@ -637,6 +1146,11 @@ int R_RealDlightTerrain(cTerraPatchUnpacked_t *srf, int dlightBits)
             }
         }
     }
+
+    R_DlightRecordEnd(added);
+
+terrainDone:
+    R_DlightNoteWrite(srf, x, y, cached && cached->valid ? cached->serial : 0);
 
     if (!added) {
         srf->drawinfo.dlightMap[tr.smpFrame] = 0;
@@ -1471,6 +1985,7 @@ void R_ClearRealDlights()
 {
     memset(dli.allocated, 0, sizeof(dli.allocated));
     dli.dlightMap = 0;
+    R_DlightBeginScene();
 }
 
 /*
@@ -1498,8 +2013,20 @@ void R_UploadDlights()
             ri.Error(ERR_DROP, "R_UploadDlights: bad allocated height");
         }
 
-        GL_Bind(tr.dlightImages[dli.dlightMap]);
-        qglTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, LIGHTMAP_SIZE, h, GL_RGBA, GL_UNSIGNED_BYTE, dli.lightmap_buffer);
+        image_t              *image = tr.dlightImages[dli.dlightMap];
+        dlightUpload_t       *up    = &s_dlUploads[s_dlCur][dli.dlightMap];
+        const dlightUpload_t *prev  = &s_dlUploads[!s_dlCur][dli.dlightMap];
+
+        up->numWrites = s_dlNumWrites[s_dlCur];
+        up->h         = h;
+        up->texnum    = image->texnum;
+
+        // Added in Omaha: skip the upload when the atlas already holds this exact content
+        if (!(s_dlPrevStable && s_dlPrefixMatch && !s_dlOverflow[s_dlCur] && prev->numWrites == up->numWrites
+              && prev->h == h && prev->texnum == up->texnum)) {
+            GL_Bind(image);
+            qglTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, LIGHTMAP_SIZE, h, GL_RGBA, GL_UNSIGNED_BYTE, dli.lightmap_buffer);
+        }
 
         tr.pc.c_dlightMaps++;
         memset(dli.allocated, 0, sizeof(dli.allocated));
@@ -1531,6 +2058,10 @@ qboolean R_AllocLMBlock(int w, int h, int *x, int *y)
                 *x   = i;
                 *y   = best2;
                 best = best2;
+                // Added in Omaha: nothing can beat a zero-height window
+                if (!best && w > 0) {
+                    break;
+                }
             }
         }
 
@@ -1571,6 +2102,10 @@ qboolean R_DlightSample(byte *src, const vec3_t vec, byte *dst)
         incidentLight_t *light = &dli.lights[k];
 
         VectorSubtract(vec, light->origin, dir);
+        // Added in Omaha: skip the sqrt when clearly outside the radius (margin keeps it exact)
+        if (DotProduct(dir, dir) > light->dl->radius * light->dl->radius * 1.001f) {
+            continue;
+        }
         add = VectorLength(dir) * light->power;
         if (add <= 1.f) {
             float t = (1.0 - add) * (1.0 - add) * 375.0;
@@ -1603,6 +2138,10 @@ qboolean R_DlightSample(byte *src, const vec3_t vec, byte *dst)
     dst[1] = (byte)g;
     dst[2] = (byte)b;
     dst[3] = -1;
+
+    if (s_dlRecord) {
+        R_DlightRecordWrite(dst);
+    }
 
     return added;
 }

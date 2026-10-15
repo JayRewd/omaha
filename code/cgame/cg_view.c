@@ -329,7 +329,8 @@ void CG_OffsetFirstPersonView(refEntity_t *pREnt, qboolean bUseWorldPosition)
     pCent = &cg_entities[cg.predicted_player_state.clientNum];
 
     tiki = cgi.R_Model_GetHandle(cgs.model_draw[pCent->currentState.modelindex]);
-    iTag = cgi.Tag_NumForName(tiki, "eyes bone");
+    /* Changed in Omaha: use cached eyes tag index */
+    iTag = CG_TikiEyesTag(tiki);
     if (iTag != -1) {
         if (bUseWorldPosition) {
             orientation_t oHead;

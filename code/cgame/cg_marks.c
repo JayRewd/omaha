@@ -93,6 +93,118 @@ typedef struct cg_treadmarkinfo_s {
     int          leafnum;
 } cg_treadmarkinfo_t;
 
+/*
+ * Added in Omaha: entity shadows are temporary marks that re-clip the same polygon
+ * against the static world every frame while the entity stands still (or several
+ * frames share one client ms). Cache the world clip by exact input; brush-entity
+ * fragments are still computed live since those models move.
+ */
+
+#define CG_WORLDMARK_CACHE_SIZE   64
+#define CG_WORLDMARK_CACHE_VERTS  4
+#define CG_WORLDMARK_CACHE_FRAGS  16
+#define CG_WORLDMARK_CACHE_POINTS 96
+
+typedef struct {
+    qboolean       valid;
+    int            numVerts;
+    vec3_t         verts[CG_WORLDMARK_CACHE_VERTS];
+    vec3_t         projection;
+    float          radiusSquared;
+    int            numFragments;
+    int            numPoints;
+    markFragment_t fragments[CG_WORLDMARK_CACHE_FRAGS];
+    vec3_t         points[CG_WORLDMARK_CACHE_POINTS];
+} cgWorldMarkCache_t;
+
+static cgWorldMarkCache_t s_worldMarkCache[CG_WORLDMARK_CACHE_SIZE];
+
+static void CG_ClearWorldMarkCache(void)
+{
+    memset(s_worldMarkCache, 0, sizeof(s_worldMarkCache));
+}
+
+static int CG_WorldMarkFragments(
+    int             numVerts,
+    const vec3_t   *pVerts,
+    const vec3_t    vProjection,
+    const vec3_t   *pPointBuffer,
+    markFragment_t *pFragmentBuffer,
+    float           fRadiusSquared
+)
+{
+    cgWorldMarkCache_t *c;
+    const byte         *bytes;
+    unsigned int        hash;
+    int                 i, numFragments, numPoints;
+
+    if (numVerts < 1 || numVerts > CG_WORLDMARK_CACHE_VERTS) {
+        return cgi.R_MarkFragments(
+            numVerts,
+            pVerts,
+            vProjection,
+            MAX_MARK_POINTS,
+            (float *)pPointBuffer,
+            MAX_MARK_FRAGMENTS,
+            pFragmentBuffer,
+            fRadiusSquared
+        );
+    }
+
+    hash  = 2166136261u;
+    bytes = (const byte *)pVerts;
+    for (i = 0; i < numVerts * (int)sizeof(vec3_t); i++) {
+        hash = (hash ^ bytes[i]) * 16777619u;
+    }
+    bytes = (const byte *)vProjection;
+    for (i = 0; i < (int)sizeof(vec3_t); i++) {
+        hash = (hash ^ bytes[i]) * 16777619u;
+    }
+    c = &s_worldMarkCache[hash % CG_WORLDMARK_CACHE_SIZE];
+
+    if (c->valid && c->numVerts == numVerts && c->radiusSquared == fRadiusSquared
+        && !memcmp(c->verts, pVerts, numVerts * sizeof(vec3_t)) && VectorCompare(c->projection, vProjection)) {
+        memcpy(pFragmentBuffer, c->fragments, c->numFragments * sizeof(markFragment_t));
+        memcpy((void *)pPointBuffer, c->points, c->numPoints * sizeof(vec3_t));
+        return c->numFragments;
+    }
+
+    numFragments = cgi.R_MarkFragments(
+        numVerts,
+        pVerts,
+        vProjection,
+        MAX_MARK_POINTS,
+        (float *)pPointBuffer,
+        MAX_MARK_FRAGMENTS,
+        pFragmentBuffer,
+        fRadiusSquared
+    );
+
+    c->valid = qfalse;
+    if (numFragments < 0 || numFragments > CG_WORLDMARK_CACHE_FRAGS) {
+        return numFragments;
+    }
+
+    numPoints = 0;
+    for (i = 0; i < numFragments; i++) {
+        numPoints = Q_max(numPoints, pFragmentBuffer[i].firstPoint + pFragmentBuffer[i].numPoints);
+    }
+    if (numPoints > CG_WORLDMARK_CACHE_POINTS) {
+        return numFragments;
+    }
+
+    c->valid         = qtrue;
+    c->numVerts      = numVerts;
+    c->radiusSquared = fRadiusSquared;
+    c->numFragments  = numFragments;
+    c->numPoints     = numPoints;
+    memcpy(c->verts, pVerts, numVerts * sizeof(vec3_t));
+    VectorCopy(vProjection, c->projection);
+    memcpy(c->fragments, pFragmentBuffer, numFragments * sizeof(markFragment_t));
+    memcpy(c->points, pPointBuffer, numPoints * sizeof(vec3_t));
+    return numFragments;
+}
+
 int CG_GetMarkFragments(
     int             numVerts,
     const vec3_t   *pVerts,
@@ -118,16 +230,8 @@ int CG_GetMarkFragments(
     markFragment_t *pCurrFragment;
     markFragment_t *pFragment;
 
-    iNewFragments = cgi.R_MarkFragments(
-        numVerts,
-        pVerts,
-        vProjection,
-        MAX_MARK_POINTS,
-        (float *)pPointBuffer,
-        MAX_MARK_FRAGMENTS,
-        pFragmentBuffer,
-        fRadiusSquared
-    );
+    /* Changed in Omaha: cached world clip */
+    iNewFragments = CG_WorldMarkFragments(numVerts, pVerts, vProjection, pPointBuffer, pFragmentBuffer, fRadiusSquared);
 
     if (iNewFragments > MAX_MARK_FRAGMENTS) {
         return iNewFragments;
@@ -398,6 +502,8 @@ void CG_InitMarks(void)
 
     cg_iNumFreeMarkObjs  = iMaxMarks;
     cg_bMarksInitialized = qtrue;
+
+    CG_ClearWorldMarkCache(); /* Added in Omaha */
 }
 
 /*

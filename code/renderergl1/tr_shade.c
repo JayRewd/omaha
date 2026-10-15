@@ -19,7 +19,7 @@ along with Foobar; if not, write to the Free Software
 Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 ===========================================================================
 */
-// tr_shade.c
+/* tr_shade.c */
 
 #include "tr_local.h"
 
@@ -29,6 +29,319 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
   This file deals with applying shaders to surface data in the tess struct.
 */
+
+/*
+================
+RB_ShaderAllowsWorldBatch
+
+Added in Omaha: world-space entity merge is fine for opaque / AGEN_DIST_FADE once
+fade uses view→vert world distance. Block only TIKI_*DIST_FADE — those fade from
+the entity origin, so a merged batch would apply the last model's origin to every
+vert (and sky must stay unmerged).
+================
+*/
+static qboolean RB_ComputeShaderAllowsWorldBatch(const shader_t *shader)
+{
+	int i;
+
+	if (shader->isSky) {
+		return qfalse;
+	}
+	if (shader->surfaceFlags & SURF_SKY) {
+		return qfalse;
+	}
+	/* Fixed in Omaha: deformVertexes (lightglow, autosprite, wave, …) assume
+	 * model-local tess/ori — refuse world-space batch like skel/VBO already do. */
+	if (shader->numDeforms) {
+		return qfalse;
+	}
+
+	for (i = 0; i < shader->numUnfoggedPasses; i++) {
+		const shaderStage_t *stage = shader->unfoggedStages[i];
+		if (!stage || !stage->active) {
+			continue;
+		}
+		if (stage->alphaGen == AGEN_TIKI_DIST_FADE
+			|| stage->alphaGen == AGEN_ONE_MINUS_TIKI_DIST_FADE) {
+			return qfalse;
+		}
+	}
+
+	return qtrue;
+}
+
+qboolean RB_ShaderAllowsWorldBatch(const shader_t *shader)
+{
+	if (!shader) {
+		return qfalse;
+	}
+	// Changed in Omaha: stages are fixed after load; memoize per shader (hot per-surface call)
+	if (!shader->worldBatchCache) {
+		((shader_t *)shader)->worldBatchCache = RB_ComputeShaderAllowsWorldBatch(shader) ? 2 : 1;
+	}
+	return shader->worldBatchCache == 2;
+}
+
+/*
+================
+RB_ShaderAllowsSkelWorldBatch
+
+Added in Omaha: skel surfaces from several entities can share one batch when the
+shader reads nothing entity-local besides the light grid color, which RB_SkelMesh
+writes into tess.vertexColors per entity. No deforms, texmods, generated texcoords,
+entity alpha/color, animate-once time base or normal-dependent color.
+================
+*/
+static qboolean RB_ComputeShaderAllowsSkelWorldBatch(const shader_t *shader)
+{
+	int stage, b;
+
+	if (!RB_ShaderAllowsWorldBatch(shader)) {
+		return qfalse;
+	}
+	if (shader->numDeforms || shader->isPortalSky || (shader->flags & BUNDLE_ANIMATE_ONCE)) {
+		return qfalse;
+	}
+	if (shader->needsLSpherical) {
+		return qfalse;
+	}
+
+	for (stage = 0; stage < MAX_SHADER_STAGES; stage++) {
+		const shaderStage_t *pStage = shader->unfoggedStages[stage];
+
+		if (!pStage || !pStage->active) {
+			break;
+		}
+		for (b = 0; b < NUM_TEXTURE_BUNDLES && pStage->bundle[b].image[0]; b++) {
+			if (pStage->bundle[b].numTexMods || pStage->bundle[b].isVideoMap) {
+				return qfalse;
+			}
+			if (pStage->bundle[b].tcGen != TCGEN_TEXTURE) {
+				return qfalse;
+			}
+		}
+		switch (pStage->rgbGen) {
+		case CGEN_IDENTITY:
+		case CGEN_IDENTITY_LIGHTING:
+		case CGEN_CONSTANT:
+		case CGEN_LIGHTING_GRID:
+			break;
+		default:
+			return qfalse;
+		}
+		switch (pStage->alphaGen) {
+		case AGEN_SKIP:
+		case AGEN_IDENTITY:
+		case AGEN_CONSTANT:
+			break;
+		default:
+			return qfalse;
+		}
+	}
+
+	return stage > 0;
+}
+
+/*
+================
+RB_ComputeShaderSkelWorldEntityAlpha
+
+Added in Omaha: debris (bh_wood_piece etc.) fades with alphaGen entity. For a
+single-stage entity-alpha shader the merged batch carries that alpha per vertex.
+================
+*/
+static qboolean RB_ComputeShaderSkelWorldEntityAlpha(const shader_t *shader)
+{
+	int stage, b;
+
+	if (!RB_ShaderAllowsWorldBatch(shader)) {
+		return qfalse;
+	}
+	if (shader->numDeforms || shader->isPortalSky || (shader->flags & BUNDLE_ANIMATE_ONCE)
+		|| shader->needsLSpherical) {
+		return qfalse;
+	}
+
+	for (stage = 0; stage < MAX_SHADER_STAGES; stage++) {
+		const shaderStage_t *pStage = shader->unfoggedStages[stage];
+
+		if (!pStage || !pStage->active) {
+			break;
+		}
+		for (b = 0; b < NUM_TEXTURE_BUNDLES && pStage->bundle[b].image[0]; b++) {
+			if (pStage->bundle[b].numTexMods || pStage->bundle[b].isVideoMap
+				|| pStage->bundle[b].tcGen != TCGEN_TEXTURE) {
+				return qfalse;
+			}
+		}
+		switch (pStage->rgbGen) {
+		case CGEN_IDENTITY:
+		case CGEN_IDENTITY_LIGHTING:
+		case CGEN_CONSTANT:
+		case CGEN_LIGHTING_GRID:
+			break;
+		default:
+			return qfalse;
+		}
+		if (pStage->alphaGen != AGEN_ENTITY) {
+			return qfalse;
+		}
+	}
+
+	// one stage only: merged blended stages would reorder across overlapping entities
+	return stage == 1;
+}
+
+qboolean RB_ShaderAllowsSkelWorldBatch(const shader_t *shader)
+{
+	if (!shader) {
+		return qfalse;
+	}
+	if (!shader->skelWorldBatchCache) {
+		((shader_t *)shader)->skelWorldBatchCache = RB_ComputeShaderAllowsSkelWorldBatch(shader) ? 2
+			: RB_ComputeShaderSkelWorldEntityAlpha(shader) ? 3 : 1;
+	}
+	return shader->skelWorldBatchCache >= 2;
+}
+
+/*
+================
+RB_SkelEntityWantsWorldBatch
+
+Added in Omaha: only anonymous (tempmodel) skels take the world-space path; they
+are the ones that pile up (brass). Depth-hacked brass is allowed; the merge in
+RB_RenderDrawSurfList requires matching RF_DEPTHHACK so the depth range holds.
+================
+*/
+qboolean RB_SkelEntityWantsWorldBatch(const trRefEntity_t *ent, const shader_t *shader, int dlightMap)
+{
+	return r_skelEntityMerge->integer && ent && dlightMap == 0 && ent->e.reType == RT_MODEL
+		&& ent->e.entityNumber == ENTITYNUM_NONE && RB_ShaderAllowsSkelWorldBatch(shader);
+}
+
+/*
+================
+RB_WorldVboStageColor
+
+Added in Omaha: the world VBO path only takes stages whose ComputeColors
+result is either one constant rgba or the raw vertex colors (which the VBO
+stores as-is). Returns WVBO_COLOR_NONE for anything else.
+================
+*/
+#define WVBO_COLOR_NONE		0
+#define WVBO_COLOR_CONST	1
+#define WVBO_COLOR_VERTEX	2
+
+static int RB_WorldVboStageColor(const shaderStage_t *pStage, byte *rgba)
+{
+	switch (pStage->rgbGen) {
+	case CGEN_IDENTITY:
+		rgba[0] = rgba[1] = rgba[2] = rgba[3] = 0xff;
+		break;
+	case CGEN_IDENTITY_LIGHTING:
+		rgba[0] = rgba[1] = rgba[2] = rgba[3] = tr.identityLightByte;
+		break;
+	case CGEN_CONSTANT:
+		rgba[0] = pStage->colorConst[0];
+		rgba[1] = pStage->colorConst[1];
+		rgba[2] = pStage->colorConst[2];
+		rgba[3] = pStage->colorConst[3];
+		break;
+	case CGEN_EXACT_VERTEX:
+		if (pStage->alphaGen == AGEN_SKIP || pStage->alphaGen == AGEN_VERTEX) {
+			return WVBO_COLOR_VERTEX;
+		}
+		return WVBO_COLOR_NONE;
+	case CGEN_VERTEX:
+		if (tr.identityLight != 1) {
+			return WVBO_COLOR_NONE;
+		}
+		if (pStage->alphaGen == AGEN_SKIP || pStage->alphaGen == AGEN_VERTEX
+			|| pStage->alphaGen == AGEN_IDENTITY) {
+			return WVBO_COLOR_VERTEX;
+		}
+		return WVBO_COLOR_NONE;
+	default:
+		return WVBO_COLOR_NONE;
+	}
+
+	switch (pStage->alphaGen) {
+	case AGEN_SKIP:
+		break;
+	case AGEN_IDENTITY:
+		rgba[3] = 0xff;
+		break;
+	case AGEN_CONSTANT:
+		rgba[3] = pStage->colorConst[3];
+		break;
+	default:
+		return WVBO_COLOR_NONE;
+	}
+	return WVBO_COLOR_CONST;
+}
+
+/*
+================
+RB_ShaderAllowsWorldVbo
+
+Added in Omaha: shaders whose stages read only static face data (no deforms,
+tcMods, generated texcoords or per-vertex color math) can draw straight from
+the world VBO.
+================
+*/
+static qboolean RB_ComputeShaderAllowsWorldVbo(const shader_t *shader)
+{
+	int stage, b;
+	byte rgba[4];
+
+	if (!RB_ShaderAllowsWorldBatch(shader)) {
+		return qfalse;
+	}
+	if (shader->numDeforms || shader->isSky || shader->isPortalSky || (shader->surfaceFlags & SURF_SKY)) {
+		return qfalse;
+	}
+	if (shader->optimalStageIteratorFunc == RB_StageIteratorLightmappedMultitextureUnfogged) {
+		return shader->unfoggedStages[0] != NULL;
+	}
+	if (shader->optimalStageIteratorFunc != RB_StageIteratorGeneric) {
+		return qfalse;
+	}
+
+	for (stage = 0; stage < MAX_SHADER_STAGES; stage++) {
+		const shaderStage_t *pStage = shader->unfoggedStages[stage];
+
+		if (!pStage) {
+			break;
+		}
+		if (pStage->alphaGen == AGEN_SKYALPHA || pStage->alphaGen == AGEN_ONE_MINUS_SKYALPHA) {
+			return qfalse;
+		}
+		for (b = 0; b < NUM_TEXTURE_BUNDLES && pStage->bundle[b].image[0]; b++) {
+			if (pStage->bundle[b].numTexMods) {
+				return qfalse;
+			}
+			if (pStage->bundle[b].tcGen != TCGEN_TEXTURE && pStage->bundle[b].tcGen != TCGEN_LIGHTMAP) {
+				return qfalse;
+			}
+		}
+		if (RB_WorldVboStageColor(pStage, rgba) == WVBO_COLOR_NONE) {
+			return qfalse;
+		}
+	}
+
+	return stage > 0;
+}
+
+qboolean RB_ShaderAllowsWorldVbo(const shader_t *shader)
+{
+	if (!shader) {
+		return qfalse;
+	}
+	if (!shader->worldVboCache) {
+		((shader_t *)shader)->worldVboCache = RB_ComputeShaderAllowsWorldVbo(shader) ? 2 : 1;
+	}
+	return shader->worldVboCache == 2;
+}
 
 /*
 ================
@@ -176,10 +489,19 @@ static void R_DrawElements( int numIndexes, const glIndex_t *indexes ) {
 
 
 	if ( primitives == 2 ) {
-		qglDrawElements( GL_TRIANGLES, 
-						numIndexes,
-						GL_INDEX_TYPE,
-						indexes );
+		// Changed in Omaha: every caller indexes tess vertexes; passing the range spares
+		// the driver an index scan before it copies the client arrays.
+		if ( qglDrawRangeElements && tess.numVertexes > 0 ) {
+			qglDrawRangeElements( GL_TRIANGLES, 0, tess.numVertexes - 1,
+							numIndexes,
+							GL_INDEX_TYPE,
+							indexes );
+		} else {
+			qglDrawElements( GL_TRIANGLES, 
+							numIndexes,
+							GL_INDEX_TYPE,
+							indexes );
+		}
 		return;
 	}
 
@@ -368,7 +690,24 @@ void RB_BeginSurface( shader_t *shader ) {
 	tess.xstages = shader->unfoggedStages;
 	tess.numPasses = shader->numUnfoggedPasses;
 	tess.currentStageIteratorFunc = shader->optimalStageIteratorFunc;
+	tess.vboMode = qfalse;
+	backEnd.skelWorldBatch = qfalse;
 
+}
+
+/*
+==============
+RB_LeaveWorldVbo
+
+Added in Omaha: flush a world-VBO batch so the surface that follows can
+tessellate into client arrays under the same shader.
+==============
+*/
+void RB_LeaveWorldVbo(void) {
+	shader_t *shader = tess.shader;
+
+	RB_EndSurface();
+	RB_BeginSurface(shader);
 }
 
 /*
@@ -1096,39 +1435,28 @@ static void ComputeColors( shaderStage_t *pStage )
 		);
 		break;
 	case AGEN_DIST_FADE:
-		if (backEnd.currentStaticModel)
+	case AGEN_ONE_MINUS_DIST_FADE:
+		/*
+		 * Changed in Omaha: when tess xyz is world-space (worldSpaceBatch), distance
+		 * fade must use view→vert world delta — the retail model-local formula treats
+		 * world coords as "far" and zeros foliage alpha.
+		 */
 		{
 			unsigned char alpha;
+			const qboolean oneMinus = (pStage->alphaGen == AGEN_ONE_MINUS_DIST_FADE);
 
 			for (i = 0; i < tess.numVertexes; i++) {
-				float len;
+				float  len;
 				vec3_t org, v;
 
-				VectorSubtract(backEnd.viewParms.ori.origin, backEnd.currentStaticModel->origin, v);
-				org[0] = tess.xyz[i][0] - DotProduct(v, backEnd.currentStaticModel->axis[0]);
-				org[1] = tess.xyz[i][1] - DotProduct(v, backEnd.currentStaticModel->axis[1]);
-				org[2] = tess.xyz[i][2] - DotProduct(v, backEnd.currentStaticModel->axis[2]);
-			
-				len = (VectorLength(org) - tess.shader->fDistNear) / tess.shader->fDistRange;
-				if (len < 0) {
-					alpha = 0xff;
-				} else if (len > 1) {
-					alpha = 0;
-				} else {
-					alpha = ((1.0 - len) * 255.0);
-                }
-                tess.svars.colors[i][3] = alpha;
-			}
-		}
-		else
-        {
-            unsigned char alpha;
-
-            for (i = 0; i < tess.numVertexes; i++) {
-                float len;
-                vec3_t org, v;
-
-				if (backEnd.currentEntity) {
+				if (backEnd.worldSpaceBatch) {
+					VectorSubtract(tess.xyz[i], backEnd.viewParms.ori.origin, org);
+				} else if (backEnd.currentStaticModel) {
+					VectorSubtract(backEnd.viewParms.ori.origin, backEnd.currentStaticModel->origin, v);
+					org[0] = tess.xyz[i][0] - DotProduct(v, backEnd.currentStaticModel->axis[0]);
+					org[1] = tess.xyz[i][1] - DotProduct(v, backEnd.currentStaticModel->axis[1]);
+					org[2] = tess.xyz[i][2] - DotProduct(v, backEnd.currentStaticModel->axis[2]);
+				} else if (backEnd.currentEntity) {
 					VectorSubtract(backEnd.viewParms.ori.origin, backEnd.currentEntity->e.origin, v);
 					org[0] = tess.xyz[i][0] - DotProduct(v, backEnd.currentEntity->e.axis[0]);
 					org[1] = tess.xyz[i][1] - DotProduct(v, backEnd.currentEntity->e.axis[1]);
@@ -1137,71 +1465,25 @@ static void ComputeColors( shaderStage_t *pStage )
 					VectorCopy(backEnd.viewParms.ori.origin, org);
 				}
 
-				
 				len = (VectorLength(org) - tess.shader->fDistNear) / tess.shader->fDistRange;
-				if (len < 0) {
-					alpha = 0xff;
-				} else if (len > 1) {
-					alpha = 0;
+				if (oneMinus) {
+					if (len < 0) {
+						alpha = 0;
+					} else if (len > 1) {
+						alpha = 0xff;
+					} else {
+						alpha = (unsigned char)(len * 255.0);
+					}
 				} else {
-					alpha = ((1.0 - len) * 255.0);
-                }
-                tess.svars.colors[i][3] = alpha;
-			}
-		}
-		break;
-	case AGEN_ONE_MINUS_DIST_FADE:
-		if (backEnd.currentStaticModel)
-		{
-			unsigned char alpha;
-
-			for (i = 0; i < tess.numVertexes; i++) {
-				float len;
-				vec3_t org, v;
-
-                VectorSubtract(backEnd.viewParms.ori.origin, backEnd.currentStaticModel->origin, v);
-                org[0] = tess.xyz[i][0] - DotProduct(v, backEnd.currentStaticModel->axis[0]);
-                org[1] = tess.xyz[i][1] - DotProduct(v, backEnd.currentStaticModel->axis[1]);
-                org[2] = tess.xyz[i][2] - DotProduct(v, backEnd.currentStaticModel->axis[2]);
-			
-				len = (VectorLength(org) - tess.shader->fDistNear) / tess.shader->fDistRange;
-				if (len < 0) {
-					alpha = 0;
-				} else if (len > 1) {
-					alpha = 0xff;
-				} else {
-					alpha = (len * 255.0);
-                }
-                tess.svars.colors[i][3] = alpha;
-			}
-		}
-		else
-        {
-            unsigned char alpha;
-
-            for (i = 0; i < tess.numVertexes; i++) {
-                float len;
-                vec3_t org, v;
-
-				if (backEnd.currentEntity) {
-                    VectorSubtract(backEnd.viewParms.ori.origin, backEnd.currentEntity->e.origin, v);
-                    org[0] = tess.xyz[i][0] - DotProduct(v, backEnd.currentEntity->e.axis[0]);
-                    org[1] = tess.xyz[i][1] - DotProduct(v, backEnd.currentEntity->e.axis[1]);
-                    org[2] = tess.xyz[i][2] - DotProduct(v, backEnd.currentEntity->e.axis[2]);
-				} else {
-					VectorCopy(backEnd.viewParms.ori.origin, org);
+					if (len < 0) {
+						alpha = 0xff;
+					} else if (len > 1) {
+						alpha = 0;
+					} else {
+						alpha = (unsigned char)((1.0 - len) * 255.0);
+					}
 				}
-
-				
-				len = (VectorLength(org) - tess.shader->fDistNear) / tess.shader->fDistRange;
-				if (len < 0) {
-					alpha = 0;
-				} else if (len > 1) {
-					alpha = 0xff;
-				} else {
-					alpha = (len * 255.0);
-                }
-                tess.svars.colors[i][3] = alpha;
+				tess.svars.colors[i][3] = alpha;
 			}
 		}
 		break;
@@ -1815,6 +2097,146 @@ void RB_StageIteratorLightmappedMultitextureUnfogged( void ) {
 }
 
 /*
+** RB_StageIteratorWorldVbo
+**
+** Added in Omaha: same stage semantics as RB_StageIteratorGeneric /
+** RB_StageIteratorLightmappedMultitextureUnfogged, but vertex data comes from
+** the static world VBO and tess.indexes are absolute VBO vertex numbers.
+** Client-array pointers are restored afterwards so later tess draws never
+** read buffer offsets.
+*/
+#define WVBO_STRIDE		(VERTEXSIZE * sizeof(float))
+#define WVBO_OFS_ST0	((const void *)(3 * sizeof(float)))
+#define WVBO_OFS_ST1	((const void *)(5 * sizeof(float)))
+#define WVBO_OFS_RGBA	((const void *)(7 * sizeof(float)))
+
+static void RB_WorldVboDrawElements(void) {
+	qglDrawRangeElements(GL_TRIANGLES, tess.vboMinVert, tess.vboMaxVert, tess.numIndexes, GL_INDEX_TYPE,
+						 tess.indexes);
+}
+
+static const void *RB_WorldVboTexCoords(const textureBundle_t *bundle) {
+	return bundle->tcGen == TCGEN_LIGHTMAP ? WVBO_OFS_ST1 : WVBO_OFS_ST0;
+}
+
+void RB_StageIteratorWorldVbo(void) {
+	shaderCommands_t *input;
+	int				  stage;
+
+	input = &tess;
+
+	input->shaderTime = backEnd.refdef.floatTime;
+	if ((input->shader->flags & BUNDLE_ANIMATE_ONCE) != 0) {
+		input->shaderTime = backEnd.refdef.floatTime - backEnd.shaderStartTime;
+	}
+
+	GL_Cull(input->shader->cullType);
+
+	qglBindBuffer(GL_ARRAY_BUFFER, input->vboId);
+	qglVertexPointer(3, GL_FLOAT, WVBO_STRIDE, (const void *)0);
+
+	if (input->shader->optimalStageIteratorFunc == RB_StageIteratorLightmappedMultitextureUnfogged) {
+		shaderStage_t *pStage = input->xstages[0];
+
+		GL_State(GLS_DEFAULT | (pStage->stateBits & (GLS_ATEST_BITS | GLS_FOG_BITS)));
+		qglDisableClientState(GL_COLOR_ARRAY);
+		qglColor4ubv(tess.constantColor255[0]);
+
+		GL_SelectTexture(0);
+		qglEnableClientState(GL_TEXTURE_COORD_ARRAY);
+		R_BindAnimatedImage(&pStage->bundle[0]);
+		qglTexCoordPointer(2, GL_FLOAT, WVBO_STRIDE, WVBO_OFS_ST0);
+
+		GL_SelectTexture(1);
+		qglEnable(GL_TEXTURE_2D);
+		GL_TexEnv(GL_MODULATE);
+		R_BindAnimatedImage(&pStage->bundle[1]);
+		qglEnableClientState(GL_TEXTURE_COORD_ARRAY);
+		qglTexCoordPointer(2, GL_FLOAT, WVBO_STRIDE, WVBO_OFS_ST1);
+
+		RB_WorldVboDrawElements();
+
+		qglDisable(GL_TEXTURE_2D);
+		qglDisableClientState(GL_TEXTURE_COORD_ARRAY);
+		GL_SelectTexture(0);
+	} else {
+		if (input->shader->polygonOffset) {
+			qglEnable(GL_POLYGON_OFFSET_FILL);
+			qglPolygonOffset(r_offsetFactor->value, r_offsetUnits->value);
+		}
+
+		GL_SelectTexture(0);
+		qglEnableClientState(GL_TEXTURE_COORD_ARRAY);
+
+		for (stage = 0; stage < MAX_SHADER_STAGES; stage++) {
+			shaderStage_t *pStage = input->xstages[stage];
+			byte		   rgba[4];
+
+			if (!pStage) {
+				break;
+			}
+
+			if (RB_WorldVboStageColor(pStage, rgba) == WVBO_COLOR_VERTEX) {
+				qglEnableClientState(GL_COLOR_ARRAY);
+				qglColorPointer(4, GL_UNSIGNED_BYTE, WVBO_STRIDE, WVBO_OFS_RGBA);
+			} else {
+				qglDisableClientState(GL_COLOR_ARRAY);
+				qglColor4ubv(rgba);
+			}
+
+			qglTexCoordPointer(2, GL_FLOAT, WVBO_STRIDE, RB_WorldVboTexCoords(&pStage->bundle[0]));
+
+			if (pStage->bundle[1].image[0] != 0) {
+				GL_State(pStage->stateBits);
+
+				// same GeForce multitexture / clip plane workaround as DrawMultitextured
+				if (backEnd.viewParms.isPortal) {
+					qglPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+				}
+
+				R_BindAnimatedImage(&pStage->bundle[0]);
+
+				GL_SelectTexture(1);
+				qglEnable(GL_TEXTURE_2D);
+				qglEnableClientState(GL_TEXTURE_COORD_ARRAY);
+				GL_TexEnv(pStage->multitextureEnv);
+				qglTexCoordPointer(2, GL_FLOAT, WVBO_STRIDE, RB_WorldVboTexCoords(&pStage->bundle[1]));
+				R_BindAnimatedImage(&pStage->bundle[1]);
+
+				RB_WorldVboDrawElements();
+
+				qglDisable(GL_TEXTURE_2D);
+				qglDisableClientState(GL_TEXTURE_COORD_ARRAY);
+				GL_SelectTexture(0);
+			} else {
+				if (backEnd.in2D) {
+					GL_State(pStage->stateBits | GLS_DEPTHTEST_DISABLE);
+				} else {
+					GL_State(pStage->stateBits);
+				}
+				R_BindAnimatedImage(&pStage->bundle[0]);
+
+				RB_WorldVboDrawElements();
+			}
+		}
+
+		if (input->shader->polygonOffset) {
+			qglDisable(GL_POLYGON_OFFSET_FILL);
+		}
+	}
+
+	qglBindBuffer(GL_ARRAY_BUFFER, 0);
+	qglVertexPointer(3, GL_FLOAT, 16, input->xyz);
+	GL_SelectTexture(1);
+	qglTexCoordPointer(2, GL_FLOAT, 0, input->svars.texcoords[1]);
+	GL_SelectTexture(0);
+	qglEnableClientState(GL_TEXTURE_COORD_ARRAY);
+	qglTexCoordPointer(2, GL_FLOAT, 0, input->svars.texcoords[0]);
+	qglEnableClientState(GL_COLOR_ARRAY);
+	qglColorPointer(4, GL_UNSIGNED_BYTE, 0, input->svars.colors);
+}
+
+/*
 ** RB_EndSurface
 */
 void RB_EndSurface( void ) {
@@ -1877,6 +2299,12 @@ void RB_EndSurface( void ) {
 
 	// clear shader so we can tell we don't have any unclosed surfaces
 	tess.numIndexes = 0;
+
+	// Added in Omaha: 2D paths append to tess without RB_BeginSurface
+	if (tess.vboMode) {
+		tess.vboMode = qfalse;
+		tess.currentStageIteratorFunc = tess.shader->optimalStageIteratorFunc;
+	}
 
 	GLimp_LogComment( "----------\n" );
 }

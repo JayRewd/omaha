@@ -468,35 +468,31 @@ void R_AddStaticModelSurfaces(void)
 RB_Static_BuildDLights
 ==============
 */
-void RB_Static_BuildDLights()
+void RB_Static_BuildDLights(cStaticModelUnpacked_t *sm) // Changed in Omaha: explicit model
 {
     int i;
 
-    backEnd.currentStaticModel->useSpecialLighting = backEnd.refdef.num_dlights > 0;
-    backEnd.currentStaticModel->numdlights         = 0;
+    sm->useSpecialLighting = backEnd.refdef.num_dlights > 0;
+    sm->numdlights         = 0;
 
-    if (!backEnd.currentStaticModel->useSpecialLighting) {
+    if (!sm->useSpecialLighting) {
         return;
     }
 
-    for (i = 0; i < backEnd.refdef.num_dlights && backEnd.currentStaticModel->numdlights != 32; i++) {
+    for (i = 0; i < backEnd.refdef.num_dlights && sm->numdlights != 32; i++) {
         vec3_t lightorigin, delta;
 
         VectorCopy(backEnd.refdef.dlights[i].origin, lightorigin);
-        VectorSubtract(lightorigin, backEnd.currentStaticModel->origin, delta);
+        VectorSubtract(lightorigin, sm->origin, delta);
         if (backEnd.refdef.dlights[i].radius * 2.0 >= VectorLength(delta)) {
-            MatrixTransformVectorRight(
-                backEnd.currentStaticModel->axis,
-                delta,
-                backEnd.currentStaticModel->dlights[backEnd.currentStaticModel->numdlights].transformed
-            );
+            MatrixTransformVectorRight(sm->axis, delta, sm->dlights[sm->numdlights].transformed);
 
-            backEnd.currentStaticModel->dlights[backEnd.currentStaticModel->numdlights++].index = i;
+            sm->dlights[sm->numdlights++].index = i;
         }
     }
 
-    if (!backEnd.currentStaticModel->numdlights) {
-        backEnd.currentStaticModel->useSpecialLighting = qfalse;
+    if (!sm->numdlights) {
+        sm->useSpecialLighting = qfalse;
     }
 }
 

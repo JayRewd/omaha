@@ -439,12 +439,16 @@ qboolean ClientGameCommandManager::TempModelRealtimeEffects(ctempmodel_t *p, flo
     }
 
     if (p->cgd.flags & T_COLLISION) {
-        vec3_t vLighting;
-        cgi.R_GetLightingForSmoke(vLighting, p->ent.origin);
+        // Added in Omaha: reuse lighting until the particle moves ~8 units
+        if (!p->lightCacheValid || DistanceSquared(p->ent.origin, p->lightCacheOrigin) > 64.0f) {
+            cgi.R_GetLightingForSmoke(p->lightCache, p->ent.origin);
+            VectorCopy(p->ent.origin, p->lightCacheOrigin);
+            p->lightCacheValid = qtrue;
+        }
 
-        p->ent.shaderRGBA[0] = (int)((float)tempColor[0] * vLighting[0]);
-        p->ent.shaderRGBA[1] = (int)((float)tempColor[1] * vLighting[1]);
-        p->ent.shaderRGBA[2] = (int)((float)tempColor[2] * vLighting[2]);
+        p->ent.shaderRGBA[0] = (int)((float)tempColor[0] * p->lightCache[0]);
+        p->ent.shaderRGBA[1] = (int)((float)tempColor[1] * p->lightCache[1]);
+        p->ent.shaderRGBA[2] = (int)((float)tempColor[2] * p->lightCache[2]);
     } else {
         p->ent.shaderRGBA[0] = tempColor[0];
         p->ent.shaderRGBA[1] = tempColor[1];
@@ -863,6 +867,34 @@ qboolean ClientGameCommandManager::LerpTempModel(refEntity_t *newEnt, ctempmodel
     return true;
 }
 
+/* Added in Omaha: settled particles with no animated effects can skip sim */
+static qboolean TempModelCanSleep(const ctempmodel_t *p)
+{
+    if (!p->addedOnce || p->number != -1) {
+        return qfalse;
+    }
+    if (p->cgd.flags
+        & (T_FADE | T_FADEIN | T_SCALEUPDOWN | T_FLICKERALPHA | T_TWINKLE | T_SWARM | T_DLIGHT | T_WAVE | T_ALIGN
+           | T_PARENTLINK | T_HARDLINK | T_SCALEANIM | T_RANDSCALE)) {
+        return qfalse;
+    }
+    if (p->cgd.flags2
+        & (T2_COLOR_AVEL | T2_PHYSICS_EVERYFRAME | T2_TRAIL | T2_ALIGNSTRETCH | T2_WIND_AFFECT | T2_SPIN
+           | T2_VARYCOLOR)) {
+        return qfalse;
+    }
+    if (p->cgd.scaleRate != 0.0f || p->cgd.lightstyle >= 0) {
+        return qfalse;
+    }
+    if (p->cgd.velocity.lengthSquared() > 1.0f || p->cgd.avelocity.lengthSquared() > 1.0f) {
+        return qfalse;
+    }
+    if (p->cgd.accel.lengthSquared() > 0.01f) {
+        return qfalse;
+    }
+    return qtrue;
+}
+
 //===============
 // CG_AddTempModels
 //===============
@@ -942,6 +974,41 @@ void ClientGameCommandManager::AddTempModels(void)
 
         if ((p->cgd.flags & T_DETAIL) && !cg_detail->integer) {
             FreeTempModel(p);
+            continue;
+        }
+
+        // Added in Omaha: asleep particles — lifetime + re-submit only
+        if (TempModelCanSleep(p)) {
+            p->aliveTime += frameTime;
+            if (p->aliveTime >= p->cgd.life) {
+                FreeTempModel(p);
+                continue;
+            }
+
+            newEnt.scale = p->ent.scale;
+            memcpy(newEnt.shaderRGBA, p->ent.shaderRGBA, 4);
+            AxisCopy(p->ent.axis, newEnt.axis);
+            VectorCopy(p->ent.origin, newEnt.origin);
+            newEnt.renderfx   = p->ent.renderfx;
+            newEnt.hModel     = p->ent.hModel;
+            newEnt.reType     = p->ent.reType;
+            newEnt.shaderTime = p->ent.shaderTime;
+            newEnt.frameInfo[0].index  = p->ent.frameInfo[0].index;
+            newEnt.frameInfo[0].weight = 1.0;
+            newEnt.frameInfo[0].time   = 0.0;
+            newEnt.wasframe     = p->ent.wasframe;
+            newEnt.actionWeight = 1.0;
+            newEnt.entityNumber = ENTITYNUM_NONE;
+            newEnt.tiki         = p->ent.tiki;
+            VectorCopy(newEnt.origin, newEnt.lightingOrigin);
+            newEnt.radius = 4.0;
+
+            if (p->ent.reType == RT_SPRITE) {
+                cgi.R_AddRefSpriteToScene(&newEnt);
+            } else {
+                cgi.R_AddRefEntityToScene(&newEnt, ENTITYNUM_NONE);
+            }
+            count++;
             continue;
         }
 
@@ -1073,9 +1140,7 @@ void ClientGameCommandManager::AddTempModels(void)
                 p->cgd.lightType
             );
         } else if (p->ent.reType == RT_SPRITE) {
-            vec3_t vTestAngles;
             cgi.R_AddRefSpriteToScene(&newEnt); // Sprite
-            MatrixToEulerAngles(newEnt.axis, vTestAngles);
         } else {
             cgi.R_AddRefEntityToScene(&newEnt, ENTITYNUM_NONE); // Model
         }
@@ -1401,7 +1466,8 @@ void ClientGameCommandManager::SpawnTempModel(int mcount)
 
         // If createTime is specified, the use it.  Otherwise use the createTime
         // from the spawnthing.
-        p->aliveTime = 0;
+        p->aliveTime       = 0;
+        p->lightCacheValid = qfalse; // Added in Omaha
 
         // If animateonce is set, set the life = to the length of the anim
         if ((m_spawnthing->cgd.flags & T_ANIMATEONCE) && (p->ent.frameInfo[0].index > 0)) {

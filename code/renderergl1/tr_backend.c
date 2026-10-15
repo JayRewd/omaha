@@ -835,6 +835,32 @@ void RB_BeginDrawingView (void) {
 
 /*
 ==================
+RB_DrawSurfIsWorldSpace
+
+Added in Omaha: true when RB_StaticMesh / RB_SurfaceFace will emit world-space
+xyz for this drawsurf. Must match their checks, which read tess.dlightMap.
+==================
+*/
+static qboolean RB_DrawSurfIsWorldSpace( const drawSurf_t *drawSurf, qboolean bStaticModel, int entityNum, const shader_t *shader, int dlightMap ) {
+	const int tessDlightMap = r_fastdlights->integer ? 0 : dlightMap;
+
+	if (tessDlightMap) {
+		return qfalse;
+	}
+	if (bStaticModel) {
+		return *drawSurf->surface == SF_TIKI_STATIC
+			&& !backEnd.refdef.staticModels[entityNum].useSpecialLighting
+			&& RB_ShaderAllowsWorldBatch(shader);
+	}
+	if (*drawSurf->surface == SF_FACE) {
+		const trRefEntity_t *ent = entityNum == ENTITYNUM_WORLD ? &tr.worldEntity : &backEnd.refdef.entities[entityNum];
+		return !(ent->e.renderfx & RF_DEPTHHACK) && RB_ShaderAllowsWorldBatch(shader);
+	}
+	return qfalse;
+}
+
+/*
+==================
 RB_RenderDrawSurfList
 ==================
 */
@@ -844,6 +870,7 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	int				dlightMap, oldDlightMap;
 	qboolean		depthRange, oldDepthRange;
 	qboolean		bStaticModel, oldbStaticModel;
+	qboolean		worldModelView;
 	int				i;
 	drawSurf_t		*drawSurf;
 	int				oldSort;
@@ -852,10 +879,10 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	// save original time for entity shader offsets
 	originalTime = backEnd.refdef.floatTime;
 
-	// clear the z buffer, set the modelview, etc
-	RB_BeginDrawingView ();
+	/* clear the z buffer, set the modelview, etc */
+	RB_BeginDrawingView();
 
-	// draw everything
+	/* draw everything */
 	oldEntityNum = -1;
 	backEnd.currentEntity = &tr.worldEntity;
 	oldShader = NULL;
@@ -867,11 +894,14 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 
 	backEnd.pc.c_surfaces += numDrawSurfs;
 	backEnd.numSpheresUsed = 0;
+	backEnd.worldSpaceBatch = qfalse;
+	backEnd.skelWorldSpace = qfalse;
+	worldModelView = qfalse;
 
 	for (i = 0, drawSurf = drawSurfs ; i < numDrawSurfs ; i++, drawSurf++) {
 		if ( drawSurf->sort == (unsigned)oldSort && *drawSurf->surface != SF_SPRITE ) {
-			// fast path, same as previous sort
-			rb_surfaceTable[ *drawSurf->surface ]( drawSurf->surface );
+			/* fast path, same as previous sort */
+			RB_TessSurface( drawSurf->surface ); /* Changed in Omaha: world-VBO aware */
 			continue;
 		}
 		oldSort = (int)drawSurf->sort;
@@ -884,25 +914,83 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 			bStaticModel = qfalse;
 		}
 
-		//
-		// change the tess parameters if needed
-		// a "entityMergable" shader is a shader that can have surfaces from seperate
-		// entities merged into a single batch, like smoke and blood puff sprites
+		/*
+		 * Changed in Omaha: refresh this frame's dlight state before the merge and
+		 * modelview decisions below read useSpecialLighting; RB_StaticMesh picks
+		 * world vs model space from the same flag.
+		 */
+		if (bStaticModel && r_drawspherelights->integer) {
+			RB_Static_BuildDLights(&backEnd.refdef.staticModels[entityNum]);
+		}
+
+		/*
+		 * change the tess parameters if needed
+		 * a "entityMergable" shader is a shader that can have surfaces from seperate
+		 * entities merged into a single batch, like smoke and blood puff sprites
+		 *
+		 * Changed in Omaha: world-space static models can merge across indices when
+		 * shader/dlight match and neither uses special per-model dlight lighting.
+		 * Changed in Omaha: world-space FACE batches (brush ents + world) merge the
+		 * same way when dlightMap is idle — cuts fragmented wood/floor EndSurfaces.
+		 */
+		{
+			const qboolean staticEntityMerge =
+				backEnd.worldSpaceBatch && !backEnd.skelWorldBatch
+				&& bStaticModel && oldbStaticModel
+				&& dlightMap == oldDlightMap && dlightMap == 0
+				&& shader == oldShader
+				&& *drawSurf->surface == SF_TIKI_STATIC
+				&& (entityNum != oldEntityNum)
+				&& oldShader && !(oldShader->flags & 1)
+				&& RB_ShaderAllowsWorldBatch(shader)
+				&& !backEnd.refdef.staticModels[entityNum].useSpecialLighting
+				&& backEnd.currentStaticModel
+				&& !backEnd.currentStaticModel->useSpecialLighting;
+			const qboolean faceEntityMerge =
+				backEnd.worldSpaceBatch && !backEnd.skelWorldBatch
+				&& !bStaticModel && !oldbStaticModel
+				&& dlightMap == oldDlightMap && dlightMap == 0
+				&& shader == oldShader
+				&& *drawSurf->surface == SF_FACE
+				&& (entityNum != oldEntityNum)
+				&& oldShader && !(oldShader->flags & 1)
+				&& RB_ShaderAllowsWorldBatch(shader)
+				&& (entityNum == ENTITYNUM_WORLD
+					|| !(backEnd.refdef.entities[entityNum].e.renderfx & RF_DEPTHHACK))
+				&& (oldEntityNum == ENTITYNUM_WORLD
+					|| !(backEnd.refdef.entities[oldEntityNum].e.renderfx & RF_DEPTHHACK));
+			/* Changed in Omaha: world-space tempmodel skels (brass) merge the same way. */
+			const qboolean skelEntityMerge =
+				backEnd.skelWorldBatch
+				&& !bStaticModel && !oldbStaticModel
+				&& dlightMap == oldDlightMap && dlightMap == 0
+				&& shader == oldShader
+				&& *drawSurf->surface == SF_TIKI_SKEL
+				&& (entityNum != oldEntityNum)
+				&& entityNum != ENTITYNUM_WORLD
+				&& oldShader && !(oldShader->flags & 1)
+				&& oldEntityNum >= 0 && oldEntityNum != ENTITYNUM_WORLD
+				&& !((backEnd.refdef.entities[entityNum].e.renderfx ^ backEnd.refdef.entities[oldEntityNum].e.renderfx)
+					 & RF_DEPTHHACK)
+				&& RB_SkelEntityWantsWorldBatch(&backEnd.refdef.entities[entityNum], shader, dlightMap);
+			const qboolean entityMerge = staticEntityMerge || faceEntityMerge || skelEntityMerge;
 		if (shader != oldShader || dlightMap != oldDlightMap || (oldShader->flags & 1)
-			|| ( entityNum != oldEntityNum && !shader->entityMergable )
-			|| ( bStaticModel != oldbStaticModel && !shader->entityMergable )) {
+			|| ( entityNum != oldEntityNum && !shader->entityMergable && !entityMerge )
+			|| ( bStaticModel != oldbStaticModel && !shader->entityMergable && !entityMerge )) {
 			if (oldShader != NULL) {
 				RB_EndSurface();
 			}
 			RB_BeginSurface( shader );
+			backEnd.worldSpaceBatch = qfalse;
 			oldShader = shader;
 			oldDlightMap = dlightMap;
 		}
+		} /* staticEntityMerge scope */
 
 		backEnd.currentSphere = &backEnd.spareSphere;
-		//
-		// change the modelview matrix if needed
-		//
+		/*
+		 * change the modelview matrix if needed
+		 */
 		if ( entityNum != oldEntityNum || bStaticModel != oldbStaticModel ) {
 			depthRange = qfalse;
 
@@ -919,16 +1007,16 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 					backEnd.currentEntity = &backEnd.refdef.entities[entityNum];
 					backEnd.shaderStartTime = backEnd.currentEntity->e.shaderTime;
 
-					// set up the transformation matrix
+					/* set up the transformation matrix */
 					R_RotateForEntity(backEnd.currentEntity, &backEnd.viewParms, &backEnd.ori);
 
-					// set up the dynamic lighting if needed
+					/* set up the dynamic lighting if needed */
 					if (backEnd.currentEntity->needDlights) {
 						R_TransformDlights(backEnd.refdef.num_dlights, backEnd.refdef.dlights, &backEnd.ori);
 					}
 
 					if (backEnd.currentEntity->e.renderfx & RF_DEPTHHACK) {
-						// hack the depth range to prevent view model from poking into walls
+						/* hack the depth range to prevent view model from poking into walls */
 						depthRange = qtrue;
 					}
 				}
@@ -940,11 +1028,32 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 				}
 			}
 
-			qglLoadMatrixf( backEnd.ori.modelMatrix );
+			/*
+			 * Changed in Omaha: world-batched static models use the world modelview;
+			 * ori is still computed so RB_StaticMesh can transform into world.
+			 * Changed in Omaha: world-batched FACE surfaces likewise (RB_SurfaceFace
+			 * emits world xyz for brush ents).
+			 */
+			{
+				/* Changed in Omaha: world-batched tempmodel skels (RB_SkelMesh emits world xyz). */
+				const qboolean skelWorld =
+					!bStaticModel && *drawSurf->surface == SF_TIKI_SKEL && entityNum != ENTITYNUM_WORLD
+					&& RB_SkelEntityWantsWorldBatch(backEnd.currentEntity, shader, dlightMap);
+				const qboolean world =
+					skelWorld || RB_DrawSurfIsWorldSpace(drawSurf, bStaticModel, entityNum, shader, dlightMap);
 
-			//
-			// change depthrange if needed
-			//
+				if (skelWorld && backEnd.skelWorldSpace) {
+					/* already on the world modelview */
+				} else {
+					qglLoadMatrixf(world ? backEnd.viewParms.world.modelMatrix : backEnd.ori.modelMatrix);
+				}
+				backEnd.skelWorldSpace = skelWorld;
+				worldModelView = world;
+			}
+
+			/*
+			 * change depthrange if needed
+			 */
 			if ( oldDepthRange != depthRange ) {
 				if ( depthRange ) {
 					qglDepthRange (0, 0.3);
@@ -957,6 +1066,23 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 
 			oldEntityNum = entityNum;
 			oldbStaticModel = bStaticModel;
+		} else {
+			/*
+			 * Fixed in Omaha: same entity, new shader or dlight state. World vs model
+			 * space is chosen per shader, so keep the modelview in step with what
+			 * RB_StaticMesh / RB_SurfaceFace / RB_SkelMesh are about to emit.
+			 */
+			const qboolean skelWorld =
+				!bStaticModel && *drawSurf->surface == SF_TIKI_SKEL && entityNum != ENTITYNUM_WORLD
+				&& RB_SkelEntityWantsWorldBatch(backEnd.currentEntity, shader, dlightMap);
+			const qboolean world =
+				skelWorld || RB_DrawSurfIsWorldSpace(drawSurf, bStaticModel, entityNum, shader, dlightMap);
+
+			if (world != worldModelView) {
+				qglLoadMatrixf(world ? backEnd.viewParms.world.modelMatrix : backEnd.ori.modelMatrix);
+				worldModelView = world;
+			}
+			backEnd.skelWorldSpace = skelWorld;
 		}
 
 		tess.dlightMap = dlightMap;
@@ -966,10 +1092,6 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 
 		if (bStaticModel)
 		{
-			if (r_drawspherelights->integer) {
-				RB_Static_BuildDLights();
-			}
-
 			if (!backEnd.currentStaticModel->bLightGridCalculated) {
 				RB_Grid_SetupStaticModel();
 			}
@@ -1020,16 +1142,17 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 		}
 
 		// add the triangles for this surface
-		rb_surfaceTable[ *drawSurf->surface ]( drawSurf->surface );
+		RB_TessSurface( drawSurf->surface ); /* Changed in Omaha: world-VBO aware */
 	}
 
-	// draw the contents of the last shader batch
+	/* draw the contents of the last shader batch */
 	if (oldShader != NULL) {
 		RB_EndSurface();
 	}
 
 	// go back to the world modelview matrix
 	qglLoadMatrixf( backEnd.viewParms.world.modelMatrix );
+	backEnd.skelWorldSpace = qfalse;
 	if ( depthRange ) {
 		qglDepthRange (0, 1.0);
 		RB_SetDepthHackProjection( qfalse );
@@ -1111,7 +1234,7 @@ void RB_RenderSpriteSurfList(drawSurf_t* drawSurfs, int numDrawSurfs) {
         backEnd.shaderStartTime = ((refSprite_t*)drawSurf->surface)->shaderTime;
 
         // add the triangles for this surface
-        rb_surfaceTable[*drawSurf->surface](drawSurf->surface);
+        RB_TessSurface(drawSurf->surface); /* Changed in Omaha: world-VBO aware */
 	}
 
 	if (oldShader) {

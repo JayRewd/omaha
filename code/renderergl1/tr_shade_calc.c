@@ -1181,6 +1181,15 @@ void RB_CalcAlphaFromEntity( unsigned char *dstColors )
 
 	dstColors += 3;
 
+	// Added in Omaha: merged skel batch, each entity's alpha is already per vertex
+	if ( backEnd.skelWorldBatch ) {
+		for ( i = 0; i < tess.numVertexes; i++, dstColors += 4 )
+		{
+			*dstColors = tess.vertexColors[i][3];
+		}
+		return;
+	}
+
 	for ( i = 0; i < tess.numVertexes; i++, dstColors += 4 )
 	{
 		*dstColors = backEnd.currentEntity->e.shaderRGBA[3];
@@ -1708,6 +1717,12 @@ void RB_CalcSpecularAlpha(unsigned char* alphas, float alphaMax, vec3_t lightOri
 void RB_CalcLightGridColor(unsigned char* colors)
 {
 	int i;
+
+	// Added in Omaha: merged skel batch, each entity's grid color is already per vertex
+	if (backEnd.skelWorldBatch) {
+		Com_Memcpy(colors, tess.vertexColors, tess.numVertexes * sizeof(tess.vertexColors[0]));
+		return;
+	}
 
 	if (!backEnd.currentEntity) {
 		for (i = 0; i < tess.numVertexes; i++) {
