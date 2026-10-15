@@ -49,6 +49,7 @@
 			<item value="32" label="32-bit"/>
 		</source>
 
+		<!-- OpenAL Soft: full speaker layouts including surround. -->
 		<source id="speaker-setup" default="0">
 			<item value="0" label="Two Speakers"/>
 			<item value="1" label="Headphones"/>
@@ -56,20 +57,21 @@
 			<item value="3" label="Quad Speakers"/>
 		</source>
 
+		<!-- Omaha host: stereo + headphones HRTF only (no surround/quad). -->
+		<source id="speaker-setup-omaha" default="0">
+			<item value="0" label="Stereo"/>
+			<item value="1" label="HRTF"/>
+		</source>
+
+		<source id="audio-backend" default="omaha">
+			<item value="omaha" label="Omaha"/>
+			<item value="openal" label="OpenAL Soft"/>
+		</source>
+
 		<source id="sample-rate" default="44">
 			<item value="11" label="11 kHz"/>
 			<item value="22" label="22 kHz"/>
 			<item value="44" label="44 kHz"/>
-		</source>
-
-		<source id="miles-driver" default="auto">
-			<item value="auto" label="Auto"/>
-			<item value="DirectSound3D Hardware Support" label="DirectSound3D"/>
-			<item value="Creative Labs EAX 2 (TM)" label="Creative EAX 2"/>
-			<item value="Creative Labs EAX (TM)" label="Creative EAX"/>
-			<item value="Aureal A3D 2.0 (TM)" label="Aureal A3D 2.0"/>
-			<item value="Dolby Surround" label="Dolby Surround"/>
-			<item value="Miles Fast 2D Positional Audio" label="2D Positional"/>
 		</source>
 
 		<source id="picmip" default="1">

@@ -352,12 +352,13 @@ qboolean S_OMAHA_Init()
 
     /*
      * The omaha mixer renders stereo and headphones (its own HRTF) only.
-     * 5.1 and quad need Soft's surround output modes, so let the core fall
-     * back to the OpenAL host for those layouts.
+     * 5.1 and quad need Soft's surround output modes — keep the error and fall
+     * back to headphones HRTF instead of declining the omaha host.
      */
     if (s_speaker_type->integer >= 2) {
         Com_Printf("Sound: speaker_type %i (surround) is not supported by omaha.\n", s_speaker_type->integer);
-        return qfalse;
+        Cvar_Set("s_speaker_type", "1");
+        Com_Printf("Sound: omaha does not support surround; using Headphones (HRTF).\n");
     }
 
     memset(&cfg, 0, sizeof(cfg));

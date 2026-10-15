@@ -265,21 +265,46 @@
 
 						<!-- AUDIO -->
 						<container id="settings_page_audio" type="vertical" width="100%" height="100%" overflow="scroll" scrollbar="scrollbar-default" scrollbar-edge="border" padding="8px 12px 12px 12px" gap="8px" visible="{cvar.ui_om_settings_tab == audio}">
-								<use template="settings-on-off-row" label="Sound" bind="cvar:s_initsound" commit="change"/>
+								<!-- Removed in Omaha: Sound on/off (s_initsound) — unused in practice; still gates rows if 0 via console. -->
 								<use template="settings-slider-row" label="Master Volume" bind="cvar:s_volume" min="0" max="100" step="1" commit="change" value-type="percent"
 								     visible="{cvar.s_initsound != 0}"/>
 								<use template="settings-slider-row" label="Music volume" bind="cvar:s_musicvolume" min="0" max="100" step="1" commit="change" value-type="percent"
 								     visible="{cvar.s_initsound != 0}"/>
 								<use template="settings-slider-row" label="Ambient volume" bind="cvar:s_ambientvolume" min="0" max="100" step="1" commit="change" value-type="percent"
 								     visible="{cvar.s_initsound != 0}"/>
-								<use template="settings-cyclic-row" label="Speaker Setup" bind="cvar:s_speaker_type" source="speaker-setup" commit="change"
+								<!-- Added in Omaha: host pick; speaker list depends on backend. -->
+								<use template="settings-cyclic-row" label="Audio Backend" bind="cvar:s_backend" source="audio-backend" commit="change"
 								     visible="{cvar.s_initsound != 0}"/>
+								<use template="settings-cyclic-row" label="Speaker Setup" bind="cvar:s_speaker_type" source="speaker-setup-omaha" commit="change"
+								     visible="{cvar.s_initsound != 0 and cvar.s_backend != openal}"/>
+								<use template="settings-cyclic-row" label="Speaker Setup" bind="cvar:s_speaker_type" source="speaker-setup" commit="change"
+								     visible="{cvar.s_initsound != 0 and cvar.s_backend == openal}"/>
 								<use template="settings-cyclic-row" label="Sound Quality" bind="cvar:s_khz" source="sample-rate" commit="change"
 								     visible="{cvar.s_initsound != 0}"/>
-								<use template="settings-cyclic-row" label="3D Sound Driver" bind="cvar:s_milesdriver" source="miles-driver" commit="change"
-								     visible="{cvar.s_initsound != 0}"/>
 								<use template="settings-on-off-row" label="EAX Reverb" bind="cvar:s_reverb" commit="change"
-								     visible="{cvar.s_initsound != 0}"/>
+								     visible="{cvar.s_initsound != 0 and cvar.s_backend == openal}"/>
+								<!-- Added in Omaha: omaha-only mix / obstruction knobs.
+								     Pattern per option: header label, help blurb, then on/off. -->
+								<container type="vertical" width="100%" height="auto" gap="8px"
+								           visible="{cvar.s_initsound != 0 and cvar.s_backend != openal}">
+									<use template="settings-section-header" label="OMAHA MIX"/>
+									<container type="vertical" width="100%" height="auto" gap="8px" padding="8px 12px" valign="start"
+									           visible="{(cvar.ui_om_settings_search == '' or icontains('Modern Mix', cvar.ui_om_settings_search))}">
+										<label width="fill" height="auto" font="body" font-size="{var.text-body}" valign="start" color="{var.color-primary}">Modern Mix</label>
+										<label width="100%" height="auto" font="body" font-size="{var.text-caption}"
+										       color="{var.color-muted}">Custom level balance for weapons, footsteps, and the rest of the mix.</label>
+										<use template="settings-on-off" bind="cvar:s_mix" commit="change"/>
+										<container width="fill" height="1px" fill="{var.fill-divider}"/>
+									</container>
+									<container type="vertical" width="100%" height="auto" gap="8px" padding="8px 12px" valign="start"
+									           visible="{(cvar.ui_om_settings_search == '' or icontains('Obstruction', cvar.ui_om_settings_search))}">
+										<label width="fill" height="auto" font="body" font-size="{var.text-body}" valign="start" color="{var.color-primary}">Obstruction</label>
+										<label width="100%" height="auto" font="body" font-size="{var.text-caption}"
+										       color="{var.color-muted}">Muffles sounds that are behind walls or other cover so they feel blocked.</label>
+										<use template="settings-on-off" bind="cvar:s_obstruction" commit="change"/>
+										<container width="fill" height="1px" fill="{var.fill-divider}"/>
+									</container>
+								</container>
 						</container>
 
 						<!-- GAMEPLAY -->

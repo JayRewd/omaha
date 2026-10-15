@@ -2794,6 +2794,7 @@ static const char *const g_uidSettingsDraftCvars[] = {
 	"s_khz",
 	"s_reverb",
 	"s_initsound",
+	"s_backend", /* Added in Omaha: host switch needs snd_restart */
 	"s_milesdriver",
 	"cg_fov",
 	"cg_drawviewmodel",
@@ -2877,6 +2878,7 @@ static const char *const g_uidSoundRestartCvars[] = {
 	"s_khz",
 	"s_reverb",
 	"s_initsound",
+	"s_backend", /* Added in Omaha: omaha ↔ OpenAL Soft */
 	"s_milesdriver",
 	NULL
 };

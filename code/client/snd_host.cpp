@@ -41,6 +41,17 @@ qboolean S_Host_Init(void)
 #ifdef USE_OMAHA_SOUND
     s_backend = Cvar_Get("s_backend", "omaha", CVAR_ARCHIVE | CVAR_SOUND_LATCH);
     if (Q_stricmp(s_backend->string, "openal")) {
+        /*
+         * Added in Omaha: surround/quad need Soft; clamp to headphones HRTF so a
+         * leftover s_speaker_type 2/3 does not force a silent fall back to OpenAL
+         * while the UI still says Omaha.
+         */
+        if (Cvar_VariableIntegerValue("s_speaker_type") >= 2) {
+            Com_Printf("Sound: speaker_type %i (surround) is not supported by omaha.\n",
+                       Cvar_VariableIntegerValue("s_speaker_type"));
+            Cvar_Set("s_speaker_type", "1");
+            Com_Printf("Sound: omaha does not support surround; using Headphones (HRTF).\n");
+        }
         s_sndHost = &s_sndHostOmaha;
         if (s_sndHost->Init()) {
             return qtrue;
