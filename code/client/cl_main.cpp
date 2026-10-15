@@ -28,6 +28,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "cl_uirender.h"
 #include "cl_demoscan.h"
 #include "cl_demoplayback.h"
+#include "cl_fpsbench.h"
 #include "cl_practice.h"
 #include "cl_ghostspec.h"
 #include "../corepp/tiki.h"
@@ -608,7 +609,12 @@ void CL_DemoCompleted( void )
 	}
 
 	CL_AVI_FinishDemoExport();
+	// Added in Omaha: end the fps bench before disconnect so Abort is a no-op,
+	// then print after disconnect noise (and before nextdemo) so the stats are
+	// the last thing the player sees from the bench.
+	CL_FpsBench_DemoCompleted();
 	CL_Disconnect();
+	CL_FpsBench_PrintResults();
 	CL_NextDemo();
 }
 
@@ -644,7 +650,7 @@ void CL_ReadDemoMessage( void ) {
 	}
 
 	// get the sequence number
-	r = FS_Read( &s, 4, clc.demofile);
+	r = FS_Read( &s, 4, clc.demofile );
 	if ( r != 4 ) {
 		CL_DemoEndOfFile ();
 		return;
@@ -655,7 +661,7 @@ void CL_ReadDemoMessage( void ) {
 	MSG_Init( &buf, bufData, sizeof( bufData ) );
 
 	// get the length
-	r = FS_Read (&buf.cursize, 4, clc.demofile);
+	r = FS_Read( &buf.cursize, 4, clc.demofile );
 	if ( r != 4 ) {
 		CL_DemoEndOfFile ();
 		return;
@@ -768,15 +774,27 @@ void CL_PlayDemo_f( void ) {
 		Com_Error( ERR_DROP, "couldn't open %s", name);
 		return;
 	}
-	Q_strncpyz( clc.demoName, Cmd_Argv(1), sizeof( clc.demoName ) );
+	CL_BeginDemoPlayback( name, Cmd_Argv(1) );
+}
+
+/*
+====================
+CL_BeginDemoPlayback
+
+Added in Omaha: shared by CL_PlayDemo_f and fpsbench once the demo file
+is open; path is the opened file, arg the display name
+====================
+*/
+void CL_BeginDemoPlayback( const char *path, const char *arg ) {
+	Q_strncpyz( clc.demoName, arg, sizeof( clc.demoName ) );
 	// Added in Omaha: playback overlay timeline / restart-seek state
-	CL_DemoPlayback_OnDemoStart( name, Cmd_Argv(1) );
+	CL_DemoPlayback_OnDemoStart( path, arg );
 
     UI_CloseConsole();
 
 	clc.state = CA_CONNECTED;
 	clc.demoplaying = qtrue;
-	Q_strncpyz( clc.servername, Cmd_Argv(1), sizeof( clc.servername ) );
+	Q_strncpyz( clc.servername, arg, sizeof( clc.servername ) );
 
 	// read demo messages until connected
 	while ( clc.state >= CA_CONNECTED && clc.state < CA_PRIMED ) {
@@ -1031,6 +1049,8 @@ void CL_Disconnect() {
 		FS_FCloseFile( clc.demofile );
 		clc.demofile = 0;
 	}
+	// Added in Omaha: leaving an unfinished fps bench restores its cvars
+	CL_FpsBench_Abort();
 
 	SCR_StopCinematic ();
 	S_ClearSoundBuffer();
@@ -2918,6 +2938,8 @@ void CL_Frame ( int msec ) {
 
 	// Added in Omaha: demo overlay timeline index, seek/export state, UI vars
 	CL_DemoPlayback_Frame();
+	// Added in Omaha: fps bench frame timing
+	CL_FpsBench_Frame();
 	// Added in Omaha: practice editor draft status (unsaved field edits)
 	CL_PracticeEditor_Frame();
 
@@ -3477,6 +3499,7 @@ void CL_InitRef( void ) {
 
 	ri.SKEL_GetBoneParent = CL_RefSKEL_GetBoneParent;
 	ri.SKEL_GetMorphWeightFrame = CL_RefSKEL_GetMorphWeightFrame;
+	ri.PresentGuard = Com_PresentGuard; // Added in Omaha
 
 	ret = GetRefAPI( REF_API_VERSION, &ri );
 
@@ -3880,6 +3903,8 @@ void CL_Init( void ) {
 	CL_DemoScan_Init();
 	// Added in Omaha: demo playback overlay
 	CL_DemoPlayback_Init();
+	// Added in Omaha: embedded demo fps bench
+	CL_FpsBench_Init();
 	// Added in Omaha: in-game practice scenario editor commands
 	CL_PracticeEditor_Init();
 	// Added in Omaha: covert ghost-spectate command
@@ -3992,6 +4017,7 @@ void CL_Shutdown(const char* finalmsg, qboolean disconnect, qboolean quit) {
 	Cmd_RemoveCommand ("stoprecord");
 	CL_DemoScan_Shutdown();
 	CL_DemoPlayback_Shutdown();
+	CL_FpsBench_Shutdown();
 	CL_GhostSpec_Shutdown();
 	Cmd_RemoveCommand ("connect");
 	Cmd_RemoveCommand ("localservers");
@@ -5175,6 +5201,9 @@ void CL_PurgeObsoleteCvars(void)
 		"cl_browserTimeout",
 		"cl_browserRetryTimeout",
 		"g_spectatefollow_pitch",
+		"cl_cmdOnButton", // Removed in Omaha: stock servers may flood-kick
+		"cl_latencyStats", // Removed in Omaha: debug meter only
+		"cl_lateInput", // Renamed in Omaha: cl_lowLatencyInput
 	};
 	int     i;
 	cvar_t *cv;

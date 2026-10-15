@@ -31,6 +31,8 @@ int			old_com_frameTime;
 
 // Added in Omaha: usercmd / pmove rate (85..125), independent of render FPS
 cvar_t		*cl_cmdfps;
+// Added in Omaha: late mouse before cgame view
+cvar_t		*cl_lowLatencyInput;
 // Added in Omaha: render-frame resample of the newest usercmd; consume no taps
 static qboolean	cl_keepLatches;
 
@@ -621,7 +623,8 @@ void CL_MouseMove( usercmd_t *cmd ) {
 	float	cgameSensitivity;
 
 	// allow mouse smoothing
-	if (m_filter->integer)
+	// Changed in Omaha: cl_lowLatencyInput reads the mouse again this frame; raw deltas only
+	if (m_filter->integer && !(cl_lowLatencyInput && cl_lowLatencyInput->integer))
 	{
 		mx = (cl.mouseDx[0] + cl.mouseDx[1]) * 0.5f;
 		my = (cl.mouseDy[0] + cl.mouseDy[1]) * 0.5f;
@@ -1203,6 +1206,50 @@ static void CL_ApplyRenderLook( void ) {
 
 /*
 =================
+CL_ApplyLateMouse
+
+Added in Omaha: mouse look only (no CL_AdjustAngles — that already ran this frame).
+Called after a late SDL pump just before CG_DrawActiveFrame so the view uses the
+freshest deltas. When cl_lowLatencyInput is on, CL_MouseMove skips m_filter (raw deltas).
+=================
+*/
+void CL_ApplyLateMouse( void ) {
+	const unsigned savedFrameMsec = frame_msec;
+	vec3_t         oldAngles;
+	int            i;
+
+	if ( !cl_lowLatencyInput || !cl_lowLatencyInput->integer ) {
+		return;
+	}
+	if ( clc.state < CA_PRIMED || paused->integer ) {
+		return;
+	}
+
+	VectorCopy( cl.viewangles, oldAngles );
+	frame_msec = (unsigned)Com_Clamp( 1, 200, cls.frametime );
+	CL_MouseMove( &cl.mouseCmd );
+	frame_msec = savedFrameMsec;
+
+	if ( cl.viewangles[PITCH] - oldAngles[PITCH] > 90 ) {
+		cl.viewangles[PITCH] = oldAngles[PITCH] + 90;
+	} else if ( oldAngles[PITCH] - cl.viewangles[PITCH] > 90 ) {
+		cl.viewangles[PITCH] = oldAngles[PITCH] - 90;
+	}
+
+	for ( i = 0; i < 3; i++ ) {
+		const short a = ANGLE2SHORT( cl.viewangles[i] );
+		cl.cmds[cl.cmdNumber & CMD_MASK].angles[i] = a;
+		cl.predictCmd.angles[i] = a;
+	}
+
+	cl_keepLatches        = qtrue;
+	cl.predictCmd.buttons = 0;
+	CL_CmdButtons( &cl.predictCmd );
+	cl_keepLatches = qfalse;
+}
+
+/*
+=================
 CL_SendCmd
 
 Called every frame to builds and sends a command packet to the server.
@@ -1340,6 +1387,8 @@ void CL_InitInput( void ) {
 	cl_nodelta = Cvar_Get ("cl_nodelta", "0", 0);
 	cl_debugMove = Cvar_Get ("cl_debugMove", "0", 0);
 	cl_cmdfps = Cvar_Get ("cl_cmdfps", "125", CVAR_ARCHIVE);
+	// Added in Omaha: late mouse before cgame view
+	cl_lowLatencyInput = Cvar_Get( "cl_lowLatencyInput", "0", CVAR_ARCHIVE );
 }
 
 /*

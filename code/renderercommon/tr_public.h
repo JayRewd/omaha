@@ -391,6 +391,10 @@ typedef struct {
     //
     int (*SKEL_GetMorphWeightFrame)(void *skeletor, int index, float time, int *data);
     int (*SKEL_GetBoneParent)(void *skeletor, int boneIndex);
+
+    // Added in Omaha: called right before the buffer swap; holds presents at least one
+    // com_maxfps period apart
+    void (*PresentGuard)(void);
 } refimport_t;
 
 

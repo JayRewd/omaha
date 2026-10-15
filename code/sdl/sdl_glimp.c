@@ -1422,6 +1422,9 @@ void GLimp_EndFrame( void )
 	// don't flip if drawing to front buffer
 	if ( Q_stricmp( r_drawBuffer->string, "GL_FRONT" ) != 0 )
 	{
+		// Added in Omaha
+		if ( ri.PresentGuard )
+			ri.PresentGuard();
 		SDL_GL_SwapWindow( SDL_window );
 	}
 

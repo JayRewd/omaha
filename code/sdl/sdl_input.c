@@ -1383,6 +1383,27 @@ void IN_Frame( void )
 
 /*
 ===============
+IN_PumpLate
+
+Added in Omaha: SDL event poll only (no activate/deactivate). Used for a second
+input read just before cgame builds the view, when relative mouse is active.
+Returns qtrue if events were polled.
+===============
+*/
+qboolean IN_PumpLate( void )
+{
+	if( !SDL_WasInit( SDL_INIT_VIDEO ) )
+		return qfalse;
+	if( clc.state != CA_ACTIVE || !mouseActive )
+		return qfalse;
+
+	IN_ProcessEvents();
+	in_eventTime = Sys_Milliseconds();
+	return qtrue;
+}
+
+/*
+===============
 IN_Init
 ===============
 */

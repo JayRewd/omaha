@@ -43,6 +43,9 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include <sys/wait.h>
 #include <time.h>
 #include <sys/resource.h>
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
 
 qboolean stdinIsATTY;
 
@@ -1239,6 +1242,11 @@ void Sys_PlatformInit( void )
 	signal( SIGBUS, Sys_SigHandler );
 
 	Sys_SetFloatEnv();
+
+#if defined(__linux__) && !defined(DEDICATED)
+	// Added in Omaha: the default 50us timer slack is added to every frame limiter sleep
+	prctl( PR_SET_TIMERSLACK, 1UL, 0, 0, 0 );
+#endif
 
 	stdinIsATTY = isatty( STDIN_FILENO ) &&
 		!( term && ( !strcmp( term, "raw" ) || !strcmp( term, "dumb" ) ) );

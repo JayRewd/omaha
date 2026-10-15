@@ -246,6 +246,7 @@ qboolean	NET_GetLoopPacket (netsrc_t sock, netadr_t *net_from, msg_t *net_messag
 void		NET_JoinMulticast6(void);
 void		NET_LeaveMulticast6(void);
 void		NET_Sleep(int msec);
+void		NET_SleepUs(int64_t usec); // Added in Omaha
 
 
 #define	MAX_MSGLEN				49152		// max length of a message, which may
@@ -1183,6 +1184,8 @@ const char* Z_NumberStringPointer(int iNum);
 // commandLine should not include the executable name (argv[0])
 void Com_Init( char *commandLine );
 void Com_Frame( void );
+void Com_PresentGuard( void ); // Added in Omaha
+void Com_DispatchInputEvents( void ); // Added in Omaha: late input only (no net)
 void Com_Shutdown( void );
 
 qboolean Com_SanitizeName( const char *pszOldName, char *pszNewName, size_t bufferSize );
@@ -1302,6 +1305,7 @@ int SV_SendQueuedPackets(void);
 //
 void IN_Init(void *windowData);
 void IN_Frame(void);
+qboolean IN_PumpLate(void); // Added in Omaha: SDL poll only, for late mouse; qtrue if polled
 void IN_Shutdown(void);
 void IN_Restart(void);
 void IN_GetMousePosition(int *x, int *y);
@@ -1360,6 +1364,7 @@ sysEvent_t	Sys_GetEvent(void);
 
 void		Com_QueueEvent( int time, sysEventType_t type, int value, int value2, size_t ptrLength, void *ptr );
 int			Com_EventLoop( void );
+void		Com_PushEvent( sysEvent_t *event );
 sysEvent_t	Com_GetSystemEvent( void );
 
 void	Sys_Init (void);

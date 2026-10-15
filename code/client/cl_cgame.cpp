@@ -1095,6 +1095,14 @@ void CL_CGameRendering( stereoFrame_t stereo ) {
 	// Added in Omaha: fgame normally resets the line buffer each frame; pure clients don't.
 	CL_ClearDebugLines();
 
+	// Added in Omaha: second input read after SV_Frame / client work, before the view
+	if ( Cvar_VariableIntegerValue( "cl_lowLatencyInput" ) ) {
+		if ( IN_PumpLate() ) {
+			Com_DispatchInputEvents();
+		}
+		CL_ApplyLateMouse();
+	}
+
 	cge->CG_DrawActiveFrame( cl.serverTime, cl.serverTime - cl.oldServerTime, stereo, clc.demoplaying );
 
 	cl.oldServerTime = cl.serverTime;

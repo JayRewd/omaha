@@ -560,6 +560,7 @@ void CL_StartDemoLoop( void );
 void CL_NextDemo( void );
 void CL_ReadDemoMessage( void );
 void CL_WriteDemoGamestate( fileHandle_t f, int sequence );
+void CL_BeginDemoPlayback( const char *path, const char *arg );
 void CL_StopRecord_f(void);
 
 void CL_InitDownloads(void);
@@ -611,6 +612,7 @@ void CL_UpdateMouse();
 
 void CL_InitInput (void);
 void CL_ShutdownInput(void);
+void CL_ApplyLateMouse( void ); // Added in Omaha: late look before cgame view
 void CL_SendCmd (void);
 void CL_ClearState (void);
 void CL_ReadPackets (void);

@@ -194,6 +194,16 @@ static fps_delta_t fpstotal;
 static fps_time_t fpslasttime;
 float currentfps;
 
+// Added in Omaha: present pacing (see Com_Frame / Com_PresentGuard)
+static int64_t	com_presentMinUs;		// com_maxfps period, 0 when uncapped
+static int64_t	com_lastPresentUs;
+static int64_t	com_frameWakeUs;		// when this frame left the limiter (input is read after)
+static int64_t	com_workEstUs;			// expected wake -> present time
+static qboolean	com_presentArmed;
+static qboolean	com_framePresented;		// the last frame reached Com_PresentGuard
+static qboolean	com_presented;
+static fps_time_t	com_presentFpsTime;
+
 void Com_BeginRedirect (char *buffer, int buffersize, void (*flush)( char *) )
 {
 	if (!buffer || !buffersize || !flush)
@@ -1294,6 +1304,50 @@ void Com_RunAndTimeServerPacket( netadr_t *evFrom, msg_t *buf ) {
 
 /*
 =================
+Com_DispatchInputEvents
+
+Added in Omaha: drain KEY/CHAR/MOUSE/JOYSTICK only. Used for a late input read
+before cgame builds the view; does not touch loopback or net packets. Non-input
+events are pushed back for Com_EventLoop.
+=================
+*/
+void Com_DispatchInputEvents( void ) {
+	sysEvent_t	ev;
+
+	while ( 1 ) {
+		ev = Com_GetEvent();
+
+		if ( ev.evType == SE_NONE ) {
+			return;
+		}
+
+		switch ( ev.evType ) {
+		case SE_KEY:
+			CL_KeyEvent( ev.evValue, ev.evValue2, ev.evTime );
+			break;
+		case SE_CHAR:
+			CL_CharEvent( ev.evValue );
+			break;
+		case SE_MOUSE:
+			CL_MouseEvent( ev.evValue, ev.evValue2, ev.evTime );
+			break;
+		case SE_JOYSTICK_AXIS:
+			CL_JoystickEvent( ev.evValue, ev.evValue2, ev.evTime );
+			break;
+		default:
+			// Console / packet / unknown: restore for the normal event loop
+			Com_PushEvent( &ev );
+			return;
+		}
+
+		if ( ev.evPtr ) {
+			Z_Free( ev.evPtr );
+		}
+	}
+}
+
+/*
+=================
 Com_EventLoop
 
 Returns last event time
@@ -2304,6 +2358,57 @@ Com_TimeVal
 =================
 */
 
+// Added in Omaha: client frame limiter sleep tuning (see Com_Frame)
+#define COM_SLEEP_GUARD_US     100  // margin on top of the measured oversleep
+#define COM_SLEEP_MIN_US       200  // shorter waits are spun
+#define COM_SLEEP_SLACK_MAX_US 3000 // one preempted sleep must not stretch the spin forever
+#define COM_SPIN_FINAL_US      50   // no syscalls this close to the deadline
+
+/*
+=================
+Com_PresentGuard
+
+Added in Omaha: called by the renderer right before the buffer swap. This is the
+hard com_maxfps clamp: the first present of each frame is never less than one
+period after the previous one. Com_Frame starts the frame just late enough that
+it normally lands on that time, so the hold here only covers frames that finished
+faster than expected. Extra presents within a frame (loading screens) pass.
+=================
+*/
+void Com_PresentGuard(void)
+{
+	int64_t nowUs, workUs;
+
+	if (!com_presentArmed)
+		return;
+	com_presentArmed = qfalse;
+
+	nowUs = Sys_Microseconds();
+	if (com_presentMinUs > 0) {
+		workUs = nowUs - com_frameWakeUs;
+		if (workUs > com_presentMinUs)
+			workUs = com_presentMinUs;
+		// Rise fast toward slow frames so few of them present late, decay toward
+		// fast ones so the frame does not start (read input) earlier than needed.
+		if (workUs > com_workEstUs)
+			com_workEstUs += (workUs - com_workEstUs + 3) / 4;
+		else
+			com_workEstUs -= (com_workEstUs - workUs) / 16;
+
+		while (nowUs < com_lastPresentUs + com_presentMinUs)
+			nowUs = Sys_Microseconds();
+	}
+	com_lastPresentUs = nowUs;
+	com_framePresented = qtrue;
+
+#ifdef __cplusplus
+	com_presentFpsTime = fps_clock_t::now();
+#else
+	com_presentFpsTime = (fps_time_t)nowUs;
+#endif
+	com_presented = qtrue;
+}
+
 int Com_TimeVal(int minMsec)
 {
 	int timeVal;
@@ -2404,13 +2509,24 @@ void Com_Frame( void ) {
             else
                 NET_Sleep(timeVal - 1);
         } while (Com_TimeVal(minMsec));
+
+        com_presentMinUs = 0;
     }
     else
     {
-        // Changed in Omaha: microsecond deadline so any com_maxfps (incl. >1000) is honored
-        static int64_t nextFrameUs;
-        int64_t nowUs = Sys_Microseconds(), frameUs, remainUs;
+        // Changed in Omaha: microsecond deadline so any com_maxfps (incl. >1000) is honored.
+        // Pacing targets the present, not the frame start: the next present is due one
+        // (rounded up) period after the last one, and the frame starts that long before it
+        // minus the expected frame time, so input is read as late as possible. Com_PresentGuard
+        // holds any early present, so the rate never exceeds com_maxfps (VRR); a late frame
+        // only lowers it. Without a present to anchor to, frame starts are spaced instead.
+        // Sleeps stop short of the deadline by the measured oversleep (sleepSlackUs); the rest
+        // is spent polling the network, and the last few microseconds are a pure spin.
+        static int64_t sleepSlackUs = 250;
+        int64_t nowUs, nextFrameUs, frameUs, remainUs, sleepUs, sleptUs, overUs, beforeUs;
         int maxfps;
+        qboolean slept = qfalse;
+        qboolean polled = qfalse;
 
         if (com_minimized->integer && com_maxfpsMinimized->integer > 0)
             maxfps = com_maxfpsMinimized->integer;
@@ -2419,26 +2535,69 @@ void Com_Frame( void ) {
         else
             maxfps = com_maxfps->integer;
 
-        frameUs = maxfps > 0 ? 1000000 / maxfps : 0;
-        nextFrameUs += frameUs;
-        if (nextFrameUs < nowUs - frameUs)
-            nextFrameUs = nowUs - frameUs;
+        frameUs = 0;
+        if (maxfps > 0)
+            frameUs = (1000000 + maxfps - 1) / maxfps;
+        com_presentMinUs = frameUs;
 
-        do
+        if (com_framePresented)
+            nextFrameUs = com_lastPresentUs + frameUs - com_workEstUs;
+        else
+            nextFrameUs = com_frameWakeUs + frameUs;
+
+        for (;;)
         {
-            remainUs = nextFrameUs - Sys_Microseconds();
-            timeVal = (!com_busyWait->integer && remainUs > 1500) ? (int)(remainUs / 1000) - 1 : 0;
+            nowUs    = Sys_Microseconds();
+            remainUs = nextFrameUs - nowUs;
+            // The network is polled at least once per frame; packets are only read here.
+            if (polled && remainUs < COM_SPIN_FINAL_US)
+            {
+                if (remainUs <= 0)
+                    break;
+                continue;
+            }
+            polled = qtrue;
+
+            sleepUs  = com_busyWait->integer ? 0 : remainUs - sleepSlackUs - COM_SLEEP_GUARD_US;
+            if (sleepUs < COM_SLEEP_MIN_US)
+                sleepUs = 0;
 
             if (com_sv_running->integer)
             {
                 timeValSV = SV_SendQueuedPackets();
-                if (timeValSV < timeVal)
-                    timeVal = timeValSV;
+                if ((int64_t)timeValSV * 1000 < sleepUs)
+                    sleepUs = (int64_t)timeValSV * 1000;
             }
 
-            NET_Sleep(timeVal);
-        } while (Sys_Microseconds() < nextFrameUs);
+            beforeUs = Sys_Microseconds();
+            NET_SleepUs(sleepUs);
+
+            if (sleepUs > 0) {
+                slept   = qtrue;
+                sleptUs = Sys_Microseconds() - beforeUs;
+                overUs  = sleptUs - sleepUs;
+                // Early wake-ups (a packet arrived) say nothing about the timer.
+                if (overUs >= 0) {
+                    if (overUs > COM_SLEEP_SLACK_MAX_US)
+                        overUs = COM_SLEEP_SLACK_MAX_US;
+                    // Rise fast toward a late wake-up, decay slowly toward on-time ones.
+                    if (overUs > sleepSlackUs)
+                        sleepSlackUs += (overUs - sleepSlackUs + 1) / 2;
+                    else
+                        sleepSlackUs -= (sleepSlackUs - overUs) / 16;
+                }
+            }
+        }
+
+        com_frameWakeUs = nowUs;
+
+        // A slack too large to allow any sleep is never re-measured; let it creep back down.
+        if (!slept && frameUs > 0 && !com_busyWait->integer)
+            sleepSlackUs -= sleepSlackUs / 1024;
     }
+
+    com_presentArmed   = qtrue;
+    com_framePresented = qfalse;
 
     IN_Frame();
 
@@ -2564,11 +2723,19 @@ void Com_Frame( void ) {
 		fps_time_t fpstime;
 		fps_delta_t delta;
 
+		// Changed in Omaha: microseconds (whole milliseconds quantized the 16-frame
+		// window, e.g. 31 ms instead of 32 ms read 516 at a 500 cap), sampled at the
+		// present when this frame drew one
+		if (com_presented) {
+			fpstime = com_presentFpsTime;
+		} else {
 #ifdef __cplusplus
-		fpstime = fps_clock_t::now();
+			fpstime = fps_clock_t::now();
 #else
-		fpstime = Sys_Milliseconds();
+			fpstime = (fps_time_t)Sys_Microseconds();
 #endif
+		}
+		com_presented = qfalse;
 
 		delta = fpstime - fpslasttime;
 
@@ -2585,7 +2752,7 @@ void Com_Frame( void ) {
 		}
 #else
 		if (fpstotal) {
-			currentfps = MAX_FPS_TIMES / (fpstotal / 1000.0);
+			currentfps = MAX_FPS_TIMES / (fpstotal / 1000000.0);
 		} else {
 			currentfps = 0.0;
 		}

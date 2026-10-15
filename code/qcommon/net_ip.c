@@ -1661,13 +1661,28 @@ Sleeps msec or until something happens on the network
 */
 void NET_Sleep(int msec)
 {
+	if(msec < 0)
+		msec = 0;
+
+	NET_SleepUs((int64_t)msec * 1000);
+}
+
+/*
+====================
+NET_SleepUs
+
+Added in Omaha: same as NET_Sleep with a microsecond timeout, for the client frame limiter
+====================
+*/
+void NET_SleepUs(int64_t usec)
+{
 	struct timeval timeout;
 	fd_set fdr;
 	int retval;
 	SOCKET highestfd = INVALID_SOCKET;
 
-	if(msec < 0)
-		msec = 0;
+	if(usec < 0)
+		usec = 0;
 
 	FD_ZERO(&fdr);
 
@@ -1689,13 +1704,13 @@ void NET_Sleep(int msec)
 	if(highestfd == INVALID_SOCKET)
 	{
 		// windows ain't happy when select is called without valid FDs
-		SleepEx(msec, 0);
+		SleepEx((DWORD)(usec / 1000), 0);
 		return;
 	}
 #endif
 
-	timeout.tv_sec = msec/1000;
-	timeout.tv_usec = (msec%1000)*1000;
+	timeout.tv_sec = (long)(usec / 1000000);
+	timeout.tv_usec = (long)(usec % 1000000);
 
 	retval = select(highestfd + 1, &fdr, NULL, NULL, &timeout);
 

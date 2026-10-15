@@ -43,6 +43,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "client.h"
 #include "cl_demoplayback.h"
 #include "cl_demoscan.h"
+#include "cl_fpsbench.h"
 #include "cl_killfeed.h"
 #include "cl_uimenu_dispatcher.h"
 #include "cl_uirender.h"
@@ -738,6 +739,13 @@ void CL_DemoPlayback_OnDemoStart(const char *path, const char *arg)
 		}
 	}
 
+	// The fps bench plays from memory and must not pay for background indexing
+	if (CL_FpsBench_Active()) {
+		DP_IndexReset();
+		DP_IndexFinish();
+		return;
+	}
+
 	if (s_index.path != path) {
 		DP_IndexStart(path);
 	}
@@ -787,7 +795,7 @@ qboolean CL_DemoPlayback_HoldAtEnd(void)
 	if (clc.state != CA_ACTIVE || (cl_timedemo && cl_timedemo->integer)) {
 		return qfalse;
 	}
-	if (CL_AVI_DemoExportActive() || CL_VideoRecording()) {
+	if (CL_AVI_DemoExportActive() || CL_VideoRecording() || CL_FpsBench_Active()) {
 		return qfalse;
 	}
 	if (Cvar_VariableString("nextdemo")[0]) {
@@ -927,8 +935,8 @@ static void DP_SyncOverlayMenu(void)
 	qboolean want;
 	const qboolean open = CL_UIMenu_IsOpen(DEMOPB_MENU_ID);
 
-	/* Added in Omaha: AVI export must not paint the playback overlay. */
-	if (CL_AVI_DemoExportActive() || CL_VideoRecording()) {
+	/* Added in Omaha: AVI export and the fps bench must not paint the playback overlay. */
+	if (CL_AVI_DemoExportActive() || CL_VideoRecording() || CL_FpsBench_Active()) {
 		if (CL_UIVar_Integer("ui_om_demo_overlay")) {
 			CL_UIVar_Set("ui_om_demo_overlay", "0");
 		}
