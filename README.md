@@ -19,6 +19,11 @@ but is planned—expansions still run through the OpenMoHAA/legacy paths today.
 - **Modern UI engine** — retained-mode XML UI (`uidesign` / `uirender`) with a
   linear flex layout engine, batched GPU drawing, and compositing of world and
   model views into the UI layer. More: [`docs/modern-ui/`](docs/modern-ui/README.md).
+- **Sound engine** — a new default mixer with no voice limit, so busy fights no
+  longer drop sounds. Headphones get HRTF, with a rebalanced mix, obstruction filtering so you can hear who's behind cover,
+  and a balanced output that will not clip your DAC. The stock OpenAL backend stays available
+  (`s_backend openal`). More:
+  [Sound backend](docs/markdown/04-coding/02-sound-backend.md).
 - **Player prediction** — accurately shows other players up to about 100–120 ms ahead
   so higher-ping players don’t have to lead shots as much. Modes: **Off**,
   **Safe** (steadier motion, little lag help), **Lead** (full prediction).
@@ -39,7 +44,7 @@ but is planned—expansions still run through the OpenMoHAA/legacy paths today.
 - **High refresh-rate client** — FPS-independent physics, plus a high-resolution
   frame rate limiter with improved frame timings.
 - **Client QoL** — faster internet server discovery, client-only first-person
-  chase spectate, PNG screenshots (`screenshotPNG` / F12), grenade charge bar,
+  chase spectate, PNG screenshots (`screenshotPNG` / F12), modern mouse acceleration options, grenade charge bar,
   HUD chat history, and related presentation fixes—all stock-server compatible.
 
 | Classic | Modern | Competitive |
