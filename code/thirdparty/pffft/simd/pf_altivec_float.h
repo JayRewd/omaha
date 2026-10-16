@@ -36,7 +36,10 @@
 /*
    Altivec support macros
 */
-#if !defined(SIMD_SZ) && !defined(PFFFT_SIMD_DISABLE) && (defined(__ppc__) || defined(__ppc64__) || defined(__powerpc__) || defined(__powerpc64__)) \
+/* Changed in Omaha: this header sets SIMD_SZ but never defines VLOAD_ALIGNED,
+   VLOAD_UNALIGNED, VREV_S, or VREV_C, so PowerPC release builds fail. Leave the
+   path off unless explicitly requested; pf_float.h then uses the scalar FFT. */
+#if defined(PFFFT_ENABLE_ALTIVEC) && !defined(SIMD_SZ) && !defined(PFFFT_SIMD_DISABLE) && (defined(__ppc__) || defined(__ppc64__) || defined(__powerpc__) || defined(__powerpc64__)) \
     && (defined(__VEC__) || defined(__ALTIVEC__))
 #include <altivec.h>
 #pragma message( __FILE__ ": ALTIVEC float macros are defined" )
