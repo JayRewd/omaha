@@ -829,7 +829,8 @@ void R_DrawFloatingString_sgl(fontheader_sgl_t* font, const char* text, const ve
         indirected = font->indirection[c];
         if (indirected == -1)
         {
-            ri.Printf(PRINT_ALL, "R_DrawFloatingString: no 0x%02x-character in font!\n", c);
+            /* Changed in Omaha: developers only, as R_DrawString. A name can lack a glyph every frame. */
+            ri.Printf(PRINT_DEVELOPER, "R_DrawFloatingString: no 0x%02x-character in font!\n", c);
             continue;
         }
 
@@ -920,7 +921,7 @@ float R_GetFontStringWidth_sgl(const fontheader_sgl_t* font, const char* s)
             if (indirected != -1) {
                 widths += font->locations[indirected].size[0] * 3.0;
             } else {
-                ri.Printf(PRINT_ALL, "R_GetFontStringWidth: no space-character in font!\n");
+                ri.Printf(PRINT_DEVELOPER, "R_GetFontStringWidth: no space-character in font!\n");
             }
         }
         else
@@ -929,7 +930,8 @@ float R_GetFontStringWidth_sgl(const fontheader_sgl_t* font, const char* s)
             if (indirected != -1) {
                 widths += font->locations[indirected].size[0];
             } else {
-                ri.Printf(PRINT_ALL, "R_GetFontStringWidth: no 0x%02x-character in font!\n", c);
+                /* Changed in Omaha: developers only, see R_DrawFloatingString. */
+                ri.Printf(PRINT_DEVELOPER, "R_GetFontStringWidth: no 0x%02x-character in font!\n", c);
             }
         }
     }

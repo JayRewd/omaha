@@ -27,6 +27,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "../uir_path.h"
 #include "../uir_svg.h"
 #include "../uir_font.h"
+#include "../uir_cp1252.h"
 #include "../uir_gradient.h"
 #include "../uir_image.h"
 #include "../uir_modelpreview.h"
@@ -493,6 +494,31 @@ static void test_font_math()
 	CHECK(u1 < 1.0f && v1 < 1.0f);
 	CHECK_NEAR(UIR_FontEmScale(48.0f, 1000), 0.048f, 1e-5);
 	CHECK_NEAR(UIR_FontEmScale(48.0f, 0), 0.0f, 1e-8);
+}
+
+/* Added in Omaha: game text is Windows-1252, the UI's own text is UTF-8. */
+static void test_font_cp1252()
+{
+	unsigned char byte = 0;
+	char          out[16];
+
+	CHECK(UIR_Cp1252Next("a", &byte) == 1 && byte == 'a');
+	CHECK(UIR_Cp1252Next("\xBB", &byte) == 1 && byte == 0xBB);
+	CHECK(UIR_Cp1252Next("\x99", &byte) == 1 && byte == 0x99);
+	CHECK(UIR_Cp1252Next("\xC2\xBB", &byte) == 2 && byte == 0xBB);
+	CHECK(UIR_Cp1252Next("\xE2\x84\xA2", &byte) == 3 && byte == 0x99);
+	CHECK(UIR_Cp1252Next("\xC9\xAE", &byte) == 1 && byte == 0xC9);
+	CHECK(UIR_Cp1252Next("\xC3", &byte) == 1 && byte == 0xC3);
+	CHECK(UIR_Cp1252Next("\xE0\x82\xBB", &byte) == 1 && byte == 0xE0);
+	CHECK(UIR_Cp1252FromCodepoint(0x20AC) == 0x80);
+	CHECK(UIR_Cp1252FromCodepoint(0x0100) == 0);
+	CHECK(UIR_Cp1252ToCodepoint(0x99) == 0x2122);
+	CHECK(UIR_Cp1252ToCodepoint(0x81) == 0);
+
+	UIR_Cp1252FromText("a\xC2\xBB\xE2\x84\xA2\xC9\xAE", out, sizeof(out));
+	CHECK(!std::strcmp(out, "a\xBB\x99\xC9\xAE"));
+	UIR_Cp1252FromText("\xC3\xA9t\xC3\xA9", out, 3);
+	CHECK(!std::strcmp(out, "\xE9t"));
 }
 
 static void test_path_stroke()
@@ -2508,6 +2534,7 @@ int main()
 	test_menu_weather_skip_without_density();
 	test_menu_weather_spawns_from_script_density();
 	test_font_math();
+	test_font_cp1252();
 	test_image_fit_math();
 	test_image_repeat_tiling();
 	test_image_rotation_quad();

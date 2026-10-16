@@ -544,7 +544,7 @@ Map icons via `killfeed-weapon-icons-allies` / `killfeed-weapon-icons-axis` + `b
 | `ui_om_hud_score_self` | FFA: your kills (`STAT_KILLS`) |
 | `ui_om_hud_score_leader` | FFA: highest kills (`STAT_HIGHEST_SCORE`) |
 
-Team totals refresh via silent `score` requests (2s throttle shared with TAB). Classic `ui_om_hud_score_text` is unchanged.
+Team totals refresh via silent `score` requests. On a server with `sv_floodProtect` the HUD asks once after an event (first frame on a map, a new round, the player's own death, joining a team) so the request does not eat a reload or a chat line. Between replies a kill message marks that player dead. The 2s timer stays when `sv_floodProtect` is 0, and `ui_om_hud_score_poll 1` brings it back. Classic `ui_om_hud_score_text` is unchanged. Names and HUD chat are drawn from either UTF-8 or Windows-1252, and text typed into the profile name or the HUD chat leaves as Windows-1252.
 
 ### Host temp cvars authors commonly bind
 

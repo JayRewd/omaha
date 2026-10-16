@@ -30,6 +30,9 @@ static qboolean CG_Scoreboard_UseModern(void)
     return CG_UseModernHudPack();
 }
 
+/* Added in Omaha: one score request after a HUD event, instead of a timer. */
+static qboolean cg_hudTeamScoresWanted;
+
 /*
  * Added in Omaha: publish Allied/Axis team totals for the modern HUD score strip.
  * scoreField is the mode's real score (round wins or team kills); atoi skips a
@@ -51,17 +54,64 @@ static void CG_Hud_SetTeamScoreCvar(int team, const char *scoreField)
 }
 
 /*
+ * Added in Omaha: a server with flood protection takes one client command a
+ * second, so a score request on a timer drops a reload or a chat line. The
+ * timer stays when sv_floodProtect is 0, and ui_om_hud_score_poll 1 brings it
+ * back (a client that only watches).
+ */
+static qboolean CG_HudTeamScoresOnTimer(void)
+{
+    const char *flood;
+
+    if (cgi.Cvar_Get("ui_om_hud_score_poll", "0", CVAR_ARCHIVE)->integer) {
+        return qtrue;
+    }
+    flood = Info_ValueForKey(CG_ConfigString(CS_SERVERINFO), "sv_floodProtect");
+    return flood[0] && !atoi(flood) ? qtrue : qfalse;
+}
+
+/*
  * Added in Omaha: request scores without opening the scoreboard. Reuses the retail
  * 2s throttle on cg.scoresRequestTime so TAB and the HUD strip share one budget.
+ *
+ * Changed in Omaha: no request on a timer when the server has flood protection.
+ * The HUD asks once when the strip can change: the first frame on a map, a
+ * server restart (a new round), the player's own death, and joining a team.
+ * Between replies a kill message marks the victim dead.
  */
 void CG_RequestHudTeamScoresSilent(void)
 {
+    static qboolean wasPlaying = qfalse;
+    static int      lastTeam = TEAM_NONE;
+
     if (cgs.gametype <= GT_FFA) {
         return;
     }
+
+    if (cg.snap) {
+        const playerState_t *ps = &cg.snap->ps;
+        const qboolean playing = !(ps->pm_flags & PMF_SPECTATING) && ps->stats[STAT_HEALTH] > 0;
+
+        if (wasPlaying && !playing) {
+            cg_hudTeamScoresWanted = qtrue;
+        }
+        if (playing && ps->stats[STAT_TEAM] != lastTeam) {
+            lastTeam = ps->stats[STAT_TEAM];
+            cg_hudTeamScoresWanted = qtrue;
+        }
+        wasPlaying = playing;
+    }
+    if (!cg.scoresRequestTime) {
+        cg_hudTeamScoresWanted = qtrue;
+    }
+
     if (cg.scoresRequestTime && cg.scoresRequestTime + 2000 >= cg.time) {
         return;
     }
+    if (!cg_hudTeamScoresWanted && !CG_HudTeamScoresOnTimer()) {
+        return;
+    }
+    cg_hudTeamScoresWanted = qfalse;
     cg.scoresRequestTime = cg.time;
     cgi.SendClientCommand("score");
 }

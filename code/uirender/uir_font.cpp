@@ -26,6 +26,8 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "uir_batch.h"
 #include "uir_debug.h"
 #include "uir_viewport.h"
+/* Added in Omaha */
+#include "uir_cp1252.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -42,6 +44,9 @@ static uir_font_backend_t g_fontBackend;
 #define UIR_FONT_ATLAS_SIZE 1024
 #define UIR_FONT_FIRST_CHAR 32
 #define UIR_FONT_NUM_CHARS  95 /* printable ASCII */
+/* Added in Omaha: Windows-1252 bytes 128..255 */
+#define UIR_FONT_NUM_HIGH   128
+#define UIR_FONT_NUM_SLOTS  (UIR_FONT_NUM_CHARS + UIR_FONT_NUM_HIGH)
 
 #define UIR_FONT_REGISTRY_MAX 64
 /* Quantize logical height so ui_scale slider drags reuse atlases. */
@@ -62,7 +67,7 @@ struct uir_font_s {
 	int             shader;
 	int             gpuGeneration;
 	unsigned char  *atlasRgba;
-	stbtt_bakedchar baked[UIR_FONT_NUM_CHARS]; /* advances stored in logical units */
+	stbtt_bakedchar baked[UIR_FONT_NUM_SLOTS]; /* advances stored in logical units */
 	unsigned char  *ttfData;
 	int             ttfSize;
 };
@@ -70,6 +75,27 @@ struct uir_font_s {
 static int                g_gpuGeneration = 1;
 static uir_font_t        *g_fonts[UIR_FONT_REGISTRY_MAX];
 static int                g_fontCount = 0;
+
+/* Added in Omaha: place of a Windows-1252 byte in font->baked. */
+static int uir_font_slot(unsigned char ch)
+{
+	if (ch >= 128) {
+		return UIR_FONT_NUM_CHARS + (ch - 128);
+	}
+	if (ch < UIR_FONT_FIRST_CHAR || ch >= UIR_FONT_FIRST_CHAR + UIR_FONT_NUM_CHARS) {
+		ch = (unsigned char)'?';
+	}
+	return ch - UIR_FONT_FIRST_CHAR;
+}
+
+/* Added in Omaha: next character of *text as a baked slot (CP1252 or UTF-8). */
+static int uir_font_next_slot(const char **text)
+{
+	unsigned char ch;
+
+	*text += UIR_Cp1252Next(*text, &ch);
+	return uir_font_slot(ch);
+}
 
 /*
 ===============
@@ -195,12 +221,72 @@ static int uir_font_upload(uir_font_t *font)
 	return font->shader != 0;
 }
 
+/*
+ * Added in Omaha: bake Windows-1252 bytes 128..255 below the ASCII glyphs.
+ * A byte with no character, or one the font file lacks, is a question mark.
+ */
+static void uir_font_bake_high(
+	uir_font_t *font, const stbtt_fontinfo *info, unsigned char *bitmap, float bakeSize, int firstRow
+)
+{
+	const float scale = stbtt_ScaleForPixelHeight(info, bakeSize);
+	int         x = 1;
+	int         y = firstRow;
+	int         bottom = firstRow;
+	int         i;
+
+	for (i = 0; i < UIR_FONT_NUM_HIGH; i++) {
+		const unsigned char byte = (unsigned char)(128 + i);
+		const unsigned      codepoint = UIR_Cp1252ToCodepoint(byte);
+		stbtt_bakedchar    *out = &font->baked[UIR_FONT_NUM_CHARS + i];
+		int                 glyph, advance, lsb, x0, y0, x1, y1, gw, gh;
+
+		*out = font->baked['?' - UIR_FONT_FIRST_CHAR];
+		glyph = codepoint ? stbtt_FindGlyphIndex(info, (int)codepoint) : 0;
+		if (!glyph) {
+			if (byte == 0xA0) {
+				*out = font->baked[' ' - UIR_FONT_FIRST_CHAR];
+			} else if (byte == 0xAD) {
+				*out = font->baked['-' - UIR_FONT_FIRST_CHAR];
+			}
+			continue;
+		}
+
+		stbtt_GetGlyphHMetrics(info, glyph, &advance, &lsb);
+		(void)lsb;
+		stbtt_GetGlyphBitmapBox(info, glyph, scale, scale, &x0, &y0, &x1, &y1);
+		gw = x1 - x0;
+		gh = y1 - y0;
+		if (x + gw + 1 >= font->atlasW) {
+			y = bottom;
+			x = 1;
+		}
+		if (y + gh + 1 >= font->atlasH) {
+			continue;
+		}
+		stbtt_MakeGlyphBitmap(info, bitmap + x + y * font->atlasW, gw, gh, font->atlasW, scale, scale, glyph);
+		out->x0 = (unsigned short)x;
+		out->y0 = (unsigned short)y;
+		out->x1 = (unsigned short)(x + gw);
+		out->y1 = (unsigned short)(y + gh);
+		out->xoff = (float)x0;
+		out->yoff = (float)y0;
+		out->xadvance = (float)advance * font->scale;
+		x = x + gw + 1;
+		if (y + gh + 1 > bottom) {
+			bottom = y + gh + 1;
+		}
+	}
+}
+
 static int uir_font_bake(uir_font_t *font)
 {
 	unsigned char *bitmap;
 	int i;
 	stbtt_fontinfo info;
 	int ascent, descent, lineGap;
+	float bakeSize;
+	int highRow;
 
 	if (!font || !font->ttfData) {
 		return 0;
@@ -229,21 +315,23 @@ static int uir_font_bake(uir_font_t *font)
 	/* BakeFontBitmap uses ScaleForPixelHeight; adjust so raster matches em-square. */
 	{
 		float phScale = stbtt_ScaleForPixelHeight(&info, font->pixelHeight);
-		float bakeSize = font->pixelHeight;
+		bakeSize = font->pixelHeight;
 		if (phScale > 1e-8f) {
 			bakeSize = font->pixelHeight * (font->scale / phScale);
 		}
-		if (stbtt_BakeFontBitmap(
-				font->ttfData,
-				0,
-				bakeSize,
-				bitmap,
-				font->atlasW,
-				font->atlasH,
-				UIR_FONT_FIRST_CHAR,
-				UIR_FONT_NUM_CHARS,
-				font->baked
-			) <= 0) {
+		/* Changed in Omaha: keep the first free row for uir_font_bake_high. */
+		highRow = stbtt_BakeFontBitmap(
+			font->ttfData,
+			0,
+			bakeSize,
+			bitmap,
+			font->atlasW,
+			font->atlasH,
+			UIR_FONT_FIRST_CHAR,
+			UIR_FONT_NUM_CHARS,
+			font->baked
+		);
+		if (highRow <= 0) {
 			if (g_fontBackend.freeMem) {
 				g_fontBackend.freeMem(bitmap);
 			} else {
@@ -259,6 +347,8 @@ static int uir_font_bake(uir_font_t *font)
 		/* Bake bitmap metrics stay in FB pixels; convert at measure/draw time. */
 		font->baked[i].xadvance = (float)adv * font->scale;
 	}
+	/* Added in Omaha: characters above ASCII that a name can hold. */
+	uir_font_bake_high(font, &info, bitmap, bakeSize, highRow);
 
 	if (font->atlasRgba) {
 		if (g_fontBackend.freeMem) {
@@ -459,11 +549,9 @@ float UIR_FontMeasure(const uir_font_t *font, const char *text, float tracking)
 	}
 	inv = font->toLogical > 0.0f ? font->toLogical : 1.0f;
 	while (*text) {
-		unsigned char ch = (unsigned char)*text++;
-		if (ch < UIR_FONT_FIRST_CHAR || ch >= UIR_FONT_FIRST_CHAR + UIR_FONT_NUM_CHARS) {
-			ch = (unsigned char)'?';
-		}
-		w += font->baked[ch - UIR_FONT_FIRST_CHAR].xadvance * inv;
+		/* Changed in Omaha: the text may hold characters above ASCII. */
+		const int slot = uir_font_next_slot(&text);
+		w += font->baked[slot].xadvance * inv;
 		if (*text) {
 			w += tracking;
 		}
@@ -478,10 +566,8 @@ float UIR_FontGlyphAdvance(const uir_font_t *font, unsigned char ch)
 		return 0.0f;
 	}
 	inv = font->toLogical > 0.0f ? font->toLogical : 1.0f;
-	if (ch < UIR_FONT_FIRST_CHAR || ch >= UIR_FONT_FIRST_CHAR + UIR_FONT_NUM_CHARS) {
-		ch = (unsigned char)'?';
-	}
-	return font->baked[ch - UIR_FONT_FIRST_CHAR].xadvance * inv;
+	/* Changed in Omaha: ch is a Windows-1252 byte. */
+	return font->baked[uir_font_slot(ch)].xadvance * inv;
 }
 
 static void uir_font_emit_glyph_quad(
@@ -561,18 +647,15 @@ uir_status_t UIR_FontDrawWithShadows(
 	baseline = y + font->ascent;
 
 	while (*text) {
-		unsigned char ch = (unsigned char)*text++;
+		/* Changed in Omaha: the text may hold characters above ASCII. */
+		const int slot = uir_font_next_slot(&text);
 		float gx, gy, gw, gh;
 		float u0, v0, u1, v1;
 		float inv = font->toLogical > 0.0f ? font->toLogical : 1.0f;
 		uir_color_t glyphColor;
 
-		if (ch < UIR_FONT_FIRST_CHAR || ch >= UIR_FONT_FIRST_CHAR + UIR_FONT_NUM_CHARS) {
-			ch = (unsigned char)'?';
-		}
-
 		{
-			const stbtt_bakedchar *b = &font->baked[ch - UIR_FONT_FIRST_CHAR];
+			const stbtt_bakedchar *b = &font->baked[slot];
 			gx = penX + b->xoff * inv;
 			gy = baseline + b->yoff * inv;
 			gw = (float)(b->x1 - b->x0) * inv;
@@ -601,7 +684,7 @@ uir_status_t UIR_FontDrawWithShadows(
 		glyphColor = *rgba;
 		uir_font_emit_glyph_quad(font, gx, gy, gw, gh, u0, v0, u1, v1, &glyphColor);
 
-		penX += font->baked[ch - UIR_FONT_FIRST_CHAR].xadvance * inv;
+		penX += font->baked[slot].xadvance * inv;
 		if (*text) {
 			penX += tracking;
 		}
@@ -655,18 +738,15 @@ uir_status_t UIR_FontDrawSkewed(
 	baseline = y + font->ascent;
 
 	while (*text) {
-		unsigned char ch = (unsigned char)*text++;
+		/* Changed in Omaha: the text may hold characters above ASCII. */
+		const int slot = uir_font_next_slot(&text);
 		float gx, gy, gw, gh;
 		float u0, v0, u1, v1;
 		float inv = font->toLogical > 0.0f ? font->toLogical : 1.0f;
 		uir_color_t glyphColor;
 
-		if (ch < UIR_FONT_FIRST_CHAR || ch >= UIR_FONT_FIRST_CHAR + UIR_FONT_NUM_CHARS) {
-			ch = (unsigned char)'?';
-		}
-
 		{
-			const stbtt_bakedchar *b = &font->baked[ch - UIR_FONT_FIRST_CHAR];
+			const stbtt_bakedchar *b = &font->baked[slot];
 			gx = penX + b->xoff * inv;
 			gy = baseline + b->yoff * inv;
 			gw = (float)(b->x1 - b->x0) * inv;
@@ -679,7 +759,7 @@ uir_status_t UIR_FontDrawSkewed(
 
 		UIR_FontInsetUVs(&u0, &v0, &u1, &v1, font->atlasW, font->atlasH);
 		if (!(gw > 0.0f) || !(gh > 0.0f)) {
-			penX += font->baked[ch - UIR_FONT_FIRST_CHAR].xadvance * inv;
+			penX += font->baked[slot].xadvance * inv;
 			if (*text) {
 				penX += tracking;
 			}
@@ -712,7 +792,7 @@ uir_status_t UIR_FontDrawSkewed(
 			g_fontBackend.setColor(color);
 		}
 
-		penX += font->baked[ch - UIR_FONT_FIRST_CHAR].xadvance * inv;
+		penX += font->baked[slot].xadvance * inv;
 		if (*text) {
 			penX += tracking;
 		}
@@ -834,18 +914,15 @@ uir_status_t UIR_FontDrawRotated(
 	baseline = y + font->ascent;
 
 	while (*text) {
-		unsigned char ch = (unsigned char)*text++;
+		/* Changed in Omaha: the text may hold characters above ASCII. */
+		const int slot = uir_font_next_slot(&text);
 		float gx, gy, gw, gh;
 		float u0, v0, u1, v1;
 		float inv = font->toLogical > 0.0f ? font->toLogical : 1.0f;
 		uir_color_t glyphColor;
 
-		if (ch < UIR_FONT_FIRST_CHAR || ch >= UIR_FONT_FIRST_CHAR + UIR_FONT_NUM_CHARS) {
-			ch = (unsigned char)'?';
-		}
-
 		{
-			const stbtt_bakedchar *b = &font->baked[ch - UIR_FONT_FIRST_CHAR];
+			const stbtt_bakedchar *b = &font->baked[slot];
 			gx = penX + b->xoff * inv;
 			gy = baseline + b->yoff * inv;
 			gw = (float)(b->x1 - b->x0) * inv;
@@ -859,7 +936,7 @@ uir_status_t UIR_FontDrawRotated(
 		UIR_FontInsetUVs(&u0, &v0, &u1, &v1, font->atlasW, font->atlasH);
 		/* Skip FB snap when rotating — snapping then rotating fights AA. */
 		if (!(gw > 0.0f) || !(gh > 0.0f)) {
-			penX += font->baked[ch - UIR_FONT_FIRST_CHAR].xadvance * inv;
+			penX += font->baked[slot].xadvance * inv;
 			if (*text) {
 				penX += tracking;
 			}
@@ -884,7 +961,7 @@ uir_status_t UIR_FontDrawRotated(
 			g_fontBackend.setColor(color);
 		}
 
-		penX += font->baked[ch - UIR_FONT_FIRST_CHAR].xadvance * inv;
+		penX += font->baked[slot].xadvance * inv;
 		if (*text) {
 			penX += tracking;
 		}

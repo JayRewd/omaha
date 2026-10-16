@@ -104,6 +104,8 @@ static int CL_UIR_ApplyDmPauseClickGate(int buttons)
 #include "../uirender/uir_backend.h"
 #include "../uirender/uir_batch.h"
 #include "../uirender/uir_compositor.h"
+/* Added in Omaha: the game's text is Windows-1252, the modern UI's is UTF-8. */
+#include "../uirender/uir_cp1252.h"
 #include "../uirender/uir_draw2d.h"
 #include "../uirender/uir_font.h"
 #include "../uirender/uir_gradient.h"
@@ -5109,7 +5111,11 @@ static bool invoke_apply_profile(void *userdata)
 	uid_write_all_doc_bindings();
 	playerName = Cvar_VariableString("ui_name");
 	if (playerName && playerName[0]) {
-		Cvar_Set("name", playerName);
+		/* Added in Omaha: the field is UTF-8; the game's name is Windows-1252. */
+		char szGameName[MAX_STRING_CHARS];
+
+		UIR_Cp1252FromText(playerName, szGameName, sizeof(szGameName));
+		Cvar_Set("name", szGameName);
 	}
 	return true;
 }
@@ -5558,6 +5564,11 @@ static bool invoke_hud_chat_submit(void *userdata)
 	}
 	txt = CL_UIVar_String("ui_om_hud_chat_text");
 	if (txt && txt[0]) {
+		char szPlain[MAX_STRING_CHARS];
+
+		/* Added in Omaha: the field is UTF-8; the game's chat is Windows-1252. */
+		UIR_Cp1252FromText(txt, szPlain, sizeof(szPlain));
+		txt = szPlain;
 		/* Match DMConsoleCommandHandler: all→0, team→-1, else client index. */
 		iMode = 0;
 		if (g_hudChatMode != 100) {
@@ -7289,6 +7300,11 @@ void CL_UIR_RegisterCvars(void)
 	ui_om_menu_map_view = Cvar_Get("ui_om_menu_map_view", "remagen", CVAR_ARCHIVE);
 	/* Added in Omaha: HUD pack selection (archived player setting). */
 	ui_om_hud = Cvar_Get("ui_om_hud", "classic", CVAR_ARCHIVE);
+	/*
+	 * Added in Omaha: 1 keeps the 2s HUD score request even when the server
+	 * has flood protection. Default asks only after an event.
+	 */
+	Cvar_CheckRange(Cvar_Get("ui_om_hud_score_poll", "0", CVAR_ARCHIVE), 0, 1, qtrue);
 	/*
 	 * Fixed in Omaha: cache legacy flags before UseModernHudPack(). That helper
 	 * calls UseLegacyHud(), which re-enters RegisterCvars while g_legacyCached

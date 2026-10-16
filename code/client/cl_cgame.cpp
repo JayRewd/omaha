@@ -1328,6 +1328,8 @@ void CL_SetCGameTime( void ) {
 
 	if( ( cl.snap.snapFlags ^ lastSnapFlags ) & SNAPFLAG_SERVERCOUNT ) {
 		CL_ServerRestarted();
+		/* Added in Omaha: a round game restarts the server, and a new round starts alive. */
+		UIR_Scoreboard_MarkAllAlive();
 	} else {
 		if( cl.snap.serverTime < cl.oldFrameServerTime ) {
 			assert( 0 );
