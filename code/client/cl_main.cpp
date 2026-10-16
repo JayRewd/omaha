@@ -735,6 +735,17 @@ void CL_PlayDemo_f( void ) {
 	// 2 means don't force disconnect of local client
 	Cvar_Set( "sv_killserver", "2" );
 
+	/*
+	 * Fixed in Omaha: a menu export arms cls.aviDemoExport, then this command
+	 * disconnects. A paused or end-held demo is still demoplaying, and
+	 * CL_Disconnect treats that as leaving the demo and cancels the export
+	 * before any frames are written. The encoder is not open yet, so this
+	 * disconnect is the handoff into the new demo, not the end of a recording.
+	 */
+	if ( cls.aviDemoExport && !CL_VideoRecording() ) {
+		clc.demoplaying = qfalse;
+	}
+
 	CL_Disconnect();
 
 	// open the demo file
