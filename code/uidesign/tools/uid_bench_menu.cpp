@@ -722,6 +722,7 @@ void SeedDefaultCvars(FakeBackendState *st)
 	st->cvars["ui_om_browser_sort_asc"] = FakeCvar{"0", 0};
 	st->cvars["ui_om_settings_search"] = FakeCvar{"", 0};
 	st->cvars["cl_mouseAccel"] = FakeCvar{"0", 0};
+	st->cvars["cl_lowLatencyInput"] = FakeCvar{"0", 0};
 	st->cvars["sensitivity"] = FakeCvar{"5", 0};
 	st->cvars["m_filter"] = FakeCvar{"0", 0};
 	st->cvars["cl_run"] = FakeCvar{"1", 0};

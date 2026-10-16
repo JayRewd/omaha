@@ -68,6 +68,8 @@ static const cl_uivar_def_t s_uivarDefs[] = {
 	{ "ui_om_demo_export_status", "" },
 	{ "ui_om_demo_exporting", "0" },
 	{ "ui_om_demo_filter_gametype", "" },
+	{ "ui_om_fpsbench_recommend", "" },
+	{ "ui_om_fpsbench_results", "" },
 	{ "ui_om_demo_fraglimit", "" },
 	{ "ui_om_demo_gametype", "" },
 	{ "ui_om_demo_hostname", "" },

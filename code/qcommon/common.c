@@ -2044,6 +2044,8 @@ void Com_Init( char *commandLine ) {
 	convertAnims = Cvar_Get( "convertAnim", "0", 0 );
 	com_altivec = Cvar_Get ("com_altivec", "1", CVAR_ARCHIVE);
 	com_maxfps = Cvar_Get( "com_maxfps", "85", CVAR_ARCHIVE );
+	/* Added in Omaha: 0 is uncapped. Any other value is an integer cap, max 5000. */
+	Cvar_CheckRange( com_maxfps, 0, 5000, qtrue );
 	deathmatch = Cvar_Get( "deathmatch", "0", 0 );
 	paused = Cvar_Get( "paused", "0", 64 );
 	autopaused = Cvar_Get( "autopaused", "1", CVAR_ARCHIVE );

@@ -8627,7 +8627,7 @@ static void RegisterTestSettingsCvars(FakeBackendState &st)
 	static const char *const kNames[] = {
 		"fps", "cg_fov", "cg_drawviewmodel", "cg_hud", "cg_rain", "cg_marks_add", "cg_shadows",
 		"cg_effectdetail", "vss_draw", "com_blood", "in_mouse", "r_lodscale", "r_noborder",
-		"sensitivity", "m_pitch", "m_yaw", "m_filter", "cl_mouseAccel", "cl_run", "cg_zoomSensitivity",
+		"sensitivity", "m_pitch", "m_yaw", "m_filter", "cl_mouseAccel", "cl_lowLatencyInput", "cl_run", "cg_zoomSensitivity",
 		"r_mode", "r_fullscreen", "r_swapInterval", "com_maxfps", "r_gamma", "r_colorbits", "r_texturebits",
 		"ui_scale", "ui_om_menu_map_view", "r_picmip", "r_textureMode", "r_ext_compressed_textures",
 		"r_fastentlight", "r_fastdlights", "r_entlightmap", "r_flares", "r_drawstaticdecals",
@@ -8636,6 +8636,7 @@ static void RegisterTestSettingsCvars(FakeBackendState &st)
 		"s_doppler", "s_reverb", "s_mixahead", "s_muteWhenMinimized", "s_muteWhenUnfocused",
 		"ui_om_hud", "ui_weaponsbar", "cg_crosshair_mode", "cg_autoswitch", "ui_legacy",
 		"ui_om_settings_search", "ui_om_settings_tab", "ui_om_settings_apply_pending", "ui_om_main_panel",
+		"ui_om_fpsbench_results", "ui_om_fpsbench_recommend",
 		"ui_modernsettings_dpi", "ui_modernsettings_sensitivity_mode",
 		"cg_crosshaircolor_r", "cg_crosshaircolor_g", "cg_crosshaircolor_b", "cg_crosshairalpha",
 		"cg_crosshair_drawoutline", "cg_crosshair_outlinethickness", "cg_crosshairusealpha",
@@ -8694,7 +8695,7 @@ void TestSettingsCvarBindsResolve(void)
 	RegisterTestSettingsCvars(st);
 	st.cvars["ui_om_main_panel"] = FakeCvar{"settings", 0};
 	st.cvars["ui_om_settings_tab"] = FakeCvar{"input", 0};
-	st.cvars["com_maxfps"] = FakeCvar{"85", 0};
+	st.cvars["com_maxfps"] = FakeCvar{"2500", 0};
 	st.cvars["r_lodscale"] = FakeCvar{"1.0", 0};
 	uid_backend_t be = MakeFakeBackend(&st);
 	uid_parse_io_t parseIo = MakeTestParseIo();
@@ -8718,7 +8719,37 @@ void TestSettingsCvarBindsResolve(void)
 		CHECK(fake_cvarDescribe(cvarName.c_str(), nullptr, valueBuf, sizeof(valueBuf)));
 	}
 
-	CHECK(st.cvars["com_maxfps"].value == "125");
+	CHECK(st.cvars["com_maxfps"].value == "2500");
+	bool sawFpsSlider = false;
+	bool sawFpsInput = false;
+	bool sawVolumeSlider = false;
+	bool sawVolumeInput = false;
+	for (const uid_node_def_t &node : doc->nodes) {
+		if (node.bind == "cvar:com_maxfps" && node.kind == UID_NODE_SLIDER) {
+			sawFpsSlider = true;
+			CHECK_EQ_F(node.minValue, 125.0, 1e-6);
+			CHECK_EQ_F(node.maxValue, 1000.0, 1e-6);
+		}
+		if (node.bind == "cvar:com_maxfps" && node.kind == UID_NODE_INPUT) {
+			sawFpsInput = true;
+			CHECK_EQ_F(node.minValue, 0.0, 1e-6);
+			CHECK_EQ_F(node.maxValue, 5000.0, 1e-6);
+		}
+		if (node.bind == "cvar:s_volume" && node.kind == UID_NODE_SLIDER) {
+			sawVolumeSlider = true;
+			CHECK_EQ_F(node.minValue, 0.0, 1e-6);
+			CHECK_EQ_F(node.maxValue, 100.0, 1e-6);
+		}
+		if (node.bind == "cvar:s_volume" && node.kind == UID_NODE_INPUT) {
+			sawVolumeInput = true;
+			CHECK_EQ_F(node.minValue, 0.0, 1e-6);
+			CHECK_EQ_F(node.maxValue, 100.0, 1e-6);
+		}
+	}
+	CHECK(sawFpsSlider);
+	CHECK(sawFpsInput);
+	CHECK(sawVolumeSlider);
+	CHECK(sawVolumeInput);
 	CHECK(st.cvars["r_lodscale"].value == "1.1");
 
 	UID_DestroyDocument(doc);

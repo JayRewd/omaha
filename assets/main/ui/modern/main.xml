@@ -212,8 +212,9 @@
 									<use template="settings-number-row" label="Mouse DPI" bind="cvar:ui_modernsettings_dpi" min="100" max="32000" step="50" commit="change" visible="{cvar.ui_modernsettings_sensitivity_mode == cm360}"/>
 									<use template="settings-cyclic-row" label="Zoom Sensitivity" bind="cvar:cg_zoomSensitivity" source="zoom-sensitivity-mode" commit="change"/>
 									<use template="settings-on-off-row" label="Invert mouse" bind="cvar:m_pitch" commit="change" value-type="invert-mouse"/>
-									<use template="settings-on-off-row" label="Mouse smoothing" bind="cvar:m_filter" commit="change"/>
 									<use template="settings-on-off-row" label="Mouse Acceleration" bind="cvar:cl_mouseAccel" commit="change"/>
+									<use template="settings-on-off-row" label="Low latency mouse input" bind="cvar:cl_lowLatencyInput" commit="change"/>
+									<use template="settings-on-off-row" label="Mouse smoothing" bind="cvar:m_filter" commit="change"/>
 									<use template="settings-on-off-row" label="Raw Input" bind="cvar:in_mouse" commit="change" off-label="DirectInput" on-label="Raw Input" off-value="1" on-value="-1"/>
 									<use template="settings-slider-row" label="m_yaw" bind="cvar:m_yaw" min="0.001" max="1" step="0.001" commit="change"/>
 									<use template="settings-slider-row" label="m_pitch" bind="cvar:m_pitch" min="0.001" max="1" step="0.001" commit="change"
@@ -234,7 +235,8 @@
 									<use template="settings-cyclic-row" label="Resolution" bind="cvar:r_mode" source="video-modes" commit="apply"/>
 									<use template="settings-cyclic-row" label="Refresh Rate" bind="cvar:r_displayRefresh" source="display-refresh" commit="apply"/>
 									<use template="settings-on-off-row" label="Vertical sync" bind="cvar:r_swapInterval" commit="apply"/>
-									<use template="settings-slider-row" label="Max FPS" bind="cvar:com_maxfps" min="125" max="1000" step="1" commit="change"/>
+									<!-- Slider stays 125–1000. Number field allows 0 (uncapped) through 5000. -->
+									<use template="settings-slider-row" label="Max FPS" bind="cvar:com_maxfps" min="125" max="1000" step="1" commit="change" input-min="0" input-max="5000"/>
 									<use template="settings-on-off-row" label="Draw FPS" bind="cvar:fps" commit="change"/>
 									<use template="settings-slider-row" label="Gamma" bind="cvar:r_gamma" min="0.5" max="3" step="0.05" commit="change"/>
 									<use template="settings-cyclic-row" label="Color Depth" bind="cvar:r_colorbits" source="color-depth" commit="apply"/>
@@ -364,6 +366,14 @@
 							       fill="{var.fill-input}" color="{var.color-white}" font="body" font-size="{var.text-control}"
 							       halign="start" valign="center"/>
 						</container>
+						<button id="btn_settings_benchmark" width="auto" height="auto" padding="10px 22px"
+						        shape="skew-rect" skewl="12px" skewr="12px"
+						        visible="{cvar.ui_om_settings_tab == video and cvar.ui_om_connected != 1}"
+						        fill="{var.color-accent}" hoverfill="{var.color-accent-hover}"
+						        color="{var.color-white}" font="control" font-size="{var.text-control}" letter-spacing="2px">
+							BENCHMARK
+							<on event="click"><invoke name="fps-benchmark"/></on>
+						</button>
 						<button id="btn_settings_apply" width="auto" height="auto" padding="10px 20px 10px 26px"
 						        shape="skew-rect" skewl="12px" skewr="0"
 						        fill="{var.color-accent}" hoverfill="{var.color-accent-hover}"

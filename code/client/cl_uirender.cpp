@@ -26,6 +26,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "cl_uimenu_dispatcher.h"
 #include "cl_ui.h"
 #include "cl_practice.h"
+#include "cl_fpsbench.h"
 
 /* Added in Omaha: practice list sorting (defined in cl_practice.cpp). */
 void        CL_Practice_Sort(void);
@@ -2821,6 +2822,7 @@ static const char *const g_uidSettingsDraftCvars[] = {
 	"m_yaw",
 	"m_pitch",
 	"cl_mouseAccel",
+	"cl_lowLatencyInput", /* Added in Omaha */
 	"cl_run",
 	"in_mouse",
 	"sensitivity",
@@ -5160,6 +5162,26 @@ static bool invoke_modal_commit_keybind(void *userdata)
 	}
 }
 
+static bool invoke_fps_benchmark(void *userdata)
+{
+	(void)userdata;
+	/* Same handoff as play-selected-demo: leave the menu, start on the next
+	 * command pass. Starting inside this draw reloads the backdrop over the demo. */
+	if (!CL_FpsBench_QueueFromMenu()) {
+		return false;
+	}
+	CL_UIR_DeactivateModernMain();
+	CL_ModernBrowser_HaltRefresh();
+	return true;
+}
+
+static bool invoke_fpsbench_apply(void *userdata)
+{
+	(void)userdata;
+	CL_FpsBench_ApplyRecommendation();
+	return true;
+}
+
 static bool invoke_settings_apply(void *userdata)
 {
 	char beforeVideo[32][MAX_CVAR_VALUE_STRING];
@@ -5623,6 +5645,8 @@ static void CL_UIR_RegisterInvokes(void)
 	UID_RegisterInvoke("settings-defaults", invoke_settings_defaults, NULL);
 	UID_RegisterInvoke("modal-commit-keybind", invoke_modal_commit_keybind, NULL);
 	UID_RegisterInvoke("settings-apply", invoke_settings_apply, NULL);
+	UID_RegisterInvoke("fps-benchmark", invoke_fps_benchmark, NULL); /* Added in Omaha */
+	UID_RegisterInvoke("fpsbench-apply", invoke_fpsbench_apply, NULL); /* Added in Omaha */
 	UID_RegisterInvoke("reset-cvar", invoke_reset_cvar, NULL);
 	UID_RegisterInvoke("navigate", invoke_navigate, NULL);
 	UID_RegisterInvoke("back", invoke_back, NULL);
@@ -7879,6 +7903,13 @@ void CL_UIR_RenderDisconnectedMain(void)
 
 	CL_UIR_ProfileBeginSample("disconnected_main");
 	CL_UIR_UpdateModern();
+	/* Skip the backdrop once this frame is no longer a disconnected main menu.
+	 * A queued command such as fpsbench has not run yet, so this check is not
+	 * what keeps the menu map from replacing the demo. */
+	if (!CL_UIR_IsEligibleForModernMain()) {
+		CL_UIR_ProfileEndSample("disconnected_main");
+		return;
+	}
 
 	UIR_MenuMapViewSetDefaults(&mapView);
 	{

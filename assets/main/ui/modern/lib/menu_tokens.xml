@@ -27,6 +27,8 @@
 		<var id="fill-scrim" value="#00000080"/>
 		<!-- Restored in OPM: FBO MSAA workaround had lowered this to #96; premul composite is fixed. -->
 		<var id="fill-panel" value="#0C0E12C7"/>
+		<!-- Added in Omaha: fill-panel with full alpha, for modal panels. -->
+		<var id="fill-panel-solid" value="#0C0E12FF"/>
 		<var id="fill-input" value="#00000059"/>
 		<var id="fill-control" value="#00000073"/>
 		<var id="fill-hover-ghost" value="#FFFFFF0F"/>

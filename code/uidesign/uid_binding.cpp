@@ -1281,24 +1281,10 @@ static void MigrateSettingsCvarValue(
 		return;
 	}
 
-	if (cvarName == "com_maxfps") {
-		// Changed in Omaha: Max FPS is a 125–1000 slider (was 125/250/500 cyclic).
-		const int fps = static_cast<int>(std::strtol(valueBuf, nullptr, 10));
-		int         clamped = fps;
-		if (clamped < 125) {
-			clamped = 125;
-		} else if (clamped > 1000) {
-			clamped = 1000;
-		}
-		if (clamped != fps) {
-			char buf[16];
-			std::snprintf(buf, sizeof(buf), "%d", clamped);
-			backend->cvarWrite("com_maxfps", buf);
-			std::snprintf(valueBuf, valueBufSize, "%s", buf);
-		}
-		return;
-	}
-
+	/*
+	 * com_maxfps is not rewritten here. The video slider is 125–1000 and the
+	 * number field is 0–5000; sync must leave a console value inside that field.
+	 */
 	if (cvarName == "in_mouse") {
 		const int v = static_cast<int>(std::strtol(valueBuf, nullptr, 10));
 		if (v == 0 || v < -1 || v > 1) {

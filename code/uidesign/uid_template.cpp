@@ -827,6 +827,24 @@ uid_property_set_t BuildTemplatePropValues(
 		}
 	}
 	/*
+	 * Added in Omaha: number-field bounds default to the slider range when a
+	 * template leaves input-min / input-max unset (volume and the other rows).
+	 */
+	{
+		auto copyBound = [&](const char *dst, const char *src) {
+			std::string existing;
+			if (props.Get(dst, &existing) && !existing.empty()) {
+				return;
+			}
+			std::string srcValue;
+			if (props.Get(src, &srcValue) && !srcValue.empty()) {
+				props.Set(dst, srcValue);
+			}
+		};
+		copyBound("input-min", "min");
+		copyBound("input-max", "max");
+	}
+	/*
 	 * Fixed in Omaha: literal commit= on <use> may live on hasCommit only; still
 	 * feed template.commit so nested sliders honor submit vs change.
 	 */

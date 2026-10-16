@@ -76,6 +76,9 @@
 					<prop name="commit" type="string" required="false" default="change"/>
 					<prop name="value-type" type="string" required="false" default="none"/>
 					<prop name="width" type="string" required="false" default="242px"/>
+					<!-- Added in Omaha: number field range; defaults to min/max so volume stays clamped. -->
+					<prop name="input-min" type="number" required="false"/>
+					<prop name="input-max" type="number" required="false"/>
 				</props>
 				<container type="horizontal" width="{template.width}" height="36px"
 				           gap="2px" valign="center">
@@ -88,7 +91,7 @@
 						       pressed-fill="{var.color-accent-pressed}" shape="rectangle" radius="0px"/>
 					</slider>
 					<input type="number" width="56px" height="100%"
-					       bind="{template.bind}" min="{template.min}" max="{template.max}" step="{template.step}"
+					       bind="{template.bind}" min="{template.input-min}" max="{template.input-max}" step="{template.step}"
 					       commit="{template.commit}" value-type="{template.value-type}" fill="{var.fill-control}"
 					       color="{var.color-white}" font="control" font-size="{var.text-body}" padding="0 8px"
 					       halign="start" valign="center" stroke="{var.stroke-border}" stroke-width="1px"/>
@@ -244,11 +247,15 @@
 					<prop name="step" type="number" required="true"/>
 					<prop name="commit" type="string" required="false" default="change"/>
 					<prop name="value-type" type="string" required="false" default="none"/>
+					<!-- Added in Omaha: optional number-field range; omitted props follow min/max. -->
+					<prop name="input-min" type="number" required="false"/>
+					<prop name="input-max" type="number" required="false"/>
 				</props>
 				<container type="vertical" width="100%" height="auto" gap="8px" padding="8px 12px" valign="start"
 				           visible="{(cvar.ui_om_settings_search == '' or icontains('{template.label}', cvar.ui_om_settings_search))}">
 					<label width="fill" height="auto" font="body" font-size="{var.text-body}" valign="start" color="{var.color-primary}">{template.label}</label>
 					<use template="settings-slider" bind="{template.bind}" min="{template.min}" max="{template.max}"
+					     input-min="{template.input-min}" input-max="{template.input-max}"
 					     step="{template.step}" commit="{template.commit}" value-type="{template.value-type}"/>
 					<container width="fill" height="1px" fill="{var.fill-divider}"/>
 				</container>

@@ -48,6 +48,15 @@ void     CL_FpsBench_PrintResults(void);
 // Called on disconnect; drops an unfinished run
 void     CL_FpsBench_Abort(void);
 
+// Added in Omaha: settings button. Queues fpsbench for the next command pass
+// so the run does not start inside the menu backdrop draw.
+// qfalse if a run is already queued or the demo file is missing.
+qboolean CL_FpsBench_QueueFromMenu(void);
+// After disconnect forces the play panel, put settings + the results dialog back.
+void CL_FpsBench_TakeMenuReturn(void);
+// Dialog Apply: write the recommended cap to com_maxfps.
+void CL_FpsBench_ApplyRecommendation(void);
+
 #ifdef __cplusplus
 }
 #endif

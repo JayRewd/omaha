@@ -4,10 +4,12 @@
 				<container type="vertical" width="100%" height="100%" fill="{var.fill-scrim}"
 				           halign="center" valign="center">
 					<container type="vertical" width="480px" height="auto"
-					           padding="24px" gap="16px" fill="{var.fill-panel}" stroke="{var.fill-divider}" stroke-width="1px">
+					           padding="12px" gap="12px" fill="{var.fill-panel-solid}" stroke="{var.fill-divider}" stroke-width="1px">
+						<label width="100%" height="auto" halign="center" font="control" font-size="{var.text-control}"
+						       letter-spacing="2px" color="{var.color-primary}">BIND</label>
 						<label id="modal_bind_message" width="100%" height="auto" text-cvar="ui_modal_message"
 						       font="body" font-size="{var.text-body}" color="{var.color-primary}"/>
-						<container type="horizontal" width="100%" height="auto" gap="12px" halign="center" valign="equal-spacing">
+						<container type="horizontal" width="100%" height="auto" halign="space-between" valign="center">
 							<button id="modal_bind_no" width="auto" height="auto" padding="10px 24px"
 							        fill="{var.fill-divider}" hoverfill="{var.fill-chip}" color="{var.color-primary}"
 							        font="control" font-size="{var.text-control}" letter-spacing="2px" modal-role="cancel">
@@ -33,10 +35,12 @@
 				<container type="vertical" width="100%" height="100%" fill="{var.fill-scrim}"
 				           halign="center" valign="center">
 					<container type="vertical" width="480px" height="auto"
-					           padding="24px" gap="16px" fill="{var.fill-panel}" stroke="{var.fill-divider}" stroke-width="1px">
+					           padding="12px" gap="12px" fill="{var.fill-panel-solid}" stroke="{var.fill-divider}" stroke-width="1px">
+						<label width="100%" height="auto" halign="center" font="control" font-size="{var.text-control}"
+						       letter-spacing="2px" color="{var.color-primary}">QUIT</label>
 						<label width="100%" height="auto" halign="center"
 						       font="body" font-size="{var.text-body}" color="{var.color-primary}">Are you sure you want to exit?</label>
-						<container type="horizontal" width="100%" height="auto" gap="12px" halign="center" valign="equal-spacing">
+						<container type="horizontal" width="100%" height="auto" halign="space-between" valign="center">
 							<button id="modal_exit_no" width="auto" height="auto" padding="10px 24px"
 							        fill="{var.fill-divider}" hoverfill="{var.fill-chip}" color="{var.color-primary}"
 							        font="control" font-size="{var.text-control}" letter-spacing="2px" modal-role="cancel">
@@ -63,10 +67,12 @@
 				<container type="vertical" width="100%" height="100%" fill="{var.fill-scrim}"
 				           halign="center" valign="center">
 					<container type="vertical" width="480px" height="auto"
-					           padding="24px" gap="16px" fill="{var.fill-panel}" stroke="{var.fill-divider}" stroke-width="1px">
+					           padding="12px" gap="12px" fill="{var.fill-panel-solid}" stroke="{var.fill-divider}" stroke-width="1px">
+						<label width="100%" height="auto" halign="center" font="control" font-size="{var.text-control}"
+						       letter-spacing="2px" color="{var.color-primary}">DISCONNECT</label>
 						<label width="100%" height="auto" halign="center"
 						       font="body" font-size="{var.text-body}" color="{var.color-primary}">Are you sure you want to leave the game?</label>
-						<container type="horizontal" width="100%" height="auto" gap="12px" halign="center" valign="equal-spacing">
+						<container type="horizontal" width="100%" height="auto" halign="space-between" valign="center">
 							<button id="modal_disconnect_no" width="auto" height="auto" padding="10px 24px"
 							        fill="{var.fill-divider}" hoverfill="{var.fill-chip}" color="{var.color-primary}"
 							        font="control" font-size="{var.text-control}" letter-spacing="2px" modal-role="cancel">
@@ -90,6 +96,43 @@
 				</container>
 			</modal>
 
+			<!-- Added in Omaha: FPS bench results after returning to video settings. -->
+			<modal id="fpsbench_results">
+				<container type="vertical" width="100%" height="100%" fill="{var.fill-scrim}"
+				           halign="center" valign="center">
+					<container type="vertical" width="520px" height="auto"
+					           padding="12px" gap="12px" fill="{var.fill-panel-solid}" stroke="{var.fill-divider}" stroke-width="1px">
+						<label width="100%" height="auto" halign="center" font="control" font-size="{var.text-control}"
+						       letter-spacing="2px" color="{var.color-primary}">BENCHMARK</label>
+						<label width="100%" height="auto" text-cvar="ui_om_fpsbench_results" text-wrap="word"
+						       font="body" font-size="{var.text-body}" color="{var.color-primary}"/>
+						<label width="100%" height="auto" halign="center"
+						       font="body" font-size="{var.text-body}" color="{var.color-primary}"
+						       visible="{cvar.ui_om_fpsbench_recommend != ''}">Press Apply to set Max FPS to the recommended value.</label>
+						<container type="horizontal" width="100%" height="auto" halign="space-between" valign="center">
+							<button id="modal_fpsbench_close" width="auto" height="auto" padding="10px 24px"
+							        fill="{var.fill-divider}" hoverfill="{var.fill-chip}" color="{var.color-primary}"
+							        font="control" font-size="{var.text-control}" letter-spacing="2px" modal-role="cancel">
+								CLOSE
+								<on event="click">
+									<hide-modal/>
+								</on>
+							</button>
+							<button id="modal_fpsbench_apply" width="auto" height="auto" padding="10px 24px"
+							        fill="{var.color-accent}" hoverfill="{var.color-accent-hover}" color="{var.color-white}"
+							        font="control" font-size="{var.text-control}" letter-spacing="2px" modal-role="confirm"
+							        visible="{cvar.ui_om_fpsbench_recommend != ''}">
+								APPLY
+								<on event="click">
+									<invoke name="fpsbench-apply"/>
+									<hide-modal/>
+								</on>
+							</button>
+						</container>
+					</container>
+				</container>
+			</modal>
+
 			<!-- Added in Omaha: relative modals anchored to opener (select modal= / show-modal). -->
 			<modal id="player-model-allies" type="relative">
 				<container type="overlap" width="100%" height="100%" fill="#00000000">
@@ -101,7 +144,7 @@
 					           overflow="scroll" scrollbar="scrollbar-default"
 					           source="player-models-allies" bind="cvar:ui_dm_playermodel_set" commit="change"
 					           collection-display="label"
-					           fill="{var.fill-panel}" stroke="{var.fill-divider}" stroke-width="1px">
+					           fill="{var.fill-panel-solid}" stroke="{var.fill-divider}" stroke-width="1px">
 						<foreach mode="all" type="vertical" width="100%" height="auto" gap="0">
 							<button width="100%" height="28px" padding="0 8px" set-index="{item.index}"
 							        fill="{item.selected ? var.color-accent : var.fill-transparent}"
@@ -126,7 +169,7 @@
 					           overflow="scroll" scrollbar="scrollbar-default"
 					           source="player-models-axis" bind="cvar:ui_dm_playergermanmodel_set" commit="change"
 					           collection-display="label"
-					           fill="{var.fill-panel}" stroke="{var.fill-divider}" stroke-width="1px">
+					           fill="{var.fill-panel-solid}" stroke="{var.fill-divider}" stroke-width="1px">
 						<foreach mode="all" type="vertical" width="100%" height="auto" gap="0">
 							<button width="100%" height="28px" padding="0 8px" set-index="{item.index}"
 							        fill="{item.selected ? var.color-accent : var.fill-transparent}"

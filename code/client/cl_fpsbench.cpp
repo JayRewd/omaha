@@ -33,6 +33,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "client.h"
 #include "cl_fpsbench.h"
 #include "cl_ui.h"
+#include "cl_uivars.h"
 
 #include <SDL.h>
 
@@ -44,11 +45,17 @@ source tree, or write to the Free Software Foundation, Inc.,
 #define FPSBENCH_WARMUP_US  1000000
 #define FPSBENCH_MIN_FRAMES 100
 #define FPSBENCH_MIN_MAXFPS 125
+/* Matches Cvar_CheckRange on com_maxfps. */
+#define FPSBENCH_MAX_MAXFPS 5000
 
 static qboolean             s_active;
 static qboolean             s_apply;
 static qboolean             s_pendingReport;
 static qboolean             s_openConsole;
+static qboolean             s_returnMenu;
+static qboolean             s_restoreMenu;
+/* Set by the settings button; consumed by the next fpsbench command. */
+static qboolean             s_queueReturnMenu;
 static int64_t              s_readyUs;
 static int64_t              s_lastUs;
 static std::vector<int64_t> s_frameUs;
@@ -92,6 +99,7 @@ static void FB_Stop(void)
 	FB_EndBoost();
 	s_active = qfalse;
 	s_pendingReport = qfalse;
+	s_returnMenu = qfalse;
 	s_frameUs.clear();
 	s_frameUs.shrink_to_fit();
 }
@@ -109,13 +117,37 @@ static float FB_PercentileFps(const std::vector<int64_t> &sorted, double p)
 	return 1000000.0f / (float)std::max<int64_t>(sorted[rank - 1], 1);
 }
 
-static void FB_Report(void)
+struct FB_Stats {
+	qboolean ok;
+	float    avg;
+	float    p95;
+	float    p99;
+	float    p999;
+	float    best;
+	float    worst;
+	int      recommend;
+};
+
+// p99 minus 100 headroom, floored to the nearest hundred, clamped to the cap.
+static int FB_RecommendedMaxFps(float p99)
+{
+	int maxfps = ((int)(p99 - 100.0f) / 100) * 100;
+
+	if (maxfps < FPSBENCH_MIN_MAXFPS) {
+		maxfps = FPSBENCH_MIN_MAXFPS;
+	}
+	if (maxfps > FPSBENCH_MAX_MAXFPS) {
+		maxfps = FPSBENCH_MAX_MAXFPS;
+	}
+	return maxfps;
+}
+
+static void FB_Compute(FB_Stats *out)
 {
 	std::vector<int64_t> sorted = s_frameUs;
 	int64_t              total = 0;
-	float                avg, p95, p99, p999, best, worst;
-	int                  maxfps;
 
+	memset(out, 0, sizeof(*out));
 	if (sorted.size() < FPSBENCH_MIN_FRAMES) {
 		Com_Printf(S_COLOR_YELLOW "fpsbench: not enough frames measured (%d)\n", (int)sorted.size());
 		return;
@@ -126,29 +158,66 @@ static void FB_Report(void)
 		total += us;
 	}
 
-	avg = (float)((double)sorted.size() * 1000000.0 / (double)std::max<int64_t>(total, 1));
-	p95 = FB_PercentileFps(sorted, 0.95);
-	p99 = FB_PercentileFps(sorted, 0.99);
-	p999 = FB_PercentileFps(sorted, 0.999);
-	best = 1000000.0f / (float)std::max<int64_t>(sorted.front(), 1);
-	worst = 1000000.0f / (float)std::max<int64_t>(sorted.back(), 1);
+	out->ok = qtrue;
+	out->avg = (float)((double)sorted.size() * 1000000.0 / (double)std::max<int64_t>(total, 1));
+	out->p95 = FB_PercentileFps(sorted, 0.95);
+	out->p99 = FB_PercentileFps(sorted, 0.99);
+	out->p999 = FB_PercentileFps(sorted, 0.999);
+	out->best = 1000000.0f / (float)std::max<int64_t>(sorted.front(), 1);
+	out->worst = 1000000.0f / (float)std::max<int64_t>(sorted.back(), 1);
+	out->recommend = FB_RecommendedMaxFps(out->p99);
+}
 
-	Com_Printf("avg   %.1f fps\n", avg);
-	Com_Printf("p95   %.1f fps\n", p95);
-	Com_Printf("p99   %.1f fps\n", p99);
-	Com_Printf("p99.9 %.1f fps\n", p999);
-	Com_Printf("max   %.1f fps\n", best);
-	Com_Printf("min   %.1f fps\n", worst);
+static void FB_Print(const FB_Stats *stats)
+{
+	if (!stats->ok) {
+		return;
+	}
+
+	Com_Printf("avg   %.1f fps\n", stats->avg);
+	Com_Printf("p95   %.1f fps\n", stats->p95);
+	Com_Printf("p99   %.1f fps\n", stats->p99);
+	Com_Printf("p99.9 %.1f fps\n", stats->p999);
+	Com_Printf("max   %.1f fps\n", stats->best);
+	Com_Printf("min   %.1f fps\n", stats->worst);
 
 	if (s_apply) {
-		// p99 minus 100 headroom, floored to the nearest hundred, at least 125
-		maxfps = ((int)(p99 - 100.0f) / 100) * 100;
-		if (maxfps < FPSBENCH_MIN_MAXFPS) {
-			maxfps = FPSBENCH_MIN_MAXFPS;
-		}
-		Cvar_Set("com_maxfps", va("%d", maxfps));
-		Com_Printf("com_maxfps set to %d - Nearest stable value\n", maxfps);
+		Cvar_Set("com_maxfps", va("%d", stats->recommend));
+		Com_Printf("com_maxfps set to %d - Nearest stable value\n", stats->recommend);
 	}
+}
+
+static void FB_PublishMenu(const FB_Stats *stats)
+{
+	char body[512];
+
+	if (!stats->ok) {
+		CL_UIVar_Set("ui_om_fpsbench_results", "Not enough frames were measured.");
+		CL_UIVar_Set("ui_om_fpsbench_recommend", "");
+		return;
+	}
+
+	Com_sprintf(
+		body,
+		sizeof(body),
+		"Average  %.1f fps\n"
+		"p95      %.1f fps\n"
+		"p99      %.1f fps\n"
+		"p99.9    %.1f fps\n"
+		"Max      %.1f fps\n"
+		"Min      %.1f fps\n"
+		"\n"
+		"Recommended Max FPS: %d",
+		stats->avg,
+		stats->p95,
+		stats->p99,
+		stats->p999,
+		stats->best,
+		stats->worst,
+		stats->recommend
+	);
+	CL_UIVar_Set("ui_om_fpsbench_results", body);
+	CL_UIVar_Set("ui_om_fpsbench_recommend", va("%d", stats->recommend));
 }
 
 /*
@@ -158,18 +227,12 @@ CL_FpsBench_f
 fpsbench [set]
 ====================
 */
-static void CL_FpsBench_f(void)
+static qboolean FB_Start(qboolean apply, qboolean returnMenu)
 {
-	qboolean apply = qfalse;
-
-	if (Cmd_Argc() > 2 || (Cmd_Argc() == 2 && Q_stricmp(Cmd_Argv(1), "set"))) {
-		Com_Printf("usage: fpsbench [set]\n");
-		Com_Printf("  fpsbench      play the benchmark demo and print frame rates\n");
-		Com_Printf("  fpsbench set  same, then set com_maxfps from p99 - 100 (floor 100s, min %d)\n", FPSBENCH_MIN_MAXFPS);
-		return;
-	}
-	if (Cmd_Argc() == 2) {
-		apply = qtrue;
+	/* Added in Omaha: never drop a live connection to start the bench. */
+	if (clc.state > CA_DISCONNECTED) {
+		Com_Printf("fpsbench: disconnect before running the benchmark\n");
+		return qfalse;
 	}
 
 	// make sure a local server is killed
@@ -181,12 +244,18 @@ static void CL_FpsBench_f(void)
 	FS_FOpenFileRead(FPSBENCH_DEMO_PATH, &clc.demofile, qtrue, qtrue);
 	if (!clc.demofile) {
 		Com_Printf(S_COLOR_YELLOW "fpsbench: couldn't open %s\n", FPSBENCH_DEMO_PATH);
-		return;
+		return qfalse;
 	}
 
 	FB_BeginBoost();
 	s_active = qtrue;
 	s_apply = apply;
+	s_returnMenu = returnMenu;
+	s_restoreMenu = qfalse;
+	/* A menu run must not chain whatever nextdemo the player had set. */
+	if (returnMenu) {
+		Cvar_Set("nextdemo", "");
+	}
 	s_pendingReport = qfalse;
 	s_openConsole = qfalse;
 	s_readyUs = 0;
@@ -196,6 +265,35 @@ static void CL_FpsBench_f(void)
 
 	Com_Printf("fpsbench: running, results print when the demo ends\n");
 	CL_BeginDemoPlayback(FPSBENCH_DEMO_PATH, FPSBENCH_DEMO_NAME);
+	return qtrue;
+}
+
+static void CL_FpsBench_f(void)
+{
+	qboolean apply = qfalse;
+	qboolean returnMenu = s_queueReturnMenu;
+
+	if (Cmd_Argc() > 2 || (Cmd_Argc() == 2 && Q_stricmp(Cmd_Argv(1), "set"))) {
+		Com_Printf("usage: fpsbench [set]\n");
+		Com_Printf("  fpsbench      play the benchmark demo and print frame rates\n");
+		Com_Printf("  fpsbench set  same, then set com_maxfps from p99 - 100 (floor 100s, min %d)\n", FPSBENCH_MIN_MAXFPS);
+		return;
+	}
+	if (Cmd_Argc() == 2) {
+		apply = qtrue;
+	}
+
+	if (!FB_Start(apply, returnMenu)) {
+		s_queueReturnMenu = qfalse;
+		/* Connected refusal already printed. Only a missing file should reopen settings. */
+		if (returnMenu && clc.state <= CA_DISCONNECTED) {
+			CL_UIVar_Set("ui_om_fpsbench_results", "Couldn't open the benchmark demo.");
+			CL_UIVar_Set("ui_om_fpsbench_recommend", "");
+			s_restoreMenu = qtrue;
+		}
+		return;
+	}
+	s_queueReturnMenu = qfalse;
 }
 
 void CL_FpsBench_Init(void)
@@ -258,14 +356,70 @@ void CL_FpsBench_DemoCompleted(void)
 
 void CL_FpsBench_PrintResults(void)
 {
+	FB_Stats stats;
+
 	if (!s_pendingReport) {
 		return;
 	}
-	FB_Report();
+	FB_Compute(&stats);
+	FB_Print(&stats);
+	if (s_returnMenu) {
+		FB_PublishMenu(&stats);
+		s_restoreMenu = qtrue;
+		s_openConsole = qfalse;
+	} else {
+		s_openConsole = qtrue;
+	}
+	s_returnMenu = qfalse;
 	s_pendingReport = qfalse;
 	s_frameUs.clear();
 	s_frameUs.shrink_to_fit();
-	s_openConsole = qtrue;
+}
+
+qboolean CL_FpsBench_QueueFromMenu(void)
+{
+	fileHandle_t f;
+
+	if (s_queueReturnMenu) {
+		return qfalse;
+	}
+	if (clc.state > CA_DISCONNECTED) {
+		Com_Printf("fpsbench: disconnect before running the benchmark\n");
+		return qfalse;
+	}
+
+	f = 0;
+	FS_FOpenFileRead(FPSBENCH_DEMO_PATH, &f, qtrue, qtrue);
+	if (!f) {
+		Com_Printf(S_COLOR_YELLOW "fpsbench: couldn't open %s\n", FPSBENCH_DEMO_PATH);
+		return qfalse;
+	}
+	FS_FCloseFile(f);
+
+	s_queueReturnMenu = qtrue;
+	Cbuf_AddText("fpsbench\n");
+	return qtrue;
+}
+
+void CL_FpsBench_TakeMenuReturn(void)
+{
+	if (!s_restoreMenu || clc.state > CA_DISCONNECTED) {
+		return;
+	}
+	s_restoreMenu = qfalse;
+	CL_UIVar_Set("ui_om_main_panel", "settings");
+	CL_UIVar_Set("ui_om_settings_tab", "video");
+	CL_UIVar_Set("ui_om_modal", "fpsbench_results");
+}
+
+void CL_FpsBench_ApplyRecommendation(void)
+{
+	const char *recommend = CL_UIVar_String("ui_om_fpsbench_recommend");
+
+	if (!recommend || !recommend[0]) {
+		return;
+	}
+	Cvar_Set("com_maxfps", recommend);
 }
 
 void CL_FpsBench_Abort(void)

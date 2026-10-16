@@ -2808,6 +2808,9 @@ void CL_Frame ( int msec ) {
 				}
 			}
 
+			/* Added in Omaha: a finished settings bench wins over the play panel. */
+			CL_FpsBench_TakeMenuReturn();
+
 			CL_UIR_SyncEligibility();
 
 			if (bringingUpMenu) {
