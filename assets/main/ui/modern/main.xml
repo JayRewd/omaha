@@ -212,7 +212,25 @@
 									<use template="settings-number-row" label="Mouse DPI" bind="cvar:ui_modernsettings_dpi" min="100" max="32000" step="50" commit="change" visible="{cvar.ui_modernsettings_sensitivity_mode == cm360}"/>
 									<use template="settings-cyclic-row" label="Zoom Sensitivity" bind="cvar:cg_zoomSensitivity" source="zoom-sensitivity-mode" commit="change"/>
 									<use template="settings-on-off-row" label="Invert mouse" bind="cvar:m_pitch" commit="change" value-type="invert-mouse"/>
-									<use template="settings-on-off-row" label="Mouse Acceleration" bind="cvar:cl_mouseAccel" commit="change"/>
+									<use template="settings-on-off-row" label="Mouse Acceleration" bind="cvar:cl_mouseAccel" commit="change" value-type="accel-toggle"/>
+									<!-- Added in Omaha: acceleration tuning, shown while acceleration is on. -->
+									<use template="settings-cyclic-row" label="Acceleration Style" bind="cvar:cl_mouseAccelStyle" source="mouse-accel-style" commit="change"
+									     visible="{cvar.cl_mouseAccel != 0}"/>
+									<container width="fill" height="auto" padding="8px 12px"
+									           visible="{cvar.cl_mouseAccel != 0 and (cvar.ui_om_settings_search == '' or icontains('Mouse Acceleration', cvar.ui_om_settings_search))}">
+										<container role="mouseaccel-preview" width="fill" height="140px" fill="{var.fill-control}"
+										           stroke="{var.stroke-border}" stroke-width="1px" shape="rectangle"/>
+									</container>
+									<use template="settings-slider-row" label="Acceleration" bind="cvar:cl_mouseAccel" min="0.01" max="5" step="0.01" input-max="20" commit="change"
+									     visible="{cvar.cl_mouseAccel != 0 and cvar.cl_mouseAccelStyle == 1}"/>
+									<use template="settings-slider-row" label="Acceleration" bind="cvar:cl_mouseAccel" min="0.001" max="1" step="0.001" input-max="10" commit="change"
+									     visible="{cvar.cl_mouseAccel != 0 and cvar.cl_mouseAccelStyle != 1}"/>
+									<use template="settings-slider-row" label="Acceleration Offset" bind="cvar:cl_mouseAccelOffset" min="0" max="50" step="0.1" input-max="50000" commit="change"
+									     visible="{cvar.cl_mouseAccel != 0 and cvar.cl_mouseAccelStyle != 0}"/>
+									<use template="settings-slider-row" label="Acceleration Power" bind="cvar:cl_mouseAccelPower" min="1" max="6" step="0.01" input-max="10" commit="change"
+									     visible="{cvar.cl_mouseAccel != 0 and cvar.cl_mouseAccelStyle == 2}"/>
+									<use template="settings-slider-row" label="Sensitivity Cap" bind="cvar:cl_mouseSensCap" min="0" max="30" step="0.01" input-max="100" commit="change"
+									     visible="{cvar.cl_mouseAccel != 0 and cvar.cl_mouseAccelStyle == 2}"/>
 									<use template="settings-on-off-row" label="Low latency mouse input" bind="cvar:cl_lowLatencyInput" commit="change"/>
 									<use template="settings-on-off-row" label="Mouse smoothing" bind="cvar:m_filter" commit="change"/>
 									<use template="settings-on-off-row" label="Raw Input" bind="cvar:in_mouse" commit="change" off-label="DirectInput" on-label="Raw Input" off-value="1" on-value="-1"/>

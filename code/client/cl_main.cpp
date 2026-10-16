@@ -86,6 +86,8 @@ cvar_t	*cl_sensitivity;
 cvar_t	*cl_mouseAccel;
 cvar_t	*cl_mouseAccelOffset;
 cvar_t	*cl_mouseAccelStyle;
+cvar_t	*cl_mouseAccelPower; // Added in Omaha
+cvar_t	*cl_mouseSensCap; // Added in Omaha
 cvar_t	*cl_showMouseRate;
 
 cvar_t	*cl_altbindings;
@@ -2765,11 +2767,32 @@ CL_Frame
 
 ==================
 */
+/*
+==================
+CL_RememberMouseAccel
+
+Added in Omaha: keep the last nonzero cl_mouseAccel so the settings switch can restore it.
+==================
+*/
+static void CL_RememberMouseAccel( void ) {
+	static int lastModificationCount = -1;
+
+	if ( cl_mouseAccel->modificationCount == lastModificationCount ) {
+		return;
+	}
+	lastModificationCount = cl_mouseAccel->modificationCount;
+	if ( cl_mouseAccel->value != 0.0f ) {
+		Cvar_Set( "ui_om_mouseaccel_last", cl_mouseAccel->string );
+	}
+}
+
 void CL_Frame ( int msec ) {
 
 	if ( !com_cl_running->integer ) {
 		return;
 	}
+
+	CL_RememberMouseAccel(); // Added in Omaha
 
 #ifdef USE_CURL
 	if(clc.downloadCURLM) {
@@ -3805,13 +3828,18 @@ void CL_Init( void ) {
 	cl_sensitivity = Cvar_Get( "sensitivity", "5", CVAR_ARCHIVE );
     cl_mouseAccel = Cvar_Get("cl_mouseAccel", "0", CVAR_ARCHIVE);
     cl_freelook = Cvar_Get("cl_freelook", "1", CVAR_ARCHIVE);
-	// 0: legacy mouse acceleration
-	// 1: new implementation
-	cl_mouseAccelStyle = Cvar_Get( "cl_mouseAccelStyle", "0", CVAR_ARCHIVE );
-	// offset for the power function (for style 1, ignored otherwise)
-	// this should be set to the max rate value
-	cl_mouseAccelOffset = Cvar_Get( "cl_mouseAccelOffset", "5", CVAR_ARCHIVE );
-	Cvar_CheckRange(cl_mouseAccelOffset, 0.001f, 50000.0f, qfalse);
+	// Changed in Omaha: 0 legacy, 1 power, 2 curve (default)
+	cl_mouseAccelStyle = Cvar_Get( "cl_mouseAccelStyle", "2", CVAR_ARCHIVE );
+	Cvar_CheckRange(cl_mouseAccelStyle, 0, 2, qtrue);
+	// rate in counts/ms below which the curve stays linear
+	cl_mouseAccelOffset = Cvar_Get( "cl_mouseAccelOffset", "0", CVAR_ARCHIVE );
+	Cvar_CheckRange(cl_mouseAccelOffset, 0.0f, 50000.0f, qfalse);
+	// below 1 the exponent turns negative and the curve blows up
+	cl_mouseAccelPower = Cvar_Get( "cl_mouseAccelPower", "2", CVAR_ARCHIVE );
+	Cvar_CheckRange(cl_mouseAccelPower, 1.0f, 10.0f, qfalse);
+	// 0: no cap
+	cl_mouseSensCap = Cvar_Get( "cl_mouseSensCap", "0", CVAR_ARCHIVE );
+	Cvar_CheckRange(cl_mouseSensCap, 0.0f, 100.0f, qfalse);
 
 	cl_showMouseRate = Cvar_Get ("cl_showmouserate", "0", 0);
 

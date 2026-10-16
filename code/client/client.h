@@ -454,6 +454,8 @@ extern	cvar_t	*cl_freelook;
 extern	cvar_t	*cl_mouseAccel;
 extern	cvar_t	*cl_mouseAccelOffset;
 extern	cvar_t	*cl_mouseAccelStyle;
+extern	cvar_t	*cl_mouseAccelPower; // Added in Omaha
+extern	cvar_t	*cl_mouseSensCap; // Added in Omaha
 extern	cvar_t	*cl_showMouseRate;
 
 extern	cvar_t	*cl_altbindings;
@@ -613,6 +615,7 @@ void CL_UpdateMouse();
 void CL_InitInput (void);
 void CL_ShutdownInput(void);
 void CL_ApplyLateMouse( void ); // Added in Omaha: late look before cgame view
+float CL_MouseAccelSensitivity( float rate ); // Added in Omaha: rate in counts/ms
 void CL_SendCmd (void);
 void CL_ClearState (void);
 void CL_ReadPackets (void);

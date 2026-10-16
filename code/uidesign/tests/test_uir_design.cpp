@@ -5619,6 +5619,69 @@ void TestInvertMouseBindSelected(void)
 	UID_DestroyDocument(doc);
 }
 
+/* Added in Omaha: accel-toggle shows any nonzero cl_mouseAccel as on and restores the last value. */
+void TestAccelToggleBind(void)
+{
+	static const char *kDoc = R"(
+<ui version="1">
+  <definitions>
+    <defaults type="vertical" width="100%" height="100%"/>
+    <fonts><font id="control" src="fonts/x.ttf" weight="600"/></fonts>
+  </definitions>
+  <canvas>
+    <container type="horizontal" width="100%" height="40px" gap="8px">
+      <button id="off" bind="cvar:cl_mouseAccel" value-type="accel-toggle" set-value="0" commit="change"
+              fill="{bind.selected ? #1A6FD4FF : #00000073}" color="#FFFFFFFF">Off</button>
+      <button id="on" bind="cvar:cl_mouseAccel" value-type="accel-toggle" set-value="1" commit="change"
+              fill="{bind.selected ? #1A6FD4FF : #00000073}" color="#FFFFFFFF">On</button>
+    </container>
+  </canvas>
+</ui>
+)";
+	uid_limits_t lim;
+	UID_DefaultLimits(&lim);
+	uid_document_t *doc = UID_CreateDocument();
+	uid_diag_list_t diags(lim.maxDiagnostics);
+	FakeBackendState st;
+	st.cvars["cl_mouseAccel"] = FakeCvar{"0.25", 0};
+	uid_backend_t be = MakeFakeBackend(&st);
+
+	CHECK(UID_ParseXml("accel_toggle.xml", kDoc, std::strlen(kDoc), &lim, nullptr, doc, &diags) == UID_OK);
+	CHECK(UID_ExpandDocument(doc, &diags) == UID_OK);
+	CHECK(UID_CompileDocument(doc, &diags) == UID_OK);
+	CHECK(UID_LayoutDocument(doc, 320, 80, 1.0f, 1.0f, &be, &diags) == UID_OK);
+	UID_SyncBindings(doc, &be);
+
+	uid_node_id_t offId = doc->idIndex["off"];
+	uid_node_id_t onId = doc->idIndex["on"];
+	uid_color_t   fillOn{};
+	uid_color_t   fillOff{};
+	CHECK(UID_ResolveFillColor(doc, onId, &fillOn));
+	CHECK(UID_ResolveFillColor(doc, offId, &fillOff));
+	CHECK(fillOn.b > 0.5f);
+	CHECK(fillOff.b < 0.5f);
+
+	UID_SetFocus(doc, offId, &be);
+	CHECK(UID_HandleKey(doc, UID_KEY_ENTER, true, 0, &be));
+	CHECK(st.cvars["cl_mouseAccel"].value == "0");
+	CHECK(UID_ResolveFillColor(doc, offId, &fillOff));
+	CHECK(fillOff.b > 0.5f);
+
+	/* No remembered value yet: On falls back to 0.1. */
+	UID_SetFocus(doc, onId, &be);
+	CHECK(UID_HandleKey(doc, UID_KEY_ENTER, true, 0, &be));
+	CHECK(st.cvars["cl_mouseAccel"].value == "0.1");
+
+	UID_SetFocus(doc, offId, &be);
+	CHECK(UID_HandleKey(doc, UID_KEY_ENTER, true, 0, &be));
+	st.cvars["ui_om_mouseaccel_last"] = FakeCvar{"0.35", 0};
+	UID_SetFocus(doc, onId, &be);
+	CHECK(UID_HandleKey(doc, UID_KEY_ENTER, true, 0, &be));
+	CHECK(st.cvars["cl_mouseAccel"].value == "0.35");
+
+	UID_DestroyDocument(doc);
+}
+
 /* Added in Omaha: slider/number display precision follows authored step. */
 void TestSteppedNumberDisplay(void)
 {
@@ -8628,6 +8691,7 @@ static void RegisterTestSettingsCvars(FakeBackendState &st)
 		"fps", "cg_fov", "cg_drawviewmodel", "cg_hud", "cg_rain", "cg_marks_add", "cg_shadows",
 		"cg_effectdetail", "vss_draw", "com_blood", "in_mouse", "r_lodscale", "r_noborder",
 		"sensitivity", "m_pitch", "m_yaw", "m_filter", "cl_mouseAccel", "cl_lowLatencyInput", "cl_run", "cg_zoomSensitivity",
+		"cl_mouseAccelStyle", "cl_mouseAccelOffset", "cl_mouseAccelPower", "cl_mouseSensCap", "ui_om_mouseaccel_last",
 		"r_mode", "r_fullscreen", "r_swapInterval", "com_maxfps", "r_gamma", "r_colorbits", "r_texturebits",
 		"ui_scale", "ui_om_menu_map_view", "r_picmip", "r_textureMode", "r_ext_compressed_textures",
 		"r_fastentlight", "r_fastdlights", "r_entlightmap", "r_flares", "r_drawstaticdecals",
@@ -12145,6 +12209,7 @@ int main(void)
 	TestBindSelectedNumericMatch();
 	TestBindSelectedCommitApplyStages();
 	TestInvertMouseBindSelected();
+	TestAccelToggleBind();
 	TestUseVisibleAndSearchOrPrecedence();
 	TestValueTypeTransforms();
 	TestSteppedNumberDisplay();

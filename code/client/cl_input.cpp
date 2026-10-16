@@ -615,6 +615,63 @@ void CL_JoystickMove( usercmd_t *cmd ) {
 
 /*
 =================
+CL_MouseAccelSensitivity
+
+Added in Omaha: sensitivity for a mouse speed in counts per millisecond.
+Style 0 is legacy (linear in speed). Style 1 is power, one axis of the per-axis curve (needs frame_msec).
+Style 2 is the offset curve; cl_mouseSensCap applies only there.
+=================
+*/
+float CL_MouseAccelSensitivity( float rate ) {
+	float sens;
+	float cap;
+	int   style;
+
+	sens = cl_sensitivity->value;
+	if (cl_mouseAccel->value == 0.0f) {
+		return sens;
+	}
+
+	style = cl_mouseAccelStyle->integer;
+	if (style == 0) {
+		return sens + rate * cl_mouseAccel->value;
+	}
+
+	if (style == 1) {
+		float offset = cl_mouseAccelOffset->value;
+		float msec;
+		float counts;
+		float power;
+		float out;
+
+		if (offset <= 0.0f || rate <= 0.0f) {
+			return sens;
+		}
+		msec = (frame_msec < 1) ? 1.0f : (float)frame_msec;
+		counts = rate * msec;
+		power = powf(rate / offset, cl_mouseAccel->value);
+		out = sens * (counts + power * offset);
+		return out / counts;
+	}
+
+	{
+		float base = (rate - cl_mouseAccelOffset->value) * cl_mouseAccel->value;
+
+		// powf of a negative base is NaN
+		if (base > 0.0f) {
+			sens += powf(base, cl_mouseAccelPower->value - 1.0f);
+		}
+	}
+
+	cap = cl_mouseSensCap->value;
+	if (cap > 0.0f && sens > cap) {
+		sens = cap;
+	}
+	return sens;
+}
+
+/*
+=================
 CL_MouseMove
 =================
 */
@@ -642,43 +699,46 @@ void CL_MouseMove( usercmd_t *cmd ) {
     if (mx == 0.0f && my == 0.0f)
         return;
 
-	if (cl_mouseAccel->value != 0.0f)
+	// Changed in Omaha: style 2 is the offset curve, shared with the settings preview.
+	// Style 0 and 1 keep their previous formulas.
+	if (cl_mouseAccel->value != 0.0f && cl_mouseAccelStyle->integer == 1)
 	{
-		if(cl_mouseAccelStyle->integer == 0)
+		float rate[2];
+		float power[2];
+		float offset;
+
+		offset = cl_mouseAccelOffset->value;
+		if (offset > 0.0f)
 		{
-			float accelSensitivity;
-			float rate;
-			
-			rate = sqrt(mx * mx + my * my) / (float) frame_msec;
-
-			accelSensitivity = cl_sensitivity->value + rate * cl_mouseAccel->value;
-			mx *= accelSensitivity;
-			my *= accelSensitivity;
-			
-			if(cl_showMouseRate->integer)
-				Com_Printf("rate: %f, accelSensitivity: %f\n", rate, accelSensitivity);
-		}
-		else
-		{
-			float rate[2];
-			float power[2];
-
-			// sensitivity remains pretty much unchanged at low speeds
-			// cl_mouseAccel is a power value to how the acceleration is shaped
-			// cl_mouseAccelOffset is the rate for which the acceleration will have doubled the non accelerated amplification
-			// NOTE: decouple the config cvars for independent acceleration setup along X and Y?
-
 			rate[0] = fabs(mx) / (float) frame_msec;
 			rate[1] = fabs(my) / (float) frame_msec;
-			power[0] = powf(rate[0] / cl_mouseAccelOffset->value, cl_mouseAccel->value);
-			power[1] = powf(rate[1] / cl_mouseAccelOffset->value, cl_mouseAccel->value);
+			power[0] = powf(rate[0] / offset, cl_mouseAccel->value);
+			power[1] = powf(rate[1] / offset, cl_mouseAccel->value);
 
-			mx = cl_sensitivity->value * (mx + ((mx < 0) ? -power[0] : power[0]) * cl_mouseAccelOffset->value);
-			my = cl_sensitivity->value * (my + ((my < 0) ? -power[1] : power[1]) * cl_mouseAccelOffset->value);
+			mx = cl_sensitivity->value * (mx + ((mx < 0) ? -power[0] : power[0]) * offset);
+			my = cl_sensitivity->value * (my + ((my < 0) ? -power[1] : power[1]) * offset);
 
 			if(cl_showMouseRate->integer)
 				Com_Printf("ratex: %f, ratey: %f, powx: %f, powy: %f\n", rate[0], rate[1], power[0], power[1]);
 		}
+		else
+		{
+			mx *= cl_sensitivity->value;
+			my *= cl_sensitivity->value;
+		}
+	}
+	else if (cl_mouseAccel->value != 0.0f)
+	{
+		float accelSensitivity;
+		float rate;
+
+		rate = sqrt(mx * mx + my * my) / (float) frame_msec;
+		accelSensitivity = CL_MouseAccelSensitivity(rate);
+		mx *= accelSensitivity;
+		my *= accelSensitivity;
+
+		if(cl_showMouseRate->integer)
+			Com_Printf("rate: %f, accelSensitivity: %f\n", rate, accelSensitivity);
 	}
 	else
 	{

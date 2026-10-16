@@ -115,6 +115,13 @@
 			<item value="dot" label="Dot"/>
 		</source>
 
+		<!-- Added in Omaha: 0 legacy, 1 power, 2 curve. -->
+		<source id="mouse-accel-style" default="2">
+			<item value="0" label="Legacy"/>
+			<item value="1" label="Power"/>
+			<item value="2" label="Curve"/>
+		</source>
+
 		<!-- Added in Omaha: zoom mouse scale mode (modern UI). -->
 		<source id="zoom-sensitivity-mode" default="screen">
 			<item value="off" label="Off"/>

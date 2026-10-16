@@ -120,6 +120,7 @@ Containers with a non-empty `role` call the backend `drawHostRegion` hook (`uid_
 |--------|-------|---------|
 | `crosshair-preview` | settings (`controls.xml`) | WYSIWYG crosshair plate |
 | `sniper-preview` | settings (`controls.xml`) | Sniper open-reticle plate |
+| `mouseaccel-preview` | settings (`main.xml`) | Mouse acceleration curve (`CL_MouseAccelSensitivity`) |
 | `server-list` | legacy `<server-list>` only | Imperative browser paint (unused in shipped composable browser) |
 
 Built-in HUD packs:

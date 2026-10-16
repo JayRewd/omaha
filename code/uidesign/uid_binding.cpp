@@ -525,6 +525,11 @@ std::string TransformCvarToUi(
 		}
 		return (v < 0.0) ? "1" : "0";
 	}
+	/* Added in Omaha: any nonzero cl_mouseAccel reads as on. */
+	if (node.valueType == "accel-toggle") {
+		const double v = std::strtod(cvarValue.c_str(), nullptr);
+		return (v != 0.0) ? "1" : "0";
+	}
 	/*
 	 * Added in Omaha: pitch slider edits |m_pitch| while invert-mouse owns the sign.
 	 */
@@ -633,6 +638,19 @@ bool TransformUiToCvar(
 		}
 		char buf[64];
 		std::snprintf(buf, sizeof(buf), "%.6g", on ? -mag : mag);
+		*outPrimary = buf;
+		return true;
+	}
+	/* Added in Omaha: On restores the last nonzero cl_mouseAccel; Off writes 0. */
+	if (node.valueType == "accel-toggle") {
+		const bool on = (uiValue == "1" || uiValue == "true" || uiValue == "on");
+		if (!on) {
+			*outPrimary = "0";
+			return true;
+		}
+		const double last = ReadCvarNumber(backend, "ui_om_mouseaccel_last", 0.0);
+		char buf[64];
+		std::snprintf(buf, sizeof(buf), "%.6g", (last != 0.0) ? last : 0.1);
 		*outPrimary = buf;
 		return true;
 	}
