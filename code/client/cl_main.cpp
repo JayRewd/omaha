@@ -2862,7 +2862,7 @@ void CL_Frame ( int msec ) {
 		// save the current screen
 		if ( clc.state == CA_ACTIVE || cl_forceavidemo->integer) {
 			/* Added in Omaha: fractional accumulator keeps video/audio/game time locked
-			 * (ceil(1000/60)=17 drifts ~2% ahead of exact OpenAL sample counts). */
+			 * (ceil(1000/60)=17 drifts ~2% ahead of exact sample counts). */
 			static float s_aviFrameTimeAccum;
 
 			CL_TakeVideoFrame( );

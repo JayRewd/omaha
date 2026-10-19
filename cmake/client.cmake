@@ -63,7 +63,6 @@ set(CLIENT_SOURCES
     ${SOURCE_DIR}/client/cl_uistd.cpp
     ${SOURCE_DIR}/client/cl_uiview3d.cpp
     ${SOURCE_DIR}/client/libmumblelink.c
-    ${SOURCE_DIR}/client/qal.c
     ${SOURCE_DIR}/client/snd_codec_mp3.c
     ${SOURCE_DIR}/client/snd_codec_ogg.c
     ${SOURCE_DIR}/client/snd_codec_opus.c
@@ -74,10 +73,7 @@ set(CLIENT_SOURCES
     ${SOURCE_DIR}/client/snd_mem_new.cpp
     ${SOURCE_DIR}/client/snd_miles_new.cpp
     ${SOURCE_DIR}/client/snd_host.cpp
-    ${SOURCE_DIR}/client/snd_host_openal.cpp
-)
-if(USE_OMAHA_SOUND)
-    list(APPEND CLIENT_SOURCES
+    ${SOURCE_DIR}/client/omaha/snd_adpcm_omaha.c
         ${SOURCE_DIR}/client/omaha/snd_category.c
         ${SOURCE_DIR}/client/omaha/snd_hrtf_omaha.cpp
         ${SOURCE_DIR}/client/omaha/snd_omaha.cpp
@@ -85,8 +81,7 @@ if(USE_OMAHA_SOUND)
         ${SOURCE_DIR}/client/omaha/snd_render_omaha.cpp
         ${SOURCE_DIR}/client/omaha/snd_render_select.cpp
         ${SOURCE_DIR}/client/omaha/snd_stream_async.cpp
-    )
-endif()
+)
 list(APPEND CLIENT_SOURCES
     ${SOURCE_DIR}/client/usignal.cpp
     ${SOURCE_DIR}/sdl/sdl_input.c

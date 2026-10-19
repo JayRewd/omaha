@@ -37,7 +37,7 @@ source tree, or write to the Free Software Foundation, Inc.,
  *    below ~2 kHz, magnitude match above with Hold average phase continuation) plus
  *    diffuse-field EQ. Bus runs ~64 samples behind.
  *
- * Directions are unit vectors in OpenAL listener space (x right, y up, -z front).
+ * Directions are unit vectors in Omaha listener space (x front, y left, z up).
  * Every process call takes a sample count that is a multiple of OM_HRTF_BLOCK; the
  * mixer renders whole blocks in HRTF mode so filtering adds no latency.
  * Nothing here locks: the mixer calls in with s_mixMutex held.

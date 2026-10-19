@@ -798,12 +798,6 @@ void     CL_VideoEnc_PushVideo( const byte *bgr, int size );
 void     CL_VideoEnc_PushAudio( const byte *pcm, int size );
 qboolean CL_VideoEnc_Close( void );
 
-qboolean S_OPENAL_BeginAviLoopback( void );
-void S_OPENAL_EndAviLoopback( void );
-void S_OPENAL_AviCaptureFrame( int aviFps );
-qboolean S_OPENAL_AviLoopbackActive( void );
-int S_OPENAL_AviSampleRate( void );
-
 /* Added in Omaha: capture through the active sound host (snd_host.cpp). */
 qboolean S_Capture_Begin( void );
 void     S_Capture_End( void );

@@ -35,7 +35,6 @@ jobs:
     name: "Building for platform macos-${{matrix.architecture.name}}"
     runs-on: "macos-15"
     env:
-        openal-soft-branch: '1.24.3'
         wolfssl-version: 'v5.7.6-stable'
         curl-version: '8_12_1'
         sdl2-branch: 'release-2.32.8'
@@ -87,39 +86,6 @@ jobs:
         cmake -B ./build \
         -DCMAKE_INSTALL_PREFIX='${{github.workspace}}/thirdparties/SDL2/install' \
         -DCMAKE_OSX_ARCHITECTURES='${{ matrix.architecture.build_name }}'
-        cmake --build ./build --config Release --parallel
-        cmake --install ./build --config Release
-
-    ###
-    # OpenAL
-    ###
-    - name: Cache OpenAL
-      id: cache-openal-soft
-      uses: actions/cache@v4
-      with:
-        path: 'thirdparties/soft-oal/install'
-        key: ${{ runner.os }}-${{ matrix.architecture.name }}-openal-soft-${{ env.openal-soft-branch }}-v1
-
-    # soft-oal setup
-    # Use GCC instead of Clang because of missing SSE intrinsics
-    # It also doesn't enable altivec support on PowerPC by default
-    - name: Checkout soft-oal
-      if: steps.cache-openal-soft.outputs.cache-hit != 'true'
-      uses: actions/checkout@v4
-      with:
-        repository: 'kcat/openal-soft'
-        path: 'thirdparties/soft-oal'
-        ref: '${{ env.openal-soft-branch }}'
-
-    # soft-oal build
-    - name: Configure and install soft-oal
-      if: steps.cache-openal-soft.outputs.cache-hit != 'true'
-      working-directory: ${{github.workspace}}/thirdparties/soft-oal
-      run: |
-        cmake -B ./build \
-        -DCMAKE_INSTALL_PREFIX='${{github.workspace}}/thirdparties/soft-oal/install' \
-        -DCMAKE_OSX_ARCHITECTURES='${{ matrix.architecture.build_name }}' \
-        -DCMAKE_VERBOSE_MAKEFILE=on
         cmake --build ./build --config Release --parallel
         cmake --install ./build --config Release
 
@@ -233,8 +199,6 @@ jobs:
         -DCMAKE_OSX_ARCHITECTURES='${{ matrix.architecture.build_name }}' \
         -DUSE_INTERNAL_SDL=OFF \
         -DSDL2_DIR='${{github.workspace}}/thirdparties/SDL2/install/lib/cmake/SDL2' \
-        -DOPENAL_LIBRARY='${{github.workspace}}/thirdparties/soft-oal/install' \
-        -DOPENAL_INCLUDE_DIR='${{github.workspace}}/thirdparties/soft-oal/install/include/AL' \
         -DCURL_ROOT='${{github.workspace}}/thirdparties/curl/install' \
         -DUSE_RENDERER_DLOPEN=OFF \
         -DBUILD_RENDERER_GL2=OFF \
@@ -264,7 +228,6 @@ jobs:
         # Create hard-link and copy symbolic links
         mkdir ${{github.workspace}}/package
         cp -l ${{github.workspace}}/thirdparties/SDL2/install/lib/libSDL2-2.0.0.dylib '${{github.workspace}}/package/'
-        cp -l ${{github.workspace}}/thirdparties/soft-oal/install/lib/libopenal.1.dylib '${{github.workspace}}/package/'
         cp -l ${{github.workspace}}/thirdparties/curl/install/lib*/libcurl.4.dylib '${{github.workspace}}/package/'
         if [ -d ${{github.workspace}}/install/bin ]; then cp -r ${{github.workspace}}/install/bin/openmohaa/. '${{github.workspace}}/package'; fi
         if [ -d ${{github.workspace}}/install/lib ]; then cp -r ${{github.workspace}}/install/lib/openmohaa/. '${{github.workspace}}/package'; fi

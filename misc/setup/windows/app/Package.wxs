@@ -46,9 +46,6 @@
                     <Component Id="SDL2.dll">
                         <File Source="files/SDL2.dll" />
                     </Component>
-                    <Component Id="OpenAL$(var.Bitness).dll">
-                        <File Source="files/OpenAL$(var.Bitness).dll" />
-                    </Component>
                     <Component Id="libcurl.dll">
                         <File Source="files/libcurl.dll" />
                     </Component>
@@ -109,7 +106,6 @@
 
         <ComponentGroup Id="ThirdParty">
             <ComponentRef Id="SDL2.dll" />
-            <ComponentRef Id="OpenAL$(var.Bitness).dll" />
             <ComponentRef Id="libcurl.dll" />
         </ComponentGroup>
 

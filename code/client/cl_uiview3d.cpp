@@ -30,10 +30,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include "../server/server.h"
 
-#ifdef USE_OMAHA_SOUND
-// Added in Omaha: Omaha sound host debug overlays (omaha/snd_omaha_overlay.cpp)
+// Added in Omaha: mixer debug overlays (omaha/snd_omaha_overlay.cpp)
 void S_OMAHA_DrawOverlays(void);
-#endif
 
 CLASS_DECLARATION(UIWidget, View3D, NULL) {
     {&W_Activated,     &View3D::OnActivate  },
@@ -464,7 +462,7 @@ void View3D::DrawSoundOverlay(void)
 
     // FIXME: Unimplemented
     if (sound_overlay->integer) {
-        Com_Printf("sound_overlay isn't supported with OpenAL/SDL right now.\n");
+        Com_Printf("sound_overlay isn't supported right now.\n");
         Cvar_Set("sound_overlay", "0");
     }
 }
@@ -753,9 +751,7 @@ void View3D::Draw2D(void)
 			}
 		}
 
-#ifdef USE_OMAHA_SOUND
 		S_OMAHA_DrawOverlays();
-#endif
 
 		if ((fps->integer || CL_UIPerf_HudInteger()) && !cls.no_menus) {
 			if (fps->integer) {
@@ -789,9 +785,7 @@ void View3D::Draw2D(void)
 		}
 	}
 
-#ifdef USE_OMAHA_SOUND
 	S_OMAHA_DrawOverlays();
-#endif
 
 	if ((fps->integer || CL_UIPerf_HudInteger()) && !cls.no_menus) {
 		if (fps->integer) {

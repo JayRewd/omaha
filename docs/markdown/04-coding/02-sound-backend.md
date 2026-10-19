@@ -2,23 +2,12 @@
 
 ## Overview
 
-The client has two sound hosts. A host owns MOH channel policy, music, streams,
-cinematic audio and the output device; the core (`snd_dma_new.cpp`, sound info,
-aliases, cgame/client `S_StartSound` API) is stock and host-neutral.
+The client has one sound host. It owns MOH channel policy, music, streams,
+cinematic audio and the output device. The core (`snd_dma_new.cpp`, sound info,
+aliases, cgame/client `S_StartSound` API) is unchanged.
 
-```
-s_backend omaha   # default — Omaha host: miniaudio mixer, no voice cap, mix policy, HRTF, limiter
-s_backend openal  # stock OpenAL host (snd_openal_new.cpp, byte-identical to OpenMoHAA)
-```
-
-`s_backend` is `CVAR_SOUND_LATCH` — change it and `snd_restart` (or restart the
-client). If the Omaha host cannot start (no device, surround speaker type), the
-core runs the stock OpenAL host for that session; `s_backend` is not rewritten.
-`s_backend` only exists in builds with `USE_OMAHA_SOUND`.
-
-**The stock host is untouched:** fixed voice pools with steal, per-SFX
-`max_number_playing`, no category gains, no overlap/pocket ducking, no
-obstruction, no growable overflow. Everything Omaha-specific lives in
+If no playback device opens, the mixer keeps running on a null device so the
+game and demo capture still advance. Everything sound-specific lives in
 `code/client/omaha/`.
 
 ## Architecture
@@ -26,58 +15,24 @@ obstruction, no growable overflow. Everything Omaha-specific lives in
 | File | Role |
 |------|------|
 | `code/client/snd_host.h` | `sndHost_t`: the 13 `S_Driver_*` entry points, the 18 public sound API functions the core and client call outside them (music, triggered music, cinematic audio, savegame, info), and 5 capture entry points |
-| `code/client/snd_host.cpp` | `s_backend`, `S_Host_Init` (host selection + fallback), forwarding definitions of the 18 public functions and `S_Capture_*` |
-| `code/client/snd_host_openal.cpp` | Compiles stock `snd_openal_new.cpp` unmodified with the 18 public names renamed for that translation unit, then defines `s_sndHostOpenAL` |
+| `code/client/snd_host.cpp` | Forwards the public sound API and capture to the Omaha host |
 | `code/client/snd_local_new.h` | `S_Driver_*` macros point at `s_sndHost` (the only stock-header change) |
 | `code/client/omaha/snd_omaha.cpp` | Omaha host (`S_OMAHA_*`, `s_sndHostOmaha`): channel policy, music, streams, categories, obstruction traces, spatial routing |
-| `code/client/omaha/snd_renderer.h` | AL-shaped voice renderer table (`sndRenderer_t`) used by the Omaha host |
-| `code/client/omaha/snd_render_omaha.cpp` | Mixer: unlimited voices, Soft-ported stereo math, EQ / HF duck / limiter, `ma_device` I/O |
+| `code/client/omaha/snd_renderer.h` | Voice API (`omSoundId_t`, `omVoiceParams_t`) |
+| `code/client/omaha/snd_render_omaha.cpp` | Mixer: Hermite resample, speaker pan or HRTF, EQ / HF duck / limiter, `ma_device` I/O |
+| `code/client/omaha/snd_adpcm_omaha.c` | PCM and ADPCM decode |
 | `code/client/omaha/snd_hrtf_omaha.cpp` | Headphone HRTF (libmysofa + PFFFT) |
 | `code/client/omaha/snd_render_select.cpp` | Renderer lifetime and `S_OMAHA_Capture*` (demo export) |
 | `code/client/omaha/snd_stream_async.cpp` | Background music / stream decode |
 | `code/client/omaha/snd_category.c` | Mix category classifier (alias + path rules) |
 | `code/client/omaha/snd_omaha_overlay.cpp` | `s_hf_duck_meter` HUD overlay, hooked once from `cl_uiview3d.cpp` |
 
-CMake: `USE_OMAHA_SOUND` (default `ON`, defined in `cmake/libraries/all.cmake`)
-builds `omaha/` and the miniaudio / libmysofa / PFFFT libraries. With it `OFF`
-the client links only the stock OpenAL host through the same seam.
-
-## Porting the Omaha host to another OpenMoHAA fork
-
-The host has no OpenAL dependency and does not change the cgame/client sound
-API, the network protocol or server code.
-
-1. Copy `code/client/omaha/` and `code/client/snd_host.{h,cpp}`,
-   `code/client/snd_host_openal.cpp`.
-2. In `code/client/snd_local_new.h`, replace the `SOUND_DRIVER` /
-   `S_Call_SndDriver` block with `#include "snd_host.h"` and the
-   `S_Driver_* → s_sndHost->*` macros (`S_Driver_Init` → `S_Host_Init`).
-3. In the client source list, replace `snd_openal_new.cpp` with `snd_host.cpp`
-   and `snd_host_openal.cpp`; add the `omaha/` sources, the three libraries and
-   the `USE_OMAHA_SOUND` definition (copy the blocks from `cmake/client.cmake`
-   and `cmake/libraries/all.cmake`, plus `cmake/libraries/{miniaudio,mysofa,pffft}.cmake`
-   and `code/thirdparty/{miniaudio,libmysofa,pffft}`).
-4. Capture: the stock table in `snd_host_openal.cpp` points its capture
-   entries at the AVI loopback functions Project: Omaha added to
-   `snd_openal_new.cpp`. Upstream OpenMoHAA has none; point those five entries
-   at no-op stubs (return `qfalse` / `0`). If the fork records AVI audio,
-   declare `S_Capture_{Begin,End,Frame,Active,SampleRate}` in `client.h` and
-   call them from the recorder (here: `cl_avi.cpp`, `cl_main.cpp`).
-5. Stream worker support (shared code, no effect on the stock host): the
-   `fs_shutdownHook` pointer in `code/qcommon/files.cpp` / `qcommon.h` (lets the
-   async decoder stop before the filesystem closes) and the `malloc`/`free`
-   PCM buffer in `code/client/snd_codec_mp3.c` (the zone allocator is not
-   thread-safe).
-6. Optional: call `S_OMAHA_DrawOverlays()` from the 2D HUD pass (see
-   `cl_uiview3d.cpp`) for the HF duck meter.
-7. Ship `assets/main/sound/prom/hrtf/` for headphone HRTF.
+CMake always builds `code/client/omaha/` plus miniaudio, libmysofa and PFFFT.
 
 ## Capture / demo export
 
 `S_Capture_Begin` / `S_Capture_Frame` / `S_Capture_End` feed AVI/MP4 audio
-through the active host. The stock host uses its Soft loopback device; the
-Omaha host pulls float from the mixer (device stopped while capturing) and
-converts to s16 for the encoder.
+through the mixer. Capture stops the device and pulls float, then converts to s16 for the encoder.
 
 ## Voice limits
 
@@ -85,7 +40,7 @@ The Omaha host removes:
 
 - Fixed-pool voice steal
 - Per-SFX `max_number_playing` cull
-- Soft 256-source ceiling (omaha path mixes in software)
+- A fixed voice ceiling (the mixer has no source cap)
 
 Same entity + same `CHAN_*` still replaces (MOH semantics), within the same
 voice kind (3D, 2D, 2D stream), including overflow voices.
@@ -171,8 +126,7 @@ Constants are compile-time (`OM_POCKET_*`): on, power 0.7, min 0.35, fire R/tau
 
 `S_Capture_Begin` / `S_Capture_Frame` / `S_Capture_End` feed AVI/MP4 audio.
 Both renderers produce float; `S_Capture_Frame` is the single float → s16
-conversion for the video encoder. On omaha this is mixer pull mode (device
-stopped while capturing); on openal it is a Soft float loopback device.
+conversion for the video encoder. Capture stops the device and pulls from the mixer. Surround layouts are folded to stereo for the file.
 
 ## Tests
 
@@ -181,7 +135,7 @@ Voice-policy, routing and layout checks:
 
 ## Known limits
 
-- The device callback and a capture pull both mix, so `Om_Mix` holds `s_mixMutex` for that whole mix. Game-thread setters do not take it: they enqueue `omCmd_t` under `s_cmdMutex`, and the mixer drains the queue at the start of `Om_Mix`.
+- The device callback and a capture pull both mix, so `Om_Mix` holds `s_mixMutex` for that whole mix. Game-thread setters do not take it: they enqueue commands under `s_apiMutex`, and the mixer drains the queue at the start of `Om_Mix`.
 - Categories come from the global alias list (cgame resolves aliases to files
   before `S_StartSound`). A file shared by aliases of different categories is
   decided by its path; in retail scripts that affects under 0.3% of aliases,
@@ -192,18 +146,17 @@ Voice-policy, routing and layout checks:
 
 `loopstart` / `loopend` from sound info (and Miles `sample_loop_block`) are honored:
 
-- Omaha mixer: Soft-style wrap inside `[loopStart, loopEnd)` on static voices
-- Stock OpenAL host: `AL_LOOP_POINTS_SOFT` on the buffer
+- Static voices wrap inside `[loopStart, loopEnd)`
 - Streamed music: on each loop restart, decode skips to `loopBlockStart` samples
 
 ## Speaker layouts / HRTF
 
 | `s_speaker_type` | Behavior |
 |------------------|----------|
-| `0` Two Speakers | Omaha stereo (default) or stock Soft stereo. Omaha applies a fixed three-band peaking EQ (101 Hz +5 dB / 1 oct; 6 kHz −2.6 dB / 0.22 oct; 7 kHz −2.3 dB / 0.25 oct), then an optional dynamic 15.5 kHz cascaded high-shelf duck (`s_hf_duck`), on the master before the limiter. |
-| `1` Headphones | Omaha HRTF (below); stock Soft HRTF when `s_backend openal`. After binaural decode, Omaha applies a fixed EQ on top of SOFA DFC + MagLS DFEQ (100 Hz peaking +3 dB / 1.01 oct; 400 Hz peaking +1.5 dB / 2.3 oct; 4.5 kHz peaking −2 dB / 2 oct; 15 kHz high-shelf −4.5 dB / S=1), then `s_hf_duck` on the binaural master when `s_mix 1`. Short combat VO (`player_pain*` / `player_death*` / `manon_*` / `snd_pain`, or dialogue `/damage/`/`/death/` paths) is force-loaded for 3D/HRTF when `s_pain_hrtf 1` (default); load failure keeps retail streamed 2D. |
-| `2` Surround 5.1 | Stock OpenAL host 5.1 (the Omaha host declines surround) |
-| `3` Quad | Stock OpenAL host quad (the Omaha host declines surround) |
+| `0` Two Speakers | Stereo pairwise pan, rear cue, three-band peaking EQ, then `s_hf_duck`, then the limiter. |
+| `1` Headphones | HRTF. After binaural decode, a fixed EQ (100 Hz +3 dB, 400 Hz +1.5 dB, 4.5 kHz −2 dB, 15 kHz shelf −4.5 dB), then `s_hf_duck` when `s_mix 1`. |
+| `2` Surround 5.1 | Pairwise pan to L/R/C/side. LFE stays silent. |
+| `3` Quad | Pairwise pan to front and rear pairs. |
 
 Changing `s_speaker_type` latches and triggers `snd_restart`.
 
@@ -227,8 +180,7 @@ Two paths share the HRTF set:
   minimum-phase HRIR (pinna / ILD from the magnitude) plus a separate smoothed
   ITD delay, so crossfades do not comb. At load, the same onset-aligned +
   min-phase pipeline is baked onto a dense elev/az lattice (~1.5° equatorial
-  step, **full** FIR length, float delays — not Soft’s short-HRIR / 63-sample
-  caps). Runtime bilinear-lerps four neighbors’ partitioned spectra. A
+  step, full FIR length and float delays). Runtime bilinear-lerps four neighbors’ partitioned spectra. A
   bake-vs-live quality gate must pass before SOFA is closed; on failure (or
   `s_hrtf_live_query 1`) DIRECT keeps live SOFA queries. There is no dry pan
   mix. The filter is re-queried once the direction moves more than ~1° and
@@ -265,21 +217,19 @@ Third-party code and data (licences next to the sources):
 | PFFFT (`code/thirdparty/pffft`) | FFT and spectral multiply-accumulate | BSD-like (FFTPACK) |
 | SADIE II KU100 (`assets/main/sound/prom/hrtf`) | Default HRTF set, University of York | Apache-2.0 |
 
-Ambisonic coefficient conventions are ported from OpenAL Soft 1.24.3.
+Ambisonic coefficients are real spherical harmonics (ACN, orthonormal) in Omaha listener space (x front, y left, z up).
 
 ## Device cvars
 
 | Cvar | Meaning |
 |------|---------|
-| `s_backend` | `omaha` (Omaha host) or `openal` (stock OpenAL host) |
 | `s_khz` | Mix / device rate (11/22/44) |
-| `s_speaker_type` | `0` stereo. `1` headphones: Omaha HRTF. `2` 5.1, `3` quad → stock OpenAL host. |
+| `s_speaker_type` | `0` stereo, `1` headphones, `2` 5.1, `3` quad. |
 | `s_hrtf_file` | Omaha headphones: SOFA path in the game filesystem (default SADIE KU100 under `sound/prom/hrtf/`). Latched. |
 | `s_hrtf_live_query` | Developer: `1` forces DIRECT live SOFA queries (bake still runs for the gate log). Latched. Default `0`. |
 | `s_pain_hrtf` | Omaha only: `1` (default) force-loads short combat VO (pain/death) so they use the 3D/HRTF path instead of retail streamed 2D dialog. `0` keeps Miles-style streamed 2D. On force-load failure the cue stays streamed 2D. |
-| `s_device` | Omaha: output device name; set `developer 1` to list devices at startup |
-| `s_openaldevice` | Stock host device; Omaha uses it when `s_device` is empty |
-| `s_volume` | Master. Soft: on every source and squared on the listener gain (effective `s_volume³`). Omaha: voices carry no `s_volume` / fade; the same `s_volume³ × fade` is one stereo gain applied **after** the limiter, so raising volume never adds limiting. |
+| `s_device` | Output device name; set `developer 1` to list devices at startup |
+| `s_volume` | Master. Voices carry content gain only. `s_volume` and fade are one gain applied after the limiter, so raising volume never adds limiting. |
 | `s_limiter` | Omaha only: `1` (default) enables the master limiter after mix and before `s_volume` (−8.7 dB fixed pre-trim, −0.2 dBFS ceiling, window-peak brickwall, 1.5 ms lookahead, 2 ms hold, 20 ms release). `0` bypasses. |
 | `s_limiter_threshold` | Omaha only: gain-reduction depth in dB below the −0.2 dBFS ceiling (`0` … `−12`, default `−3.6`). Opposite makeup keeps peaks at the ceiling (deeper threshold raises the floor); live-tweaked each mix block. |
 | `s_hf_duck` | Omaha: `1` (default) enables a dynamic 15.5 kHz high-shelf duck on the stereo master (after speaker EQ when two-speaker; after HRTF decode when headphones). 8th-order HP sidechain, 0 ms attack / 300 ms release; audio path = 4× cascaded RBJ shelves with slope `S=1`, bypassed at ~0 dB cut. Requires `s_mix 1`. `0` off for A/B. |
@@ -300,7 +250,7 @@ lives at `artifacts/ui/modern/menus/obstruction_tune.xml`.
 
 Classification runs once per sample in the Omaha host: dialogue paths are
 voice; otherwise the global aliases that play the file (alias-primary), then
-wav path (`sound/weapons/fire|impact|zings|explo|foley/`, `vehicle/`, …), then `CHAN_*`. Alias/script/pk3 content volume is clamped to `[0, 127/84]` first (Miles full-knob sample-volume ceiling ≈ 1.51; Soft’s default `AL_MAX_GAIN` of 1.0 was stricter); then `volume *= OM_MIX_*` on StartSound (and loops from path), so category scales may still go above that. Uncontrolled (ambience, UI/notify, music, leftovers) always use gain `1`. See `code/client/omaha/snd_category.c`. `sound/prom/hitmarkers/` is uncontrolled.
+wav path (`sound/weapons/fire|impact|zings|explo|foley/`, `vehicle/`, …), then `CHAN_*`. Alias/script/pk3 content volume is clamped to `[0, 127/84]` first (Miles full-knob sample-volume ceiling ≈ 1.51); then `volume *= OM_MIX_*` on StartSound (and loops from path), so category scales may still go above that. Uncontrolled (ambience, UI/notify, music, leftovers) always use gain `1`. See `code/client/omaha/snd_category.c`. `sound/prom/hitmarkers/` is uncontrolled.
 
 ## Obstruction (omaha)
 
@@ -318,5 +268,3 @@ leave distance darkening on.
 Defaults: mix 0.5, dist range 3000, near/open **20000 Hz**, distance far
 **7000 Hz**, occlusion blocked **10000 Hz**.
 
-The stock OpenAL host (`s_backend openal` or `s_speaker_type` 2–3) has no
-obstruction and no category gains.

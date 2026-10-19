@@ -30,75 +30,67 @@ source tree, or write to the Free Software Foundation, Inc.,
 extern "C" {
 #endif
 
-/* Omaha voice renderer interface (AL-shaped; implemented by snd_render_omaha.cpp). */
+/*
+ * Omaha mixer voice API. One sound is immutable PCM. One voice is a playing
+ * instance. The game thread sends a whole omVoiceParams_t when something
+ * changed; it does not poke individual properties.
+ */
 
-typedef int sndVoiceId_t;
-typedef int sndBufferId_t;
+typedef int omSoundId_t;
+typedef int omVoiceId_t;
 
-#define SND_VOICE_NONE  (-1)
-#define SND_BUFFER_NONE (-1)
+#define OM_SOUND_NONE (-1)
+#define OM_VOICE_NONE (-1)
 
-typedef enum {
-	SND_STATE_INITIAL = 0,
-	SND_STATE_PLAYING = 1,
-	SND_STATE_PAUSED  = 2,
-	SND_STATE_STOPPED = 3
-} sndVoiceState_t;
+#define OM_VOICE_STOPPED 0
+#define OM_VOICE_PLAYING 1
+#define OM_VOICE_PAUSED  2
 
-typedef enum {
-	SND_PARAM_POSITION = 0,
-	SND_PARAM_VELOCITY,
-	SND_PARAM_SOURCE_RELATIVE,
-	SND_PARAM_LOOPING,
-	SND_PARAM_ROLLOFF_FACTOR,
-	SND_PARAM_GAIN,
-	SND_PARAM_MAX_GAIN,
-	SND_PARAM_REFERENCE_DISTANCE,
-	SND_PARAM_MAX_DISTANCE,
-	SND_PARAM_DISTANCE_MODEL,
-	SND_PARAM_PITCH,
-	SND_PARAM_DIRECT_CHANNELS,
-	SND_PARAM_RESAMPLER,
-	/* Added in Omaha: 0 = clear line of sight, 1 = fully blocked. */
-	SND_PARAM_OBSTRUCTION,
-	/* Added in Omaha: SND_ROUTE_* for omaha headphone HRTF (ignored otherwise). */
-	SND_PARAM_SPATIAL_ROUTE
-} sndParam_t;
+#define OM_FLAG_2D   1 /* no distance attenuation */
+#define OM_FLAG_LOOP 2
+#define OM_FLAG_FLAT 4 /* speakers get the channels directly; no position */
+#define OM_FLAG_PAN  8 /* cur.pan is the stereo image, -1 left .. +1 right */
 
-/* Spatial route: ambisonic bus, per-voice HRTF, or dry stereo (no HRTF). */
-#define SND_ROUTE_BUS    0
-#define SND_ROUTE_DIRECT 1
-#define SND_ROUTE_DRY    2
-
-/* Added in Omaha: bundled HRTF set for omaha headphones (s_hrtf_file default). */
-#define SND_HRTF_DEFAULT_FILE "sound/prom/hrtf/SADIE_KU100_DFC_256_order_fir_48000.sofa"
-
-/* Distance model values (match AL enums used by Omaha). */
-#define SND_DISTANCE_INVERSE_CLAMPED 0xD002
-#define SND_DISTANCE_LINEAR_CLAMPED  0xD004
-
-/* Direct-channels: 0 = spatialize, 1 = remix unmatched (CHAN_LOCAL). */
-#define SND_DIRECT_CHANNELS_OFF   0
-#define SND_DIRECT_CHANNELS_REMIX 1
+#define OM_ROUTE_BUS    0
+#define OM_ROUTE_DIRECT 1
+#define OM_ROUTE_DRY    2
 
 typedef enum {
-	SND_FMT_MONO8 = 1,
-	SND_FMT_MONO16,
-	SND_FMT_STEREO8,
-	SND_FMT_STEREO16,
-	SND_FMT_MONO_IMA4,
-	SND_FMT_MONO_MSADPCM,
-	SND_FMT_STEREO_IMA4
-} sndSampleFormat_t;
+	OM_FMT_MONO8 = 1,
+	OM_FMT_MONO16,
+	OM_FMT_STEREO8,
+	OM_FMT_STEREO16,
+	OM_FMT_MONO_F32,
+	OM_FMT_STEREO_F32,
+	OM_FMT_MONO_IMA4,
+	OM_FMT_STEREO_IMA4,
+	OM_FMT_MONO_MSADPCM,
+	OM_FMT_STEREO_MSADPCM
+} omSampleFormat_t;
+
+typedef struct omVoiceParams_s {
+	float pos[3];
+	float gain;
+	float pitch;
+	float minDist;
+	float maxDist;
+	float obstruction; /* 0 clear, 1 blocked */
+	float pan;         /* used when OM_FLAG_PAN */
+	int   flags;
+	int   route;
+	int   loopStart; /* source frames */
+	int   loopEnd;   /* < 0 means the end of the sound */
+} omVoiceParams_t;
 
 typedef struct {
 	int         sampleRate;
 	const char *deviceName;
-	int         speakerType; /* 0 stereo, 1 headphones (HRTF); surround is left to the OpenAL host */
+	int         speakerType; /* 0 stereo, 1 headphones, 2 5.1, 3 quad */
 	qboolean    wantCapture;
 } sndDeviceConfig_t;
 
-struct sfx_s;
+/* Bundled HRTF set for headphones. */
+#define SND_HRTF_DEFAULT_FILE "sound/prom/hrtf/SADIE_KU100_DFC_256_order_fir_48000.sofa"
 
 typedef struct sndRenderer_s {
 	const char *name;
@@ -106,39 +98,32 @@ typedef struct sndRenderer_s {
 	qboolean (*Init)(const sndDeviceConfig_t *cfg);
 	void (*Shutdown)(void);
 
-	sndBufferId_t (*CreateBufferFromSfx)(struct sfx_s *sfx);
-	void (*DestroyBuffer)(sndBufferId_t id);
-	/* blockAlign: ADPCM samples per block (AL_UNPACK_BLOCK_ALIGNMENT_SOFT); 0/1 for PCM. */
-	qboolean (*UploadBuffer)(
-		sndBufferId_t id, sndSampleFormat_t fmt, const void *data, int sizeBytes, int rate, int blockAlign
+	omSoundId_t (*CreateSound)(void);
+	void (*DestroySound)(omSoundId_t id);
+	/* blockAlign: ADPCM samples per block; 0 or 1 selects the usual 65. */
+	qboolean (*UploadSound)(
+		omSoundId_t id, omSampleFormat_t fmt, const void *data, int sizeBytes, int rate, int blockAlign
 	);
-	int (*BufferFrequency)(sndBufferId_t id);
+	int (*SoundRate)(omSoundId_t id);
 
-	sndVoiceId_t (*CreateVoice)(void);
-	void (*DestroyVoice)(sndVoiceId_t v);
-	void (*SetBuffer)(sndVoiceId_t v, sndBufferId_t b);
-	void (*ClearBuffer)(sndVoiceId_t v);
-	void (*SetParamf)(sndVoiceId_t v, sndParam_t p, float x);
-	void (*SetParam3f)(sndVoiceId_t v, sndParam_t p, float x, float y, float z);
-	void (*SetParami)(sndVoiceId_t v, sndParam_t p, int x);
-	float (*GetParamf)(sndVoiceId_t v, sndParam_t p);
-	void (*Play)(sndVoiceId_t v);
-	void (*Pause)(sndVoiceId_t v);
-	void (*Stop)(sndVoiceId_t v);
-	int (*GetState)(sndVoiceId_t v);
-	unsigned (*GetSampleOffset)(sndVoiceId_t v);
-	void (*SetSampleOffset)(sndVoiceId_t v, unsigned off);
-	/* Partial loop region in sample frames; endSample < 0 means buffer end. Added in Omaha. */
-	void (*SetLoopPoints)(sndVoiceId_t v, int startSample, int endSample);
+	omVoiceId_t (*PlayVoice)(omSoundId_t sound, const omVoiceParams_t *params, unsigned offset);
+	omVoiceId_t (*OpenStream)(const omVoiceParams_t *params);
+	void (*UpdateVoice)(omVoiceId_t id, const omVoiceParams_t *params);
+	void (*StopVoice)(omVoiceId_t id);
+	void (*PauseVoice)(omVoiceId_t id);
+	void (*ResumeVoice)(omVoiceId_t id);
+	void (*DestroyVoice)(omVoiceId_t id);
+	int (*VoiceState)(omVoiceId_t id);
+	unsigned (*VoiceOffset)(omVoiceId_t id);
+	void (*SetVoiceOffset)(omVoiceId_t id, unsigned offset);
 
-	void (*QueueStreamBuffer)(
-		sndVoiceId_t v, const void *pcm, int bytes, sndSampleFormat_t fmt, int rate, int blockAlign
-	);
-	int (*StreamBuffersQueued)(sndVoiceId_t v);
-	int (*StreamBuffersProcessed)(sndVoiceId_t v);
-	void (*UnqueueProcessed)(sndVoiceId_t v, int count);
+	void (*QueueStream)(omVoiceId_t id, const void *pcm, int bytes, omSampleFormat_t fmt, int rate, int blockAlign);
+	int (*StreamQueued)(omVoiceId_t id);
+	int (*StreamProcessed)(omVoiceId_t id);
+	void (*UnqueueStream)(omVoiceId_t id, int count);
 
-	void (*SetListener)(const float pos[3], const float vel[3], const float at[3], const float up[3]);
+	/* forward / left / up are world axes. There is no listener velocity. */
+	void (*SetListener)(const float pos[3], const float forward[3], const float left[3], const float up[3]);
 	void (*SetListenerGain)(float g);
 	void (*GetListenerPosition)(float out[3]);
 
@@ -155,17 +140,14 @@ extern const sndRenderer_t *g_sndRenderer;
 
 const sndRenderer_t *S_Renderer_Omaha(void);
 
-/* Init / shut down the Omaha mixer as g_sndRenderer. */
 qboolean S_Renderer_Init(const sndDeviceConfig_t *cfg);
 void     S_Renderer_Shutdown(void);
 
-/* HF duck HUD meter reads (gain <= 0, sidechain env dB, thresh). */
 float S_Omaha_HfDuckGainDb(void);
 float S_Omaha_HfDuckMaxCutDb(void);
 float S_Omaha_HfDuckSidechainDb(void);
 float S_Omaha_HfDuckThreshDb(void);
 
-/* Mixed PCM for AVI / MP4 export (sndHost_t capture entries). */
 qboolean S_OMAHA_CaptureBegin(void);
 void     S_OMAHA_CaptureEnd(void);
 void     S_OMAHA_CaptureFrame(int aviFps);

@@ -49,23 +49,11 @@
 			<item value="32" label="32-bit"/>
 		</source>
 
-		<!-- OpenAL Soft: full speaker layouts including surround. -->
 		<source id="speaker-setup" default="0">
 			<item value="0" label="Two Speakers"/>
 			<item value="1" label="Headphones"/>
 			<item value="2" label="Surround (5.1)"/>
 			<item value="3" label="Quad Speakers"/>
-		</source>
-
-		<!-- Omaha host: stereo + headphones HRTF only (no surround/quad). -->
-		<source id="speaker-setup-omaha" default="0">
-			<item value="0" label="Stereo"/>
-			<item value="1" label="HRTF"/>
-		</source>
-
-		<source id="audio-backend" default="omaha">
-			<item value="omaha" label="Omaha"/>
-			<item value="openal" label="OpenAL Soft"/>
 		</source>
 
 		<source id="sample-rate" default="44">

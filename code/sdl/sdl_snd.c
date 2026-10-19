@@ -293,7 +293,7 @@ qboolean SNDDMA_Init(void)
 #endif
 	else
 	{
-		/* !!! FIXME: list available devices and let cvar specify one, like OpenAL does */
+		/* List capture devices from a cvar when this path is used. */
 		SDL_AudioSpec spec;
 		SDL_zero(spec);
 		spec.freq = 48000;

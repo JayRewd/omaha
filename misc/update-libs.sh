@@ -72,10 +72,6 @@ prepare "https://curl.se/download/curl-${CURL_VERSION}.tar.gz" \
     "./configure --with-openssl" \
     "\.*/include/.*\.h"
 
-prepare "https://github.com/kcat/openal-soft/archive/refs/tags/${OPENAL_VERSION}.tar.gz" \
-    "" \
-    "\./include/AL/.*\.h"
-
 prepare "https://github.com/libsdl-org/SDL/releases/download/release-${SDL_VERSION}/SDL2-${SDL_VERSION}.tar.gz" \
     "" \
     "\./include/.*\.h"

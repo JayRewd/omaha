@@ -16,7 +16,7 @@ This document lists all differences in the engine between versions of the origin
 ## Summary
 
 - SDL2 backend
-- OpenAL sound support (better sound quality)
+- Omaha sound mixer (headphones, stereo, quad, 5.1)
 - Full 64-bit support
 - Cross-platform support
 - Multiuser support on OS (On Windows, user game data is stored in "%APPDATA%\openmohaa")
@@ -311,7 +311,7 @@ OpenMoHAA includes all known fixes and features from the latest version of Spear
 - 4K support
 - Customizable FOV
 - Improved mouse support on windowed mode
-- OpenAL and SDL are used
+- The Omaha mixer and SDL are used
 - Smoother animations
 
 #### Stufftext restriction

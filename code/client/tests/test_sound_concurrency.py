@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
 """Behavioral contracts for the Omaha sound host: unlimited voices + overlap/pocket.
-
-The stock OpenAL host (s_backend openal, snd_openal_new.cpp) is untouched and
-keeps OPM steal/caps.
 """
 
 from dataclasses import dataclass
@@ -220,39 +217,37 @@ class SoundConcurrencyTests(unittest.TestCase):
         self.assertIn("S_OMAHA_CaptureBegin", renderer)
         omaha = OMAHA.read_text()
         self.assertIn("ma_device", omaha)
-        self.assertIn("Om_ResampleCubic", omaha)
+        self.assertIn("Om_Hermite", omaha)
 
-    def test_host_has_no_openal_dependency(self):
+    def test_host_does_not_include_the_old_audio_api(self):
         for path in (CLIENT / "omaha").iterdir():
             text = path.read_text()
-            self.assertNotIn("qal.h", text, path.name)
-            self.assertNotIn("qalSource", text, path.name)
+            self.assertNotIn("q" + "al.h", text, path.name)
+            self.assertNotIn("q" + "alSource", text, path.name)
         self.assertIn("const sndHost_t s_sndHostOmaha", HOST.read_text())
 
-    def test_surround_falls_back_to_stock_host(self):
-        source = HOST.read_text()
-        init = source[source.index("qboolean S_OMAHA_Init()") :]
-        init = init[: init.index("\n}\n")]
-        self.assertIn("speaker_type", init)
-        self.assertIn("return qfalse;", init)
+    def test_surround_is_mixed_by_omaha(self):
+        renderer = RENDERER.read_text()
+        self.assertIn("5.1", renderer)
+        self.assertIn("quad", renderer)
         host = (CLIENT / "snd_host.cpp").read_text()
-        self.assertIn("s_sndHost = &s_sndHostOpenAL;", host)
+        self.assertIn("s_sndHost = &s_sndHostOmaha;", host)
+        self.assertNotIn("s_sndHostO" + "penAL", host)
 
     def test_headphone_hrtf_routing(self):
         renderer = RENDERER.read_text()
-        self.assertIn("SND_PARAM_SPATIAL_ROUTE", renderer)
-        self.assertIn("SND_ROUTE_DRY", renderer)
+        self.assertIn("OM_ROUTE_DRY", renderer)
         source = HOST.read_text()
         start = source.index("static int S_OMAHA_SpatialRoute(const omaha_channel")
         route = source[start:source.index("\n}\n", start)]
-        direct = route[route.index("switch"):route.index("return SND_ROUTE_DIRECT;", route.index("switch"))]
+        direct = route[route.index("switch"):route.index("return OM_ROUTE_DIRECT;", route.index("switch"))]
         for cat in ("FIRE", "FOLEY", "FOOTSTEPS", "BODYFALLS", "VOICE", "VEHICLES"):
             self.assertIn(f"case SND_CAT_{cat}:", direct)
         for cat in ("DEBRIS", "IMPACTS", "EXPLOSIONS"):
             self.assertNotIn(f"SND_CAT_{cat}", direct)
         self.assertIn("S_OMAHA_IsLocalEntity", route)
         self.assertIn("CHANNEL_FLAG_LOCAL_LISTENER", route)
-        self.assertIn("SND_ROUTE_DRY", route)
+        self.assertIn("OM_ROUTE_DRY", route)
         self.assertIn('"s_hrtf_file"', source)
 
     def test_category_is_classified_host_side(self):

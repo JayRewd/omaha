@@ -23,12 +23,8 @@ source tree, or write to the Free Software Foundation, Inc.,
 */
 
 // DESCRIPTION:
-// Sound host table. A host owns MOH channel policy, music, streams and the
-// output device. The stock OpenAL host (snd_openal_new.cpp, unchanged) is
-// always built; the Omaha host (omaha/) is optional (USE_OMAHA_SOUND).
-// s_backend picks one at S_Init; everything else in the client is host-neutral.
-//
-// Included from snd_local_new.h (needs soundsystemsavegame_t).
+// The Omaha sound host table. One host owns channel policy, music, streams
+// and the output device.
 
 #pragma once
 
@@ -101,11 +97,9 @@ typedef struct sndHost_s {
     int (*CaptureSampleRate)(void);
 } sndHost_t;
 
-extern const sndHost_t  s_sndHostOpenAL;
 extern const sndHost_t  s_sndHostOmaha;
 extern const sndHost_t *s_sndHost;
 
-// Picks the host from s_backend and initializes it (omaha falls back to OpenAL).
 qboolean S_Host_Init(void);
 
 #ifdef __cplusplus

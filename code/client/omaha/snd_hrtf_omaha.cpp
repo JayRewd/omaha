@@ -5,10 +5,6 @@ Copyright (C) 2026 Project: Omaha
 This file is part of Project: Omaha source code.
 
 Project: Omaha builds upon OpenMoHAA / ioquake3 / F.A.K.K. foundations.
-The ambisonic coefficients are ported from OpenAL Soft 1.24.3 (core/ambidefs.h):
-  Copyright (C) 2011-2024 Chris Robinson and OpenAL Soft contributors.
-OpenAL Soft is LGPL-2.0-or-later; this port is distributed under GPL-2+.
-
 Project: Omaha source code is free software; you can redistribute it
 and/or modify it under the terms of the GNU General Public License as
 published by the Free Software Foundation; either version 2 of the License,
@@ -77,8 +73,7 @@ source tree, or write to the Free Software Foundation, Inc.,
 #define OM_ONSET_THRESH       0.05f
 #define OM_SOFA_EPS           1.0e-5f
 /*
- * Added in Omaha: dense DIRECT bake (Soft-style lattice, Omaha-quality content).
- * Full min-phase IR + float ITD — not Soft's short HRIR / 63-sample delay caps.
+ * Added in Omaha: dense DIRECT bake on a direction lattice.
  */
 #define OM_BAKE_STEP_DEG       1.5f
 #define OM_BAKE_GATE_DIRS      64
@@ -221,33 +216,38 @@ void OmHrtf_FreeScratch(float *work, float *acc, float *accB, float *time)
 	Hrtf_Free(&time);
 }
 
-/* core/ambidefs.h CalcAmbiCoeffs, ambisonic axes X front, Y left, Z up. */
+/* Real spherical harmonics, ACN order, N3D (orthonormal). x front, y left, z up. */
 static void Hrtf_AmbiCoeffsXYZ(float x, float y, float z, float c[OM_AMBI_CHANNELS])
 {
 	const float xx = x * x, yy = y * y, zz = z * z, xy = x * y, yz = y * z, xz = x * z;
+	const float s3  = sqrtf(3.f);
+	const float s5  = sqrtf(5.f);
+	const float s15 = sqrtf(15.f);
+	const float s35_8 = sqrtf(35.f / 8.f);
+	const float s105  = sqrtf(105.f);
+	const float s21_8 = sqrtf(21.f / 8.f);
 
 	c[0]  = 1.0f;
-	c[1]  = 1.732050808f * y;
-	c[2]  = 1.732050808f * z;
-	c[3]  = 1.732050808f * x;
-	c[4]  = 3.872983346f * xy;
-	c[5]  = 3.872983346f * yz;
-	c[6]  = 1.118033989f * (3.0f * zz - 1.0f);
-	c[7]  = 3.872983346f * xz;
-	c[8]  = 1.936491673f * (xx - yy);
-	c[9]  = 2.091650066f * (y * (3.0f * xx - yy));
-	c[10] = 10.24695076f * (z * xy);
-	c[11] = 1.620185175f * (y * (5.0f * zz - 1.0f));
-	c[12] = 1.322875656f * (z * (5.0f * zz - 3.0f));
-	c[13] = 1.620185175f * (x * (5.0f * zz - 1.0f));
-	c[14] = 5.123475383f * (z * (xx - yy));
-	c[15] = 2.091650066f * (x * (xx - 3.0f * yy));
+	c[1]  = s3 * y;
+	c[2]  = s3 * z;
+	c[3]  = s3 * x;
+	c[4]  = s15 * xy;
+	c[5]  = s15 * yz;
+	c[6]  = 0.5f * s5 * (3.0f * zz - 1.0f);
+	c[7]  = s15 * xz;
+	c[8]  = 0.5f * s15 * (xx - yy);
+	c[9]  = s35_8 * (y * (3.0f * xx - yy));
+	c[10] = s105 * (z * xy);
+	c[11] = s21_8 * (y * (5.0f * zz - 1.0f));
+	c[12] = 0.5f * sqrtf(7.f) * (z * (5.0f * zz - 3.0f));
+	c[13] = s21_8 * (x * (5.0f * zz - 1.0f));
+	c[14] = 0.5f * s105 * (z * (xx - yy));
+	c[15] = s35_8 * (x * (xx - 3.0f * yy));
 }
 
 void OmHrtf_AmbiCoeffs(const float dir[3], float coeffs[OM_AMBI_CHANNELS])
 {
-	/* core/mixer.h CalcDirectionCoeffs: X = -z, Y = -x, Z = y. */
-	Hrtf_AmbiCoeffsXYZ(-dir[2], -dir[0], dir[1], coeffs);
+	Hrtf_AmbiCoeffsXYZ(dir[0], dir[1], dir[2], coeffs);
 }
 
 /* Lebedev degree-11 grid (exact for SH products through order 5); weights sum to 1. */
@@ -705,8 +705,7 @@ static void Hrtf_BakeElevAzToXYZ(float elev, float az, float *x, float *y, float
 
 static void Hrtf_BakeDirToElevAz(const float dir[3], float *elev, float *az)
 {
-	/* Same OpenAL→SOFA basis as Hrtf_BuildVoiceFilter. */
-	const float x = -dir[2], y = -dir[0], z = dir[1];
+	const float x = dir[0], y = dir[1], z = dir[2];
 	const float r = sqrtf(x * x + y * y);
 
 	*elev = atan2f(z, r > 1.0e-12f ? r : 1.0e-12f);
@@ -951,10 +950,10 @@ static qboolean Hrtf_BakeQualityGate(void)
 		z    = 2.0f * u1 - 1.0f;
 		r    = sqrtf(fmaxf(0.0f, 1.0f - z * z));
 		dir[0] = r * cosf(2.0f * (float)M_PI * u2);
-		dir[1] = z;
-		dir[2] = r * sinf(2.0f * (float)M_PI * u2);
+		dir[1] = r * sinf(2.0f * (float)M_PI * u2);
+		dir[2] = z;
 
-		Hrtf_QueryIr(-dir[2], -dir[0], dir[1], s_hrtf.shifted, s_hrtf.shifted + total, delaysLive);
+		Hrtf_QueryIr(dir[0], dir[1], dir[2], s_hrtf.shifted, s_hrtf.shifted + total, delaysLive);
 		Hrtf_Partition(s_hrtf.shifted, s_hrtf.parts, liveSlot);
 		Hrtf_Partition(s_hrtf.shifted + total, s_hrtf.parts, liveSlot + earStr);
 		Hrtf_LookupBaked(dir, bakeSlot, delaysBake);
@@ -1009,7 +1008,7 @@ static void Hrtf_BuildVoiceFilter(const float dir[3], float *slot, float delays[
 		Hrtf_LookupBaked(dir, slot, delays);
 		return;
 	}
-	Hrtf_QueryIr(-dir[2], -dir[0], dir[1], s_hrtf.shifted, s_hrtf.shifted + total, delays);
+	Hrtf_QueryIr(dir[0], dir[1], dir[2], s_hrtf.shifted, s_hrtf.shifted + total, delays);
 	Hrtf_Partition(s_hrtf.shifted, s_hrtf.parts, slot);
 	Hrtf_Partition(s_hrtf.shifted + total, s_hrtf.parts, slot + s_hrtf.parts * OM_HRTF_FFT);
 }

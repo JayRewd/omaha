@@ -21,8 +21,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
 
 /*
- * Changed in Omaha: forked from snd_openal_new.h as the Omaha sound-host state.
- * Only snd_omaha.cpp includes this; the core reaches the host via snd_host.h.
+ * Changed in Omaha: forked from the previous sound-host header. Only snd_omaha.cpp includes this.
  */
 
 #pragma once
@@ -103,10 +102,10 @@ struct omaha_channel {
 
     byte *bufferdata;
 
-    /* Added in Omaha: renderer voice / buffer ids. */
-    sndVoiceId_t  voiceId;
-    sndBufferId_t bufferId;
-    int           voiceKind; /* 0=3D, 1=2D, 2=2DStream */
+    /* Added in Omaha: renderer voice / sound ids. */
+    omVoiceId_t voiceId;
+    omSoundId_t bufferId;
+    int         voiceKind; /* 0=3D, 1=2D, 2=2DStream */
 
     /* Added in Omaha: Miles-style loop block (sample frames; end < 0 = EOF). */
     int loopBlockStart;
@@ -119,16 +118,13 @@ struct omaha_channel {
     /* Added in Omaha: resolved sndCategory_t of the last 3D start (overlap ducking). */
     int iCategory;
 
-    /* Added in Omaha: last SND_PARAM_SPATIAL_ROUTE sent to the renderer (-1 = never). */
+    /* Added in Omaha: last route sent (bus / direct / dry). */
     int iSpatialRoute;
 
-    /* Added in Omaha: last values actually sent, so an unchanged frame skips the renderer. */
-    float    fSentPos[3];
-    float    fSentVel[3];
-    float    fSentGain;
-    qboolean bSentPos;
-    qboolean bSentVel;
-    qboolean bSentGain;
+    /* Added in Omaha: params last handed to the mixer, so an unchanged frame skips it. */
+    omVoiceParams_t cur;
+    omVoiceParams_t sent;
+    qboolean        sentOk;
 
     /* Added in Omaha: last obstruction trace endpoints (bitwise) and time. */
     vec3_t vTraceListener;
@@ -146,6 +142,7 @@ public:
     void  set_no_virtualization();
     void  set_virtualization();
 
+    void flush_params();
     void set_gain(float gain);
     void set_velocity(float v0, float v1, float v2);
     void set_position(float v0, float v1, float v2);

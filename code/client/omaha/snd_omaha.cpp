@@ -21,11 +21,10 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
 
 /*
- * Changed in Omaha: forked from snd_openal_new.cpp as the Project: Omaha sound
+ * Changed in Omaha: forked from the previous sound host as the Project: Omaha sound
  * host (MOH channel policy, music, streams, mix buses, overlap/pocket ducking,
  * growable voices). Voice I/O goes through the miniaudio mixer in
- * snd_render_omaha.cpp; there is no OpenAL dependency. The core selects this
- * host through s_sndHostOmaha (snd_host.h); the stock OpenAL host stays as is.
+ * snd_render_omaha.cpp. The core selects this host through s_sndHostOmaha.
  */
 
 #include "../snd_local.h"
@@ -141,12 +140,10 @@ static constexpr float s_fVolumeGain = 1.f; // = 84.f;
 static constexpr float OM_CONTENT_VOLUME_MAX = 127.f / 84.f;
 
 static cvar_t *s_milesdriver;
-static cvar_t *s_openaldevice;
-static cvar_t *s_reverb;
 static cvar_t *s_show_cpu;
 static cvar_t *s_show_num_active_sounds;
+cvar_t *s_show_sounds;
 static cvar_t *s_speaker_type;
-// Added in Omaha: backend-neutral device name; s_openaldevice remains an alias
 static cvar_t *s_snddevice;
 
 static const char *S_OMAHA_DeviceName(void)
@@ -154,12 +151,11 @@ static const char *S_OMAHA_DeviceName(void)
     if (s_snddevice && s_snddevice->string[0]) {
         return s_snddevice->string;
     }
-    return s_openaldevice ? s_openaldevice->string : "";
+    return "";
 }
 
 static vec3_t       vec_zero          = {0, 0, 0};
-static bool         al_initialized    = false;
-static bool         al_use_reverb     = false;
+static bool         s_soundReady      = false;
 static float        al_current_volume = 0;
 static unsigned int al_frequency      = 22050;
 
@@ -194,7 +190,7 @@ static void S_OMAHA_UpdateObstruction(
     omaha_channel *pChannel, const vec3_t vListener, const vec3_t vOrigin, bool bWorld, bool bForce
 );
 static int               S_OMAHA_SpatialRoute(const omaha_channel *pChannel, bool bWorld);
-static sndSampleFormat_t S_SndFmtFromWidthChannels(float width, int channels);
+static omSampleFormat_t S_SndFmtFromWidthChannels(float width, int channels);
 
 /*
 ==============
@@ -207,9 +203,9 @@ static void S_OMAHA_NukeChannel(omaha_channel *channel)
         return;
     }
 
-    if (g_sndRenderer && channel->voiceId != SND_VOICE_NONE) {
+    if (g_sndRenderer && channel->voiceId != OM_VOICE_NONE) {
         g_sndRenderer->DestroyVoice(channel->voiceId);
-        channel->voiceId = SND_VOICE_NONE;
+        channel->voiceId = OM_VOICE_NONE;
     }
 
     if (channel->bufferdata) {
@@ -293,8 +289,8 @@ static bool S_OMAHA_InitChannel(int idx, omaha_channel *chan)
     chan->fade_time       = 0;
     chan->fade_start_time = 0;
     chan->song_number     = 0;
-    chan->voiceId         = SND_VOICE_NONE;
-    chan->bufferId        = SND_BUFFER_NONE;
+    chan->voiceId         = OM_VOICE_NONE;
+    chan->bufferId        = OM_SOUND_NONE;
     chan->voiceKind       = 0;
     chan->loopBlockStart  = 0;
     chan->loopBlockEnd    = -1;
@@ -302,17 +298,15 @@ static bool S_OMAHA_InitChannel(int idx, omaha_channel *chan)
     chan->fObstruction          = 0;
     chan->iCategory             = (int)SND_CAT_NONE;
     chan->iSpatialRoute         = -1;
-    chan->bSentPos              = qfalse;
-    chan->bSentVel              = qfalse;
-    chan->bSentGain             = qfalse;
-    chan->bTraceValid           = qfalse;
-
-    chan->voiceId = g_sndRenderer->CreateVoice();
-    if (chan->voiceId == SND_VOICE_NONE) {
-        Com_Printf("Sound: CreateVoice failed for channel %i\n", idx);
-        return false;
-    }
-    g_sndRenderer->SetParami(chan->voiceId, SND_PARAM_SOURCE_RELATIVE, 1);
+    memset(&chan->cur, 0, sizeof(chan->cur));
+    chan->cur.pitch   = 1.f;
+    chan->cur.minDist = 200.f;
+    chan->cur.maxDist = 12800.f;
+    chan->cur.loopEnd = -1;
+    chan->cur.route   = OM_ROUTE_BUS;
+    chan->sent        = chan->cur;
+    chan->sentOk      = qfalse;
+    chan->bTraceValid = qfalse;
     return true;
 }
 
@@ -326,19 +320,16 @@ qboolean S_OMAHA_Init()
     int               i;
     sndDeviceConfig_t cfg;
 
-    if (al_initialized) {
+    if (s_soundReady) {
         Com_DPrintf("S_OMAHA_Init(): Called when sound is already initialized!\n");
         return qtrue;
     }
 
     s_milesdriver            = Cvar_Get("s_milesdriver", "auto", CVAR_SOUND_LATCH | CVAR_ARCHIVE);
-    s_openaldevice           = Cvar_Get("s_openaldevice", "", CVAR_SOUND_LATCH);
     s_snddevice              = Cvar_Get("s_device", "", CVAR_SOUND_LATCH | CVAR_ARCHIVE);
-    s_reverb                 = Cvar_Get("s_reverb", "0", CVAR_SOUND_LATCH | CVAR_ARCHIVE);
     s_show_cpu               = Cvar_Get("s_show_cpu", "0", 0);
     s_show_num_active_sounds = Cvar_Get("s_show_num_active_sounds", "0", 0);
     s_show_sounds            = Cvar_Get("s_show_sounds", "0", 0);
-    /* Changed in Omaha: latch — surround layouts switch to the OpenAL host on restart. */
     s_speaker_type           = Cvar_Get("s_speaker_type", "0", CVAR_ARCHIVE | CVAR_SOUND_LATCH);
     /* Added in Omaha: world-trace obstruction on the omaha mixer (1 = on). */
     s_obstruction = Cvar_Get("s_obstruction", "1", CVAR_ARCHIVE);
@@ -354,17 +345,6 @@ qboolean S_OMAHA_Init()
     if (!Cvar_Get("s_initsound", "1", 0)->integer) {
         Com_Printf("Sound: s_initsound set to zero...disabling audio.\n");
         return true;
-    }
-
-    /*
-     * The omaha mixer renders stereo and headphones (its own HRTF) only.
-     * 5.1 and quad need Soft's surround output modes — keep the error and fall
-     * back to headphones HRTF instead of declining the omaha host.
-     */
-    if (s_speaker_type->integer >= 2) {
-        Com_Printf("Sound: speaker_type %i (surround) is not supported by omaha.\n", s_speaker_type->integer);
-        Cvar_Set("s_speaker_type", "1");
-        Com_Printf("Sound: omaha does not support surround; using Headphones (HRTF).\n");
     }
 
     memset(&cfg, 0, sizeof(cfg));
@@ -402,18 +382,6 @@ qboolean S_OMAHA_Init()
     memset(omaha.loop_sounds, 0, omaha.loop_sounds_capacity * sizeof(*omaha.loop_sounds));
 
     s_speaker_type->modified = false;
-
-    al_use_reverb = false;
-    if (s_reverb->integer) {
-        STUB_DESC("reenable reverb support later.");
-
-        if (al_use_reverb) {
-            S_OMAHA_SetReverb(s_iReverbType, s_fReverbLevel);
-        } else {
-            Com_Printf("Sound: No reverb support. Reverb is disabled.\n");
-        }
-    }
-    s_reverb->modified = false;
 
     /* Changed in Omaha: omaha master is post-limiter (see S_OMAHA_ApplyListenerGain). */
     S_OMAHA_ApplyListenerGain(qtrue);
@@ -486,7 +454,7 @@ qboolean S_OMAHA_Init()
 
     S_OMAHA_ClearLoopingSounds();
     load_sfx_info();
-    al_initialized = true;
+    s_soundReady = true;
 
     // Added in OPM
     S_CodecInit();
@@ -503,7 +471,7 @@ void S_OMAHA_Shutdown()
 {
     int i;
 
-    if (!al_initialized) {
+    if (!s_soundReady) {
         Com_DPrintf("S_OMAHA_Shutdown(): Called when sound is NOT initialized!\n");
         return;
     }
@@ -555,7 +523,7 @@ void S_OMAHA_Shutdown()
     S_OMAHA_LoopHashReset();
 
     S_OMAHA_NukeContext();
-    al_initialized = false;
+    s_soundReady = false;
 
     S_AsyncStream_Shutdown(); // Added in Omaha
 }
@@ -602,10 +570,8 @@ float S_OMAHA_GetBaseVolume()
 ==============
 S_OMAHA_ApplyListenerGain
 
-Added in Omaha: Soft keeps s_volume squared on the listener (s_volume and fade
-also ride on every source). Omaha applies the whole product s_volume^3 * fade as
-a post-limiter master, so loudness per s_volume matches Soft but raising volume
-no longer drives the limiter harder.
+Added in Omaha: s_volume and fade are one gain after the limiter, so raising
+volume does not change how hard the limiter works.
 ==============
 */
 static void S_OMAHA_ApplyListenerGain(qboolean bForce)
@@ -836,11 +802,6 @@ void S_OMAHA_PrintInfo()
             dev = "{default}";
         }
         Com_Printf("device - %s\n", dev);
-        if (al_use_reverb) {
-            Com_Printf("reverb - ON\n");
-        } else {
-            Com_Printf("reverb - OFF\n");
-        }
         Com_Printf("samplebits - 16\n");
         Com_Printf("speed - %d\n", al_frequency);
         if (s_loadas8bit->integer) {
@@ -931,7 +892,7 @@ static bool S_OMAHA_LoadMP3(const char *_path, omaha_channel *chan)
     char          path[MAX_QPATH];
     snd_info_t    info;
     void         *data;
-    sndBufferId_t bid;
+    omSoundId_t bid;
     qboolean      ok;
 
     chan->stop();
@@ -941,15 +902,10 @@ static bool S_OMAHA_LoadMP3(const char *_path, omaha_channel *chan)
 
     FS_CorrectCase(path);
 
-    /* Changed in Omaha: decode once and upload into a renderer buffer. */
-    if (chan->voiceId == SND_VOICE_NONE) {
-        return false;
-    }
-
-    g_sndRenderer->ClearBuffer(chan->voiceId);
-    if (chan->bufferId != SND_BUFFER_NONE) {
-        g_sndRenderer->DestroyBuffer(chan->bufferId);
-        chan->bufferId = SND_BUFFER_NONE;
+    /* Changed in Omaha: decode once and upload a resident sound. */
+    if (chan->bufferId != OM_SOUND_NONE) {
+        g_sndRenderer->DestroySound(chan->bufferId);
+        chan->bufferId = OM_SOUND_NONE;
     }
 
     data = S_CodecLoad(path, &info);
@@ -957,27 +913,27 @@ static bool S_OMAHA_LoadMP3(const char *_path, omaha_channel *chan)
         return false;
     }
 
-    bid = g_sndRenderer->CreateBufferFromSfx(NULL);
-    if (bid == SND_BUFFER_NONE) {
+    bid = g_sndRenderer->CreateSound();
+    if (bid == OM_SOUND_NONE) {
         Hunk_FreeTempMemory(data);
         return false;
     }
     if (info.size == 0) {
         byte dummyData[2] = {0};
-        ok                = g_sndRenderer->UploadBuffer(bid, SND_FMT_MONO16, dummyData, 2, 22050, 0);
+        ok = g_sndRenderer->UploadSound(bid, OM_FMT_MONO16, dummyData, 2, 22050, 0);
     } else {
-        ok = g_sndRenderer->UploadBuffer(
+        ok = g_sndRenderer->UploadSound(
             bid, S_SndFmtFromWidthChannels(info.width, info.channels), data, info.size, info.rate, info.dataalign
         );
     }
     Hunk_FreeTempMemory(data);
     if (!ok) {
-        g_sndRenderer->DestroyBuffer(bid);
+        g_sndRenderer->DestroySound(bid);
         return false;
     }
 
     chan->bufferId = bid;
-    g_sndRenderer->SetBuffer(chan->voiceId, bid);
+    chan->cur.pitch = 1.f;
     chan->set_no_3d();
     return true;
 }
@@ -1136,7 +1092,7 @@ static qboolean S_OMAHA_ShouldStart(const vec3_t vOrigin, float fMinDist, float 
     vec3_t vListenerOrigin;
     vec3_t alvec;
 
-    if (!al_initialized) {
+    if (!s_soundReady) {
         return false;
     }
 
@@ -1749,7 +1705,7 @@ static void S_OMAHA_Start2DSound(
         }
     }
 
-    /* Fixed in Omaha: CHAN_LOCAL cues stay dry — OpenAL Soft spatialization/HRTF made hitmarker sound "wet". */
+    /* Fixed in Omaha: CHAN_LOCAL cues stay dry so the hitmarker does not pick up the room. */
     if (pChannel->iFlags & CHANNEL_FLAG_LOCAL_LISTENER) {
         pChannel->set_no_virtualization();
     }
@@ -1823,16 +1779,10 @@ static void S_OMAHA_UpdateObstruction(
     float fObstruction;
     int   iRoute;
 
-    if (pChannel->voiceId == SND_VOICE_NONE) {
-        return;
-    }
-
     /* Added in Omaha: HRTF route refreshes at the same start/update points as obstruction. */
     iRoute = S_OMAHA_SpatialRoute(pChannel, bWorld);
-    if (iRoute != pChannel->iSpatialRoute) {
-        g_sndRenderer->SetParami(pChannel->voiceId, SND_PARAM_SPATIAL_ROUTE, iRoute);
-        pChannel->iSpatialRoute = iRoute;
-    }
+    pChannel->cur.route     = iRoute;
+    pChannel->iSpatialRoute = iRoute;
 
     fObstruction = pChannel->fObstruction;
     if (!bWorld || !s_obstruction || !s_obstruction->integer || CM_NumInlineModels() <= 0
@@ -1871,9 +1821,10 @@ static void S_OMAHA_UpdateObstruction(
         }
     }
 
-    if (fObstruction != pChannel->fObstruction) {
-        g_sndRenderer->SetParamf(pChannel->voiceId, SND_PARAM_OBSTRUCTION, fObstruction);
-        pChannel->fObstruction = fObstruction;
+    if (fObstruction != pChannel->fObstruction || pChannel->cur.obstruction != fObstruction) {
+        pChannel->fObstruction     = fObstruction;
+        pChannel->cur.obstruction  = fObstruction;
+        pChannel->flush_params();
     }
 }
 
@@ -1893,14 +1844,14 @@ renderer ignores the route unless omaha HRTF is active.
 static int S_OMAHA_SpatialRoute(const omaha_channel *pChannel, bool bWorld)
 {
     if (!bWorld || pChannel->voiceKind != 0) {
-        return SND_ROUTE_BUS;
+        return OM_ROUTE_BUS;
     }
     /* Own / head-locked: dry stereo. Full HRTF on a source at the listener is hollow. */
     if (pChannel->iFlags & CHANNEL_FLAG_LOCAL_LISTENER) {
-        return SND_ROUTE_DRY;
+        return OM_ROUTE_DRY;
     }
     if (pChannel->iEntNum != ENTITYNUM_NONE && S_OMAHA_IsLocalEntity(pChannel->iEntNum)) {
-        return SND_ROUTE_DRY;
+        return OM_ROUTE_DRY;
     }
     /*
      * cgame plays footsteps, landings and bodyfalls entity-less at the ground
@@ -1914,15 +1865,15 @@ static int S_OMAHA_SpatialRoute(const omaha_channel *pChannel, bool bWorld)
         const float fDz = s_vObstructionListener[2] - pChannel->vOrigin[2];
 
         if (fDx * fDx + fDy * fDy < Square(48.f) && fDz > -16.f && fDz < 128.f) {
-            return SND_ROUTE_DRY;
+            return OM_ROUTE_DRY;
         }
-        return SND_ROUTE_DIRECT;
+        return OM_ROUTE_DIRECT;
     }
     if (pChannel->iFlags & CHANNEL_FLAG_NO_ENTITY) {
-        return SND_ROUTE_BUS;
+        return OM_ROUTE_BUS;
     }
     if (pChannel->iEntNum == ENTITYNUM_NONE) {
-        return SND_ROUTE_BUS;
+        return OM_ROUTE_BUS;
     }
 
     switch ((sndCategory_t)pChannel->iCategory) {
@@ -1932,9 +1883,9 @@ static int S_OMAHA_SpatialRoute(const omaha_channel *pChannel, bool bWorld)
     case SND_CAT_BODYFALLS:
     case SND_CAT_VOICE:
     case SND_CAT_VEHICLES:
-        return SND_ROUTE_DIRECT;
+        return OM_ROUTE_DIRECT;
     default:
-        return SND_ROUTE_BUS;
+        return OM_ROUTE_BUS;
     }
 }
 
@@ -2189,7 +2140,7 @@ void S_OMAHA_StartSound(
     pChannel->iFlags &= ~(CHANNEL_FLAG_PAUSED | CHANNEL_FLAG_LOCAL_LISTENER);
     state = pChannel->sample_status();
 
-    if (pChannel->iEntNum == iEntNum && (state == SND_STATE_PLAYING || state == SND_STATE_PAUSED) && pChannel->pSfx == pSfx) {
+    if (pChannel->iEntNum == iEntNum && (state == OM_VOICE_PLAYING || state == OM_VOICE_PAUSED) && pChannel->pSfx == pSfx) {
         bOnlyUpdate = true;
     } else {
         pChannel->stop();
@@ -3097,7 +3048,8 @@ void S_OMAHA_Respatialize(int iEntNum, const vec3_t vHeadPos, const vec3_t vAxis
     float           fVolume;
     float           fDist;
     omaha_channel *pChannel;
-    vec3_t          alvec {0};
+    vec3_t          vRight;
+    vec3_t          vLeft;
     vec3_t          alorientation[2];
 
     if (cls.no_menus) {
@@ -3106,19 +3058,12 @@ void S_OMAHA_Respatialize(int iEntNum, const vec3_t vHeadPos, const vec3_t vAxis
 
     s_iListenerNumber = iEntNum;
 
-    //
-    // Velocity / position / orientation — Changed in Omaha: via renderer.
-    //
-    VectorCopy(s_entity[iEntNum].velocity, alvec);
-    VectorScale(alvec, s_fVelocityScale, alvec);
     VectorCopy(vHeadPos, vListenerOrigin);
-    alorientation[0][0] = vAxis[0][0];
-    alorientation[0][1] = vAxis[0][1];
-    alorientation[0][2] = vAxis[0][2];
-    alorientation[1][0] = vAxis[2][0];
-    alorientation[1][1] = vAxis[2][1];
-    alorientation[1][2] = vAxis[2][2];
-    g_sndRenderer->SetListener(vListenerOrigin, alvec, alorientation[0], alorientation[1]);
+    VectorCopy(vAxis[0], alorientation[0]);
+    VectorCopy(vAxis[2], alorientation[1]);
+    CrossProduct(alorientation[0], alorientation[1], vRight);
+    VectorScale(vRight, -1.f, vLeft);
+    g_sndRenderer->SetListener(vListenerOrigin, alorientation[0], vLeft, alorientation[1]);
 
     VectorCopy(vAxis[1], vTempAxis);
     VectorCopy(vListenerOrigin, s_vObstructionListener); // Added in Omaha
@@ -3286,10 +3231,9 @@ S_OMAHA_reverb
 */
 static void S_OMAHA_reverb(int iChannel, int iReverbType, float fReverbLevel)
 {
-    // FIXME: Connect source to effect slot
-    //  see https://github.com/kcat/openal-soft/blob/master/examples/alreverb.c
-
-    // No reverb currently.
+    (void)iChannel;
+    (void)iReverbType;
+    (void)fReverbLevel;
 }
 
 /*
@@ -3301,13 +3245,7 @@ void S_OMAHA_SetReverb(int iType, float fLevel)
 {
     s_fReverbLevel = fLevel;
     s_iReverbType  = iType;
-    if (al_use_reverb) {
-        s_bReverbChanged = true;
-    }
-
-    // FIXME: generate effect and auxiliary effect slot
-    //  or destroy them
-    //  see https://github.com/kcat/openal-soft/blob/master/examples/alreverb.c
+    (void)s_bReverbChanged;
 }
 
 /*
@@ -3386,20 +3324,6 @@ void S_OMAHA_Update()
         s_speaker_type->modified = false;
     }
 
-    if (s_reverb->modified) {
-        s_reverb->modified = false;
-
-        if (s_reverb->integer) {
-            if (al_use_reverb) {
-                S_OMAHA_SetReverb(s_iReverbType, s_fReverbLevel);
-            } else {
-                Com_Printf("Omaha: No reverb support. Reverb is disabled.\n");
-            }
-        } else if (al_use_reverb) {
-            S_OMAHA_SetReverb(0, 0);
-        }
-    }
-
     if (s_show_num_active_sounds->integer == 1) {
         int num = 0;
 
@@ -3444,7 +3368,7 @@ S_OMAHA_GetMusicFilename
 const char *S_OMAHA_GetMusicFilename()
 {
     // Don't call into the channel if QAL initialisation did not succeed.
-    if (!al_initialized) {
+    if (!s_soundReady) {
         return "";
     }
 
@@ -3754,23 +3678,33 @@ void S_OMAHA_LoadData(soundsystemsavegame_t *pSave)
 
 /*
 ==============
+omaha_channel::flush_params
+==============
+*/
+void omaha_channel::flush_params()
+{
+    if (!g_sndRenderer || voiceId == OM_VOICE_NONE) {
+        return;
+    }
+    if (sentOk && !memcmp(&sent, &cur, sizeof(cur))) {
+        return;
+    }
+    g_sndRenderer->UpdateVoice(voiceId, &cur);
+    sent   = cur;
+    sentOk = qtrue;
+}
+
+/*
+==============
 omaha_channel::set_velocity
+Doppler is not part of the mixer. The argument is kept so callers stay put.
 ==============
 */
 void omaha_channel::set_velocity(float v0, float v1, float v2)
 {
-    if (voiceId == SND_VOICE_NONE) {
-        return;
-    }
-    /* Added in Omaha: skip a bitwise-unchanged send. */
-    if (bSentVel && fSentVel[0] == v0 && fSentVel[1] == v1 && fSentVel[2] == v2) {
-        return;
-    }
-    fSentVel[0] = v0;
-    fSentVel[1] = v1;
-    fSentVel[2] = v2;
-    bSentVel    = qtrue;
-    g_sndRenderer->SetParam3f(voiceId, SND_PARAM_VELOCITY, v0, v1, v2);
+    (void)v0;
+    (void)v1;
+    (void)v2;
 }
 
 /*
@@ -3780,18 +3714,10 @@ omaha_channel::set_position
 */
 void omaha_channel::set_position(float v0, float v1, float v2)
 {
-    if (voiceId == SND_VOICE_NONE) {
-        return;
-    }
-    /* Added in Omaha: skip a bitwise-unchanged send. */
-    if (bSentPos && fSentPos[0] == v0 && fSentPos[1] == v1 && fSentPos[2] == v2) {
-        return;
-    }
-    fSentPos[0] = v0;
-    fSentPos[1] = v1;
-    fSentPos[2] = v2;
-    bSentPos    = qtrue;
-    g_sndRenderer->SetParam3f(voiceId, SND_PARAM_POSITION, v0, v1, v2);
+    cur.pos[0] = v0;
+    cur.pos[1] = v1;
+    cur.pos[2] = v2;
+    flush_params();
 }
 
 /*
@@ -3801,18 +3727,8 @@ omaha_channel::set_gain
 */
 void omaha_channel::set_gain(float gain)
 {
-    if (voiceId == SND_VOICE_NONE) {
-        return;
-    }
-    /* Added in Omaha: max gain is constant; skip when the gain bits did not change. */
-    if (bSentGain && fSentGain == gain) {
-        return;
-    }
-    fSentGain = gain;
-    bSentGain = qtrue;
-    /* Fixed in Omaha: lift the 1.0 max gain so volume > 1 (e.g. hit notify 2.0) takes effect. */
-    g_sndRenderer->SetParamf(voiceId, SND_PARAM_MAX_GAIN, 16.0f);
-    g_sndRenderer->SetParamf(voiceId, SND_PARAM_GAIN, gain);
+    cur.gain = gain;
+    flush_params();
 }
 
 /*
@@ -3822,15 +3738,9 @@ omaha_channel::set_no_3d
 */
 void omaha_channel::set_no_3d()
 {
-    if (voiceId == SND_VOICE_NONE) {
-        return;
-    }
-    g_sndRenderer->SetParam3f(voiceId, SND_PARAM_POSITION, 0, 0, 0);
-    g_sndRenderer->SetParam3f(voiceId, SND_PARAM_VELOCITY, 0, 0, 0);
-    g_sndRenderer->SetParami(voiceId, SND_PARAM_SOURCE_RELATIVE, 1);
-    g_sndRenderer->SetParami(voiceId, SND_PARAM_LOOPING, 0);
-    g_sndRenderer->SetParamf(voiceId, SND_PARAM_ROLLOFF_FACTOR, 0);
-    g_sndRenderer->SetParamf(voiceId, SND_PARAM_GAIN, S_OMAHA_GetBaseVolume());
+    cur.flags |= OM_FLAG_2D;
+    cur.flags &= ~OM_FLAG_PAN;
+    flush_params();
 }
 
 /*
@@ -3840,20 +3750,11 @@ omaha_channel::set_3d
 */
 void omaha_channel::set_3d()
 {
-    if (voiceId == SND_VOICE_NONE) {
-        return;
-    }
-    g_sndRenderer->SetParami(voiceId, SND_PARAM_SOURCE_RELATIVE, 0);
-    g_sndRenderer->SetParami(voiceId, SND_PARAM_LOOPING, 0);
-    g_sndRenderer->SetParamf(voiceId, SND_PARAM_ROLLOFF_FACTOR, 1.0f);
-    g_sndRenderer->SetParamf(voiceId, SND_PARAM_GAIN, S_OMAHA_GetBaseVolume());
-    g_sndRenderer->SetParami(voiceId, SND_PARAM_DISTANCE_MODEL, SND_DISTANCE_LINEAR_CLAMPED);
-    if (fMinDist > 0) {
-        g_sndRenderer->SetParamf(voiceId, SND_PARAM_REFERENCE_DISTANCE, fMinDist);
-    }
-    if (fMaxDist > 0) {
-        g_sndRenderer->SetParamf(voiceId, SND_PARAM_MAX_DISTANCE, fMaxDist);
-    }
+    cur.flags &= ~(OM_FLAG_2D | OM_FLAG_PAN | OM_FLAG_FLAT);
+    cur.minDist = fMinDist > 0.f ? fMinDist : 200.f;
+    cur.maxDist = fMaxDist > 0.f ? fMaxDist : 12800.f;
+    cur.gain    = S_OMAHA_GetBaseVolume();
+    flush_params();
 }
 
 /*
@@ -3863,10 +3764,39 @@ omaha_channel::play
 */
 void omaha_channel::play()
 {
-    if (voiceId == SND_VOICE_NONE) {
+    int state;
+
+    if (!g_sndRenderer) {
         return;
     }
-    g_sndRenderer->Play(voiceId);
+    /* Streams have no resident sound. Resume the open stream voice. */
+    if (bufferId == OM_SOUND_NONE) {
+        if (voiceId == OM_VOICE_NONE) {
+            return;
+        }
+        flush_params();
+        if (g_sndRenderer->VoiceState(voiceId) != OM_VOICE_PLAYING) {
+            g_sndRenderer->ResumeVoice(voiceId);
+        }
+        return;
+    }
+    state = voiceId == OM_VOICE_NONE ? OM_VOICE_STOPPED : g_sndRenderer->VoiceState(voiceId);
+    if (voiceId != OM_VOICE_NONE && state == OM_VOICE_PAUSED) {
+        flush_params();
+        g_sndRenderer->ResumeVoice(voiceId);
+        return;
+    }
+    if (voiceId != OM_VOICE_NONE && state == OM_VOICE_PLAYING) {
+        flush_params();
+        return;
+    }
+    if (voiceId != OM_VOICE_NONE) {
+        g_sndRenderer->DestroyVoice(voiceId);
+        voiceId = OM_VOICE_NONE;
+    }
+    voiceId = g_sndRenderer->PlayVoice(bufferId, &cur, 0);
+    sent    = cur;
+    sentOk  = qtrue;
 }
 
 /*
@@ -3876,10 +3806,8 @@ omaha_channel::set_no_virtualization
 */
 void omaha_channel::set_no_virtualization()
 {
-    if (voiceId == SND_VOICE_NONE) {
-        return;
-    }
-    g_sndRenderer->SetParami(voiceId, SND_PARAM_DIRECT_CHANNELS, SND_DIRECT_CHANNELS_REMIX);
+    cur.flags |= OM_FLAG_FLAT;
+    flush_params();
 }
 
 /*
@@ -3889,10 +3817,8 @@ omaha_channel::set_virtualization
 */
 void omaha_channel::set_virtualization()
 {
-    if (voiceId == SND_VOICE_NONE) {
-        return;
-    }
-    g_sndRenderer->SetParami(voiceId, SND_PARAM_DIRECT_CHANNELS, SND_DIRECT_CHANNELS_OFF);
+    cur.flags &= ~OM_FLAG_FLAT;
+    flush_params();
 }
 
 /*
@@ -3902,10 +3828,10 @@ omaha_channel::pause
 */
 void omaha_channel::pause()
 {
-    if (voiceId == SND_VOICE_NONE) {
+    if (!g_sndRenderer || voiceId == OM_VOICE_NONE) {
         return;
     }
-    g_sndRenderer->Pause(voiceId);
+    g_sndRenderer->PauseVoice(voiceId);
 }
 
 /*
@@ -3915,10 +3841,11 @@ omaha_channel::stop
 */
 void omaha_channel::stop()
 {
-    if (voiceId == SND_VOICE_NONE) {
-        return;
+    if (g_sndRenderer && voiceId != OM_VOICE_NONE) {
+        g_sndRenderer->StopVoice(voiceId);
     }
-    g_sndRenderer->Stop(voiceId);
+    voiceId = OM_VOICE_NONE;
+    sentOk  = qfalse;
 }
 
 /*
@@ -3928,9 +3855,10 @@ omaha_channel::is_free
 */
 bool omaha_channel::is_free()
 {
-    U32 state = sample_status();
-
-    return state == SND_STATE_INITIAL || state == SND_STATE_STOPPED;
+    if (voiceId == OM_VOICE_NONE) {
+        return true;
+    }
+    return sample_status() == OM_VOICE_STOPPED;
 }
 
 /*
@@ -3940,7 +3868,7 @@ omaha_channel::is_paused
 */
 bool omaha_channel::is_paused()
 {
-    return sample_status() == SND_STATE_PAUSED;
+    return sample_status() == OM_VOICE_PAUSED;
 }
 
 /*
@@ -3950,7 +3878,7 @@ omaha_channel::is_playing
 */
 bool omaha_channel::is_playing()
 {
-    return sample_status() == SND_STATE_PLAYING;
+    return sample_status() == OM_VOICE_PLAYING;
 }
 
 /*
@@ -3971,20 +3899,20 @@ omaha_channel::set_sfx
 */
 bool omaha_channel::set_sfx(sfx_t *pSfx)
 {
-    sndBufferId_t bid;
+    omSoundId_t bid;
 
     assert(pSfx->length);
 
     this->pSfx = pSfx;
 
-    if (voiceId == SND_VOICE_NONE) {
+    if (!g_sndRenderer) {
         return false;
     }
 
-    /* Changed in Omaha: pSfx->buffer holds renderer buffer index + 1; 0 = not uploaded yet. */
+    /* Changed in Omaha: pSfx->buffer holds renderer sound index + 1; 0 = not uploaded yet. */
     if (!pSfx->buffer) {
-        bid = g_sndRenderer->CreateBufferFromSfx(pSfx);
-        if (bid == SND_BUFFER_NONE) {
+        bid = g_sndRenderer->CreateSound();
+        if (bid == OM_SOUND_NONE) {
             return false;
         }
 
@@ -3994,15 +3922,15 @@ bool omaha_channel::set_sfx(sfx_t *pSfx)
             qboolean   ok;
 
             if (!data) {
-                g_sndRenderer->DestroyBuffer(bid);
+                g_sndRenderer->DestroySound(bid);
                 Com_DPrintf("Sound: Failed to load MP3.\n");
                 return false;
             }
             if (info.size == 0) {
                 byte dummyData[2] = {0};
-                ok = g_sndRenderer->UploadBuffer(bid, SND_FMT_MONO16, dummyData, 2, 22050, 0);
+                ok = g_sndRenderer->UploadSound(bid, OM_FMT_MONO16, dummyData, 2, 22050, 0);
             } else {
-                ok = g_sndRenderer->UploadBuffer(
+                ok = g_sndRenderer->UploadSound(
                     bid,
                     S_SndFmtFromWidthChannels(info.width, info.channels),
                     data,
@@ -4013,11 +3941,11 @@ bool omaha_channel::set_sfx(sfx_t *pSfx)
             }
             Hunk_FreeTempMemory(data);
             if (!ok) {
-                g_sndRenderer->DestroyBuffer(bid);
+                g_sndRenderer->DestroySound(bid);
                 Com_DPrintf("Sound: Failed to load MP3.\n");
                 return false;
             }
-        } else if (!g_sndRenderer->UploadBuffer(
+        } else if (!g_sndRenderer->UploadSound(
                        bid,
                        S_SndFmtFromWidthChannels(pSfx->info.width, pSfx->info.channels),
                        &pSfx->data[pSfx->info.dataofs],
@@ -4025,7 +3953,7 @@ bool omaha_channel::set_sfx(sfx_t *pSfx)
                        pSfx->info.rate,
                        pSfx->info.dataalign
                    )) {
-            g_sndRenderer->DestroyBuffer(bid);
+            g_sndRenderer->DestroySound(bid);
             Com_Printf(
                 "Sound: Bad Wave file (%d channels, %d bits) [%s].\n",
                 pSfx->info.channels,
@@ -4036,14 +3964,13 @@ bool omaha_channel::set_sfx(sfx_t *pSfx)
         }
         pSfx->buffer = (unsigned int)(bid + 1);
     } else {
-        bid = (sndBufferId_t)(pSfx->buffer - 1);
+        bid = (omSoundId_t)(pSfx->buffer - 1);
     }
 
-    bufferId = bid;
-    g_sndRenderer->Stop(voiceId);
-    g_sndRenderer->SetBuffer(voiceId, bid);
-    g_sndRenderer->SetParamf(voiceId, SND_PARAM_PITCH, 1.0f);
-    iBaseRate = g_sndRenderer->BufferFrequency(bid);
+    bufferId  = bid;
+    cur.pitch = 1.f;
+    sentOk    = qfalse;
+    iBaseRate = g_sndRenderer->SoundRate(bid);
     return true;
 }
 
@@ -4094,15 +4021,9 @@ omaha_channel::set_sample_pan
 */
 void omaha_channel::set_sample_pan(S32 pan)
 {
-    const float panning = (pan - 64) / 127.f;
-    const float z       = sqrtf(1.f - Square(panning));
-
-    if (voiceId == SND_VOICE_NONE) {
-        return;
-    }
-    g_sndRenderer->SetParamf(voiceId, SND_PARAM_ROLLOFF_FACTOR, 0);
-    g_sndRenderer->SetParami(voiceId, SND_PARAM_SOURCE_RELATIVE, 1);
-    g_sndRenderer->SetParam3f(voiceId, SND_PARAM_POSITION, panning, 0, z);
+    cur.flags |= OM_FLAG_2D | OM_FLAG_PAN;
+    cur.pan = (pan - 64) / 127.f;
+    flush_params();
 }
 
 /*
@@ -4112,12 +4033,8 @@ omaha_channel::set_sample_playback_rate
 */
 void omaha_channel::set_sample_playback_rate(S32 rate)
 {
-    float pitch = rate / (float)(iBaseRate > 0 ? iBaseRate : rate);
-
-    if (voiceId == SND_VOICE_NONE) {
-        return;
-    }
-    g_sndRenderer->SetParamf(voiceId, SND_PARAM_PITCH, pitch);
+    cur.pitch = rate / (float)(iBaseRate > 0 ? iBaseRate : (rate > 0 ? rate : 1));
+    flush_params();
 }
 
 /*
@@ -4127,12 +4044,8 @@ omaha_channel::sample_playback_rate
 */
 S32 omaha_channel::sample_playback_rate()
 {
-    float pitch = 1;
-
-    if (voiceId != SND_VOICE_NONE) {
-        pitch = g_sndRenderer->GetParamf(voiceId, SND_PARAM_PITCH);
-    }
-    return buffer_frequency() * pitch;
+    float pitch = cur.pitch > 0.f ? cur.pitch : 1.f;
+    return (S32)(buffer_frequency() * pitch);
 }
 
 /*
@@ -4142,11 +4055,14 @@ omaha_channel::buffer_frequency
 */
 U32 omaha_channel::buffer_frequency() const
 {
-    if (bufferId != SND_BUFFER_NONE) {
-        return (U32)g_sndRenderer->BufferFrequency(bufferId);
+    if (!g_sndRenderer) {
+        return 22050;
+    }
+    if (bufferId != OM_SOUND_NONE) {
+        return (U32)g_sndRenderer->SoundRate(bufferId);
     }
     if (pSfx && pSfx->buffer) {
-        return (U32)g_sndRenderer->BufferFrequency((sndBufferId_t)(pSfx->buffer - 1));
+        return (U32)g_sndRenderer->SoundRate((omSoundId_t)(pSfx->buffer - 1));
     }
     return 22050;
 }
@@ -4158,12 +4074,11 @@ omaha_channel::sample_volume
 */
 S32 omaha_channel::sample_volume()
 {
-    float gain = 0;
-
-    if (voiceId != SND_VOICE_NONE) {
-        gain = g_sndRenderer->GetParamf(voiceId, SND_PARAM_GAIN);
+    float base = S_OMAHA_GetBaseVolume();
+    if (base <= 0.f) {
+        return 0;
     }
-    return (gain / S_OMAHA_GetBaseVolume()) * 100;
+    return (S32)((cur.gain / base) * 100);
 }
 
 /*
@@ -4173,10 +4088,10 @@ omaha_channel::sample_offset
 */
 U32 omaha_channel::sample_offset()
 {
-    if (voiceId == SND_VOICE_NONE) {
+    if (!g_sndRenderer || voiceId == OM_VOICE_NONE) {
         return 0;
     }
-    return g_sndRenderer->GetSampleOffset(voiceId);
+    return g_sndRenderer->VoiceOffset(voiceId);
 }
 
 /*
@@ -4202,11 +4117,11 @@ U32 omaha_channel::sample_loop_count()
 {
     S32 left;
 
-    if (voiceId == SND_VOICE_NONE) {
+    if (!g_sndRenderer || voiceId == OM_VOICE_NONE) {
         return 0;
     }
 
-    left = g_sndRenderer->StreamBuffersQueued(voiceId) - g_sndRenderer->StreamBuffersProcessed(voiceId) - 1;
+    left = g_sndRenderer->StreamQueued(voiceId) - g_sndRenderer->StreamProcessed(voiceId) - 1;
     return left < 0 ? 0 : left;
 }
 
@@ -4217,10 +4132,10 @@ omaha_channel::set_sample_offset
 */
 void omaha_channel::set_sample_offset(U32 offset)
 {
-    if (voiceId == SND_VOICE_NONE) {
+    if (!g_sndRenderer || voiceId == OM_VOICE_NONE) {
         return;
     }
-    g_sndRenderer->SetSampleOffset(voiceId, offset);
+    g_sndRenderer->SetVoiceOffset(voiceId, offset);
 }
 
 /*
@@ -4240,20 +4155,14 @@ omaha_channel::set_sample_loop_count
 */
 void omaha_channel::set_sample_loop_count(S32 count)
 {
-    int processed;
-
+    if (count == 0) {
+        cur.flags |= OM_FLAG_LOOP;
+    } else {
+        cur.flags &= ~OM_FLAG_LOOP;
+    }
+    cur.loopStart = loopBlockStart;
+    cur.loopEnd   = loopBlockEnd;
     stop();
-
-    if (voiceId == SND_VOICE_NONE) {
-        return;
-    }
-
-    /* Changed in Omaha: unqueue processed stream buffers plus the looping flag. */
-    processed = g_sndRenderer->StreamBuffersProcessed(voiceId);
-    if (processed) {
-        g_sndRenderer->UnqueueProcessed(voiceId, processed);
-    }
-    g_sndRenderer->SetParami(voiceId, SND_PARAM_LOOPING, count == 0);
 }
 
 /*
@@ -4263,14 +4172,11 @@ omaha_channel::set_sample_loop_block
 */
 void omaha_channel::set_sample_loop_block(S32 start_offset, S32 end_offset)
 {
-    /* Added in Omaha: honor Miles/soundinfo loopstart/loopend (sample frames). */
-    loopBlockStart = start_offset > 0 ? (int)start_offset : 0;
-    loopBlockEnd   = (int)end_offset;
-
-    if (voiceId == SND_VOICE_NONE) {
-        return;
-    }
-    g_sndRenderer->SetLoopPoints(voiceId, loopBlockStart, loopBlockEnd);
+    loopBlockStart = start_offset;
+    loopBlockEnd   = end_offset;
+    cur.loopStart  = start_offset;
+    cur.loopEnd    = end_offset;
+    flush_params();
 }
 
 /*
@@ -4280,10 +4186,10 @@ omaha_channel::sample_status
 */
 U32 omaha_channel::sample_status()
 {
-    if (voiceId == SND_VOICE_NONE) {
-        return SND_STATE_INITIAL;
+    if (!g_sndRenderer || voiceId == OM_VOICE_NONE) {
+        return OM_VOICE_STOPPED;
     }
-    return (U32)g_sndRenderer->GetState(voiceId);
+    return (U32)g_sndRenderer->VoiceState(voiceId);
 }
 
 /*
@@ -5030,9 +4936,9 @@ void S_OMAHA_TriggeredMusic_SetupHandle(const char *pszName, int iLoopCount, int
 
     if (!omaha.chan_trig_music.queue_stream(pszRealName)) {
         /* Fixed in Omaha: release the old renderer voice before re-creating the channel. */
-        if (g_sndRenderer && omaha.chan_trig_music.voiceId != SND_VOICE_NONE) {
+        if (g_sndRenderer && omaha.chan_trig_music.voiceId != OM_VOICE_NONE) {
             g_sndRenderer->DestroyVoice(omaha.chan_trig_music.voiceId);
-            omaha.chan_trig_music.voiceId = SND_VOICE_NONE;
+            omaha.chan_trig_music.voiceId = OM_VOICE_NONE;
         }
         S_OMAHA_InitChannel(SOUNDSYSTEM_CHANNEL_TRIGGER_MUSIC_ID, &omaha.chan_trig_music);
         Com_DPrintf("Could not start triggered music '%s'\n", pszName);
@@ -5233,15 +5139,15 @@ S_SndFmtFromWidthChannels
 Added in Omaha: map codec width/channels to renderer sample format.
 ==============
 */
-static sndSampleFormat_t S_SndFmtFromWidthChannels(float width, int channels)
+static omSampleFormat_t S_SndFmtFromWidthChannels(float width, int channels)
 {
     if (width == 0.5f) {
-        return channels <= 1 ? SND_FMT_MONO_IMA4 : SND_FMT_STEREO_IMA4;
+        return channels <= 1 ? OM_FMT_MONO_IMA4 : OM_FMT_STEREO_IMA4;
     }
     if (channels <= 1) {
-        return (width <= 1) ? SND_FMT_MONO8 : SND_FMT_MONO16;
+        return (width <= 1) ? OM_FMT_MONO8 : OM_FMT_MONO16;
     }
-    return (width <= 1) ? SND_FMT_STEREO8 : SND_FMT_STEREO16;
+    return (width <= 1) ? OM_FMT_STEREO8 : OM_FMT_STEREO16;
 }
 
 /*
@@ -5252,16 +5158,15 @@ Added in Omaha: stream channels need a renderer voice before queueing PCM.
 */
 static qboolean S_StreamEnsureVoice(omaha_channel *chan)
 {
-    if (chan->voiceId == SND_VOICE_NONE) {
-        chan->voiceId = g_sndRenderer->CreateVoice();
-        if (chan->voiceId == SND_VOICE_NONE) {
+    if (chan->voiceId == OM_VOICE_NONE) {
+        chan->cur.flags |= OM_FLAG_2D | OM_FLAG_FLAT;
+        chan->cur.pitch = chan->cur.pitch > 0.f ? chan->cur.pitch : 1.f;
+        chan->voiceId   = g_sndRenderer->OpenStream(&chan->cur);
+        if (chan->voiceId == OM_VOICE_NONE) {
             return qfalse;
         }
-        chan->bSentPos  = qfalse;
-        chan->bSentVel  = qfalse;
-        chan->bSentGain = qfalse;
-        g_sndRenderer->SetParami(chan->voiceId, SND_PARAM_SOURCE_RELATIVE, 1);
-        g_sndRenderer->SetParamf(chan->voiceId, SND_PARAM_ROLLOFF_FACTOR, 0);
+        chan->sent   = chan->cur;
+        chan->sentOk = qtrue;
     }
     return qtrue;
 }
@@ -5276,7 +5181,7 @@ void omaha_channel_two_d_stream::queueChunk(const void *data, unsigned int size,
 {
     const snd_stream_t *stream = (const snd_stream_t *)handle;
 
-    g_sndRenderer->QueueStreamBuffer(
+    g_sndRenderer->QueueStream(
         voiceId,
         data,
         (int)size,
@@ -5300,7 +5205,7 @@ void omaha_channel_two_d_stream::attachAsync()
     snd_stream_t *stream = (snd_stream_t *)streamHandle;
     unsigned int  chunkBytes;
 
-    if (asyncJob || !stream || !g_sndRenderer || voiceId == SND_VOICE_NONE) {
+    if (asyncJob || !stream || !g_sndRenderer || voiceId == OM_VOICE_NONE) {
         return;
     }
 
@@ -5377,7 +5282,7 @@ bool omaha_channel_two_d_stream::set_sfx(sfx_t *pSfx)
         streamHandle = NULL;
         return false;
     }
-    g_sndRenderer->Stop(voiceId);
+    g_sndRenderer->StopVoice(voiceId);
 
     bytesToRead = Q_min(MAX_BUFFER_SAMPLES * stream->info.width * stream->info.channels, sizeof(rawData));
     /* Changed in Omaha: prefill several chunks at open so Update can drip-refill. */
@@ -5460,24 +5365,24 @@ void omaha_channel_two_d_stream::update()
     // 2 channels with a width of 2
     char rawData[MAX_BUFFER_SAMPLES * 2 * 2];
 
-    if (!streaming || is_paused() || voiceId == SND_VOICE_NONE) {
+    if (!streaming || is_paused() || voiceId == OM_VOICE_NONE) {
         return;
     }
-    if (sample_status() == SND_STATE_INITIAL) {
+    if (sample_status() == OM_VOICE_STOPPED) {
         return;
     }
 
     {
-        numProcessedBuffers = g_sndRenderer->StreamBuffersProcessed(voiceId);
-        numQueuedBuffers    = g_sndRenderer->StreamBuffersQueued(voiceId);
+        numProcessedBuffers = g_sndRenderer->StreamProcessed(voiceId);
+        numQueuedBuffers    = g_sndRenderer->StreamQueued(voiceId);
 
         /*
          * Changed in Omaha: unqueue at most one buffer per tick. Mass-unqueue of
          * half the queue opened many free slots and caused a multi-frame decode burst.
          */
         if (numProcessedBuffers > 0) {
-            g_sndRenderer->UnqueueProcessed(voiceId, 1);
-            numQueuedBuffers = g_sndRenderer->StreamBuffersQueued(voiceId);
+            g_sndRenderer->UnqueueStream(voiceId, 1);
+            numQueuedBuffers = g_sndRenderer->StreamQueued(voiceId);
         }
 
         if (numQueuedBuffers >= MAX_STREAM_BUFFERS) {
@@ -5588,9 +5493,9 @@ U32 omaha_channel_two_d_stream::sample_offset()
 
     // Get the byte offset in the queue
     /* Changed in Omaha: the renderer reports a sample offset; convert to bytes. */
-    if (voiceId != SND_VOICE_NONE) {
+    if (voiceId != OM_VOICE_NONE) {
         playerByteOffset =
-            (unsigned int)((unsigned long long)g_sndRenderer->GetSampleOffset(voiceId) * bitsPerSample / 8);
+            (unsigned int)((unsigned long long)g_sndRenderer->VoiceOffset(voiceId) * bitsPerSample / 8);
     }
 
     assert(playerByteOffset < totalQueueLength);
@@ -5647,7 +5552,7 @@ void omaha_channel_two_d_stream::set_sample_offset(U32 offset)
     bool              bWasPlaying;
     char              rawData[MAX_BUFFER_SAMPLES * 2 * 2];
 
-    if (!streaming || voiceId == SND_VOICE_NONE) {
+    if (!streaming || voiceId == OM_VOICE_NONE) {
         return;
     }
 
@@ -5664,7 +5569,7 @@ void omaha_channel_two_d_stream::set_sample_offset(U32 offset)
         // Sample is in the currently streamed data
         //
         /* Changed in Omaha: the byte offset expressed as a sample offset for the renderer. */
-        g_sndRenderer->SetSampleOffset(voiceId, (byteOffset - streamPosition) * 8 / bitsPerSample);
+        g_sndRenderer->SetVoiceOffset(voiceId, (byteOffset - streamPosition) * 8 / bitsPerSample);
         return;
     }
 
@@ -5722,10 +5627,10 @@ void omaha_channel_two_d_stream::set_sample_offset(U32 offset)
     }
 
     /* Changed in Omaha: stop, drop the queue, requeue the chunk through the renderer. */
-    g_sndRenderer->Stop(voiceId);
-    g_sndRenderer->UnqueueProcessed(voiceId, g_sndRenderer->StreamBuffersQueued(voiceId));
+    g_sndRenderer->StopVoice(voiceId);
+    g_sndRenderer->UnqueueStream(voiceId, g_sndRenderer->StreamQueued(voiceId));
     queueChunk(rawData, bytesRead, stream);
-    g_sndRenderer->SetSampleOffset(voiceId, (byteOffset - streamPosition) * 8 / bitsPerSample);
+    g_sndRenderer->SetVoiceOffset(voiceId, (byteOffset - streamPosition) * 8 / bitsPerSample);
     attachAsync();
     if (bWasPlaying) {
         play();
@@ -5796,9 +5701,9 @@ void omaha_channel_two_d_stream::clear_stream()
         return;
     }
 
-    if (voiceId != SND_VOICE_NONE) {
-        g_sndRenderer->Stop(voiceId);
-        g_sndRenderer->ClearBuffer(voiceId);
+    if (voiceId != OM_VOICE_NONE && g_sndRenderer) {
+        g_sndRenderer->DestroyVoice(voiceId);
+        voiceId = OM_VOICE_NONE;
     }
 
     if (streamHandle) {
@@ -5828,12 +5733,12 @@ unsigned int omaha_channel_two_d_stream::getQueueLength() const
     unsigned int bufferId;
     unsigned int i;
 
-    if (voiceId == SND_VOICE_NONE) {
+    if (voiceId == OM_VOICE_NONE) {
         return 0;
     }
 
     /* Changed in Omaha: renderer queues keep their chunk sizes in bufferSizes[]. */
-    numQueuedBuffers = g_sndRenderer->StreamBuffersQueued(voiceId);
+    numQueuedBuffers = g_sndRenderer->StreamQueued(voiceId);
     for (i = 0; i < (unsigned int)numQueuedBuffers; i++) {
         bufferId = (currentBuf - i - 1) % MAX_STREAM_BUFFERS;
         totalQueueLength += bufferSizes[bufferId];

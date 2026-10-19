@@ -304,7 +304,7 @@ wavinfo_t GetWavinfo(const char *name, byte *wav, int wavlength)
         }
 
         info.dataofs = data_p - wav;
-        /* Fixed in Omaha: datasize must be absolute end offset (OpenAL uses datasize - dataofs). */
+        /* Fixed in Omaha: datasize must be the absolute end offset so the payload is datasize - dataofs. */
         info.datasize  = info.dataofs + iff_chunk_len;
         info.dataalign = (bytealign / info.channels - 4) / 4 * 8 + 1;
         // dataalign should always be 1

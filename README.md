@@ -21,9 +21,8 @@ but is planned—expansions still run through the OpenMoHAA/legacy paths today.
   model views into the UI layer. More: [`docs/modern-ui/`](docs/modern-ui/README.md).
 - **Sound engine** — a new default mixer with no voice limit, so busy fights no
   longer drop sounds. Headphones get HRTF, with a rebalanced mix, obstruction filtering so you can hear who's behind cover,
-  and a balanced output that will not clip your DAC. The stock OpenAL backend stays available
-  (`s_backend openal`). More:
-  [Sound backend](docs/markdown/04-coding/02-sound-backend.md).
+  and a balanced output that will not clip your DAC. Speaker setups are stereo, headphones, quad, and 5.1.
+  More: [Sound backend](docs/markdown/04-coding/02-sound-backend.md).
 - **Player prediction** — accurately shows other players up to about 100–120 ms ahead
   so higher-ping players don’t have to lead shots as much. Modes: **Off**,
   **Safe** (steadier motion, little lag help), **Lead** (full prediction).

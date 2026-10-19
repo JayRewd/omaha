@@ -7,7 +7,6 @@ The following tools are required for all platforms:
 - Flex (>= 2.6.4) and Bison (>= 3.5.1)
 - A C++11 compiler
 - [SDL2](https://github.com/libsdl-org/SDL/tree/SDL2)
-- [OpenAL SDK](https://github.com/kcat/openal-soft)
 
 The following tools may be useful:
 - [cURL](https://github.com/curl/curl)
@@ -24,14 +23,13 @@ Compiling debug binaries will result in a `-dbg` suffix appended to the name of 
 These are the tools required on Linux :
 - Clang >= 7.0.1 or GCC >= 9.4.0
 - libsdl2-dev
-- libopenal-dev
 - libcurl4-openssl-dev
 
 **clang-7** and **gcc-9** are the minimum required versions. These are EOLs, the project is built using currently maintained compiler versions, which are recommended.
 
 1 line install command with clang:
 ```sh
-sudo apt-get install -y cmake ninja-build clang lld flex bison libsdl2-dev libopenal-dev libcurl4-openssl-dev
+sudo apt-get install -y cmake ninja-build clang lld flex bison libsdl2-dev libcurl4-openssl-dev
 ```
 
 Example with **CMake** and **ninja-build** installed:
@@ -51,7 +49,6 @@ Other compilers can be specified by appending `-DCMAKE_C_COMPILER=/path/to/compi
 Visual Studio (2019-2026) is generally preferred.
 
 - Get Flex/Bison: https://github.com/lexxmark/winflexbison/releases/latest
-- Get OpenAL: https://github.com/kcat/openal-soft/releases/latest rename `soft_oal.dll` to `OpenAL64.dll` on 64-bit and `OpenAL32.dll` on 32-bit
 - Get cURL: https://github.com/curl/curl
 
 Optionally, The cURL library can be compiled with the following CMake commands:
@@ -61,12 +58,12 @@ cmake --build build --config Release
 cmake --install build --config Release
 ```
 
-Append `-DFLEX_EXECUTABLE=...\win_flex.exe -DBISON_EXECUTABLE=...\win_bison.exe -DOPENAL_INCLUDE_DIR="path/to/oal/include" -DOPENAL_LIBRARY="path/to/oal"` to the CMake command-line to compile the project.
+Append `-DFLEX_EXECUTABLE=...\win_flex.exe -DBISON_EXECUTABLE=...\win_bison.exe` to the CMake command-line to compile the project.
 
 Example after cloning the repository:
 ```sh
 mkdir .cmake && cd .cmake
-cmake -DFLEX_EXECUTABLE=path/to/win_flex.exe -DBISON_EXECUTABLE=path/to/win_bison.exe -DOPENAL_INCLUDE_DIR="path/to/oal/include" -DOPENAL_LIBRARY="path/to/oal" ../
+cmake -DFLEX_EXECUTABLE=path/to/win_flex.exe -DBISON_EXECUTABLE=path/to/win_bison.exe ../
 cmake --build .
 cmake --install .
 ```

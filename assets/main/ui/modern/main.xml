@@ -292,21 +292,14 @@
 								     visible="{cvar.s_initsound != 0}"/>
 								<use template="settings-slider-row" label="Ambient volume" bind="cvar:s_ambientvolume" min="0" max="100" step="1" commit="change" value-type="percent"
 								     visible="{cvar.s_initsound != 0}"/>
-								<!-- Added in Omaha: host pick; speaker list depends on backend. -->
-								<use template="settings-cyclic-row" label="Audio Backend" bind="cvar:s_backend" source="audio-backend" commit="change"
-								     visible="{cvar.s_initsound != 0}"/>
-								<use template="settings-cyclic-row" label="Speaker Setup" bind="cvar:s_speaker_type" source="speaker-setup-omaha" commit="change"
-								     visible="{cvar.s_initsound != 0 and cvar.s_backend != openal}"/>
 								<use template="settings-cyclic-row" label="Speaker Setup" bind="cvar:s_speaker_type" source="speaker-setup" commit="change"
-								     visible="{cvar.s_initsound != 0 and cvar.s_backend == openal}"/>
+								     visible="{cvar.s_initsound != 0}"/>
 								<use template="settings-cyclic-row" label="Sound Quality" bind="cvar:s_khz" source="sample-rate" commit="change"
 								     visible="{cvar.s_initsound != 0}"/>
-								<use template="settings-on-off-row" label="EAX Reverb" bind="cvar:s_reverb" commit="change"
-								     visible="{cvar.s_initsound != 0 and cvar.s_backend == openal}"/>
-								<!-- Added in Omaha: omaha-only mix / obstruction knobs.
+								<!-- Added in Omaha: mix / obstruction knobs.
 								     Pattern per option: header label, help blurb, then on/off. -->
 								<container type="vertical" width="100%" height="auto" gap="8px"
-								           visible="{cvar.s_initsound != 0 and cvar.s_backend != openal}">
+								           visible="{cvar.s_initsound != 0}">
 									<use template="settings-section-header" label="OMAHA MIX"/>
 									<container type="vertical" width="100%" height="auto" gap="8px" padding="8px 12px" valign="start"
 									           visible="{(cvar.ui_om_settings_search == '' or icontains('Modern Mix', cvar.ui_om_settings_search))}">

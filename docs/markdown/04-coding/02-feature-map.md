@@ -11,8 +11,8 @@ cherry-picked with explicit dependencies.
 | `chore: establish Project: Omaha identity` | Branding only |
 | `feat(config): omahaconfig, portable homepath, first-run defaults` | Needs identity |
 | `fix(win32): keep nested Sys_ListFilteredFiles subdirectory paths` | Standalone |
-| `fix(sound): OpenAL local-listener dry path, gain cap, WAV data size` | Standalone |
-| `fix(sound): roll over capped sound voices` | Needs OpenAL fix |
+| `fix(sound): local-listener dry path, gain cap, WAV data size` | Standalone |
+| `fix(sound): roll over capped sound voices` | Needs the dry-path fix |
 | `fix(renderer): guard unallocated debug-line buffers` | Standalone |
 | `feat(gamespy): scheduled pipelined internet server discovery` | Standalone (FAKK browser too) |
 
@@ -22,7 +22,7 @@ cherry-picked with explicit dependencies.
 |--------|------------|
 | `feat(cgame): remote player prediction` | debug-line guards |
 | `feat(cgame): client-side first-person spectate` | — |
-| `feat(cgame): visible and audible hitmarkers` | OpenAL local-listener fix |
+| `feat(cgame): visible and audible hitmarkers` | local-listener dry path |
 | `feat(crosshair): procedural dynamic crosshair` | — (settings UI later) |
 
 ## Modern UI stack (take as a series)

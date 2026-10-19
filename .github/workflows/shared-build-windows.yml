@@ -38,7 +38,6 @@ jobs:
         flexbison-branch: 'v2.5.25'
         wolfssl-version: 'v5.7.6-stable'
         curl-version: '8_12_1'
-        openal-soft-branch: '1.24.3'
         sdl2-branch: 'release-2.32.8'
 
     steps:
@@ -146,51 +145,6 @@ jobs:
         cmake --install ./build --config Release
 
     ###
-    # OpenAL
-    ###
-    - name: Cache OpenAL
-      id: cache-openal-soft
-      uses: actions/cache@v4
-      with:
-        path: 'thirdparties/soft-oal/install'
-        key: ${{ runner.os }}-${{ matrix.architecture.name }}-openal-soft-${{ env.openal-soft-branch }}-v3-win7
-
-    # soft-oal setup
-    - name: Checkout soft-oal
-      if: steps.cache-openal-soft.outputs.cache-hit != 'true'
-      uses: actions/checkout@v4
-      with:
-        repository: 'kcat/openal-soft'
-        path: 'thirdparties/soft-oal'
-        ref: '${{ env.openal-soft-branch }}'
-
-    # soft-oal build
-    # Statically link the CRT runtime into OAL as a workaround to prevent crashes
-    - name: Configure and install soft-oal
-      if: steps.cache-openal-soft.outputs.cache-hit != 'true'
-      working-directory: ${{github.workspace}}/thirdparties/soft-oal
-      run: |
-        cmake -B ./build `
-        -DCMAKE_INSTALL_PREFIX='${{github.workspace}}/thirdparties/soft-oal/install' `
-        -DALSOFT_BUILD_ROUTER=OFF `
-        -DALSOFT_REQUIRE_WINMM=ON `
-        -DALSOFT_REQUIRE_DSOUND=ON `
-        -DALSOFT_REQUIRE_WASAPI=ON `
-        -DCMAKE_C_FLAGS="${{ env.DEP_API_FLAGS }}" `
-        -DCMAKE_CXX_FLAGS="${{ env.DEP_API_FLAGS }}" `
-        -DCMAKE_C_FLAGS_RELEASE="/MT /O2 /Ob2 /DNDEBUG ${{ env.DEP_API_FLAGS }}" `
-        -DCMAKE_CXX_FLAGS_RELEASE="/MT /O2 /Ob2 /DNDEBUG ${{ env.DEP_API_FLAGS }}" `
-        -DCMAKE_C_FLAGS_MINSIZEREL="/MT /O2 /Ob2 /DNDEBUG ${{ env.DEP_API_FLAGS }}" `
-        -DCMAKE_CXX_FLAGS_MINSIZEREL="/MT /O1 /Ob1 /DNDEBUG ${{ env.DEP_API_FLAGS }}" `
-        -DCMAKE_C_FLAGS_RELWITHDEBINFO="/MT /Zi /O2 /Ob1 /DNDEBUG ${{ env.DEP_API_FLAGS }}" `
-        -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="/MT /Zi /O2 /Ob1 /DNDEBUG ${{ env.DEP_API_FLAGS }}"
-        cmake --build ./build --config Release --parallel
-        if ($LASTEXITCODE -ne 0) { throw "OpenAL Soft build failed with exit code $LASTEXITCODE" }
-        cmake --install ./build --config Release
-        # Unfortunately soft-oal produces a binary called OpenAL32 even in 64-bit
-        if (("x64", "ARM64") -icontains "${{ matrix.architecture.config }}") { Rename-Item -Path '.\install\bin\OpenAL32.dll' -NewName 'OpenAL64.dll' }
-
-    ###
     # cURL
     #
     # Uses Schannel as SSL backend, native CAs are used
@@ -282,8 +236,6 @@ jobs:
         -DBISON_EXECUTABLE='${{github.workspace}}/thirdparties/winflexbison-install/win_bison.exe' `
         -DUSE_INTERNAL_SDL=OFF `
         -DSDL2_DIR='${{github.workspace}}/thirdparties/SDL2/install/cmake' `
-        -DOPENAL_LIBRARY='${{github.workspace}}/thirdparties/soft-oal' `
-        -DOPENAL_INCLUDE_DIR='${{github.workspace}}/thirdparties/soft-oal/install/include/AL' `
         -DCURL_ROOT='${{github.workspace}}/thirdparties/curl/install' `
         -DFLEX_EXECUTABLE='${{github.workspace}}/thirdparties/winflexbison-install/win_flex.exe' `
         -DUSE_RENDERER_DLOPEN=OFF `
@@ -309,7 +261,6 @@ jobs:
         cmake --install ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
         New-Item -ItemType Directory '${{github.workspace}}/package'
         Copy-Item '${{github.workspace}}/thirdparties/SDL2/install/bin/*.dll' -Destination '${{github.workspace}}/package'
-        Copy-Item '${{github.workspace}}/thirdparties/soft-oal/install/bin/*.dll' -Destination '${{github.workspace}}/package'
         Copy-Item '${{github.workspace}}/thirdparties/curl/install/bin/*.dll' -Destination '${{github.workspace}}/package'
         if (Test-Path ${{github.workspace}}/install/bin) { Copy-Item '${{github.workspace}}/install/bin/*' -Include '*.dll','*.exe','*.pdb' -Destination '${{github.workspace}}/package' }
         if (Test-Path ${{github.workspace}}/install/lib) { Copy-Item '${{github.workspace}}/install/lib/*' -Include '*.dll','*.exe','*.pdb' -Destination '${{github.workspace}}/package' }
