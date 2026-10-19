@@ -40,6 +40,9 @@ source tree, or write to the Free Software Foundation, Inc.,
 
 #include "mysofa.h"
 #include "pffft.h"
+#if defined(__SSE2__)
+#include <immintrin.h>
+#endif
 
 #ifndef M_PI
 #	define M_PI 3.14159265358979323846
@@ -95,6 +98,7 @@ struct omHrtfVoice_s {
 	int      fdlPos;
 	int      cur;
 	int      zeroRun;
+	unsigned char slotZero[OM_HRTF_MAX_PARTS]; /* Added in Omaha: skip exact-zero FDL slots. */
 	qboolean hasFilter;
 	float    filtDir[3];
 };
@@ -115,6 +119,7 @@ static struct {
 	float *work;
 	float *time;
 	float *acc;
+	float *accB; /* Added in Omaha: second accumulator so both ears convolve in one walk. */
 	float *padded;
 	float *shifted;
 	float *irL;
@@ -167,6 +172,53 @@ static void Hrtf_Free(float **p)
 		pffft_aligned_free(*p);
 		*p = NULL;
 	}
+}
+
+/* Added in Omaha: workers point these at private scratch; the mixer thread leaves them null. */
+static thread_local float *t_work;
+static thread_local float *t_acc;
+static thread_local float *t_accB;
+static thread_local float *t_time;
+
+static float *Hrtf_Work(void)
+{
+	return t_work ? t_work : s_hrtf.work;
+}
+static float *Hrtf_Acc(void)
+{
+	return t_acc ? t_acc : s_hrtf.acc;
+}
+static float *Hrtf_AccB(void)
+{
+	return t_accB ? t_accB : s_hrtf.accB;
+}
+static float *Hrtf_Time(void)
+{
+	return t_time ? t_time : s_hrtf.time;
+}
+
+void OmHrtf_SetThreadScratch(float *work, float *acc, float *accB, float *time)
+{
+	t_work = work;
+	t_acc  = acc;
+	t_accB = accB;
+	t_time = time;
+}
+
+void OmHrtf_AllocScratch(float **work, float **acc, float **accB, float **time)
+{
+	*work = Hrtf_Alloc(OM_HRTF_FFT);
+	*acc  = Hrtf_Alloc(OM_HRTF_FFT);
+	*accB = Hrtf_Alloc(OM_HRTF_FFT);
+	*time = Hrtf_Alloc(OM_HRTF_FFT);
+}
+
+void OmHrtf_FreeScratch(float *work, float *acc, float *accB, float *time)
+{
+	Hrtf_Free(&work);
+	Hrtf_Free(&acc);
+	Hrtf_Free(&accB);
+	Hrtf_Free(&time);
 }
 
 /* core/ambidefs.h CalcAmbiCoeffs, ambisonic axes X front, Y left, Z up. */
@@ -807,7 +859,23 @@ static void Hrtf_LookupBaked(const float dir[3], float *slot, float delays[2])
 			s1 = Hrtf_BakeSlot(d1, e);
 			s2 = Hrtf_BakeSlot(d2, e);
 			s3 = Hrtf_BakeSlot(d3, e);
-			for (i = 0; i < earStr; i++) {
+			i = 0;
+#if defined(__SSE2__)
+			{
+				const __m128 w0 = _mm_set1_ps(w[0]);
+				const __m128 w1 = _mm_set1_ps(w[1]);
+				const __m128 w2 = _mm_set1_ps(w[2]);
+				const __m128 w3 = _mm_set1_ps(w[3]);
+				for (; i + 4 <= earStr; i += 4) {
+					__m128 a = _mm_mul_ps(_mm_loadu_ps(s0 + i), w0);
+					a        = _mm_add_ps(a, _mm_mul_ps(_mm_loadu_ps(s1 + i), w1));
+					a        = _mm_add_ps(a, _mm_mul_ps(_mm_loadu_ps(s2 + i), w2));
+					a        = _mm_add_ps(a, _mm_mul_ps(_mm_loadu_ps(s3 + i), w3));
+					_mm_storeu_ps(slot + e * earStr + i, a);
+				}
+			}
+#endif
+			for (; i < earStr; i++) {
 				slot[e * earStr + i] =
 					s0[i] * w[0] + s1[i] * w[1] + s2[i] * w[2] + s3[i] * w[3];
 			}
@@ -1291,6 +1359,8 @@ static qboolean Hrtf_BuildAmbiDecoder(void)
 		const int          len  = s_hrtf.ambiParts * OM_HRTF_BLOCK;
 		const int          fade = OM_HRTF_BLOCK / 4;
 		std::vector<float> ir((size_t)len);
+		double             sumSq = 0.0;
+		double             tailSq = 0.0;
 
 		for (n = 0; n < OM_AMBI_CHANNELS; n++) {
 			for (ear = 0; ear < 2; ear++) {
@@ -1314,6 +1384,10 @@ static qboolean Hrtf_BuildAmbiDecoder(void)
 						v *= 0.5f + 0.5f * cosf((float)M_PI * (float)(i - (len - fade) + 1) / (float)fade);
 					}
 					ir[i] = v;
+					sumSq += (double)v * (double)v;
+					if (i >= len - OM_HRTF_BLOCK) {
+						tailSq += (double)v * (double)v;
+					}
 				}
 				Hrtf_Partition(
 					ir.data(),
@@ -1321,6 +1395,10 @@ static qboolean Hrtf_BuildAmbiDecoder(void)
 					s_hrtf.ambiFilt + ((size_t)n * 2 + ear) * s_hrtf.ambiParts * OM_HRTF_FFT
 				);
 			}
+		}
+		/* Added in Omaha: drop a trailing decoder partition below -100 dB (Tier C, usually a no-op). */
+		if (s_hrtf.ambiParts > 1 && sumSq > 0.0 && tailSq < sumSq * 1.0e-10) {
+			s_hrtf.ambiParts--;
 		}
 	}
 
@@ -1372,7 +1450,7 @@ void OmHrtf_AmbiDecode(float *const ambi[OM_AMBI_CHANNELS], float *outL, float *
 				s_hrtf.ambiZeroRun[n] = 0;
 			}
 			memcpy(inBuf + OM_HRTF_BLOCK, ambi[n] + b, sizeof(float) * OM_HRTF_BLOCK);
-			pffft_transform(s_hrtf.setup, inBuf, slot, s_hrtf.work, PFFFT_FORWARD);
+			pffft_transform(s_hrtf.setup, inBuf, slot, Hrtf_Work(), PFFFT_FORWARD);
 			memcpy(inBuf, inBuf + OM_HRTF_BLOCK, sizeof(float) * OM_HRTF_BLOCK);
 			live[n] = qtrue;
 			any     = qtrue;
@@ -1380,7 +1458,7 @@ void OmHrtf_AmbiDecode(float *const ambi[OM_AMBI_CHANNELS], float *outL, float *
 
 		if (any) {
 			for (ear = 0; ear < 2; ear++) {
-				memset(s_hrtf.acc, 0, sizeof(float) * OM_HRTF_FFT);
+				memset(Hrtf_Acc(), 0, sizeof(float) * OM_HRTF_FFT);
 				for (n = 0; n < OM_AMBI_CHANNELS; n++) {
 					const float *fdl  = s_hrtf.ambiFdl + (size_t)n * parts * OM_HRTF_FFT;
 					const float *filt = s_hrtf.ambiFilt + ((size_t)n * 2 + ear) * parts * OM_HRTF_FFT;
@@ -1390,13 +1468,13 @@ void OmHrtf_AmbiDecode(float *const ambi[OM_AMBI_CHANNELS], float *outL, float *
 					for (p = 0; p < parts; p++) {
 						const int slot = (s_hrtf.ambiFdlPos - p + parts) % parts;
 						pffft_zconvolve_accumulate(
-							s_hrtf.setup, fdl + slot * OM_HRTF_FFT, filt + p * OM_HRTF_FFT, s_hrtf.acc, scaling
+							s_hrtf.setup, fdl + slot * OM_HRTF_FFT, filt + p * OM_HRTF_FFT, Hrtf_Acc(), scaling
 						);
 					}
 				}
-				pffft_transform(s_hrtf.setup, s_hrtf.acc, s_hrtf.time, s_hrtf.work, PFFFT_BACKWARD);
+				pffft_transform(s_hrtf.setup, Hrtf_Acc(), Hrtf_Time(), Hrtf_Work(), PFFFT_BACKWARD);
 				for (i = 0; i < OM_HRTF_BLOCK; i++) {
-					outs[ear][b + i] += s_hrtf.time[OM_HRTF_BLOCK + i];
+					outs[ear][b + i] += Hrtf_Time()[OM_HRTF_BLOCK + i];
 				}
 			}
 		}
@@ -1405,19 +1483,32 @@ void OmHrtf_AmbiDecode(float *const ambi[OM_AMBI_CHANNELS], float *outL, float *
 	}
 }
 
-/* One output block: sum over partitions of fdl * filter, inverse FFT, keep the valid half. */
-static void Hrtf_ConvolveBlock(const float *fdl, int fdlPos, const float *filt, float *out)
+/* One output block: sum over partitions of fdl * filter, inverse FFT, keep the valid half.
+ * Both ears share the delay line, so one walk accumulates two filters. Added in Omaha. */
+static void Hrtf_ConvolveBlockStereo(
+	const float *fdl, int fdlPos, const unsigned char *slotZero, const float *filtL, const float *filtR, float *outL,
+	float *outR
+)
 {
 	const float scaling = 1.0f / (float)OM_HRTF_FFT;
+	float      *accL    = Hrtf_Acc();
+	float      *accR    = Hrtf_AccB();
 	int         p;
 
-	memset(s_hrtf.acc, 0, sizeof(float) * OM_HRTF_FFT);
+	memset(accL, 0, sizeof(float) * OM_HRTF_FFT);
+	memset(accR, 0, sizeof(float) * OM_HRTF_FFT);
 	for (p = 0; p < s_hrtf.parts; p++) {
 		const int slot = (fdlPos - p + s_hrtf.parts) % s_hrtf.parts;
-		pffft_zconvolve_accumulate(s_hrtf.setup, fdl + slot * OM_HRTF_FFT, filt + p * OM_HRTF_FFT, s_hrtf.acc, scaling);
+		if (slotZero && slotZero[slot]) {
+			continue;
+		}
+		pffft_zconvolve_accumulate(s_hrtf.setup, fdl + slot * OM_HRTF_FFT, filtL + p * OM_HRTF_FFT, accL, scaling);
+		pffft_zconvolve_accumulate(s_hrtf.setup, fdl + slot * OM_HRTF_FFT, filtR + p * OM_HRTF_FFT, accR, scaling);
 	}
-	pffft_transform(s_hrtf.setup, s_hrtf.acc, s_hrtf.time, s_hrtf.work, PFFFT_BACKWARD);
-	memcpy(out, s_hrtf.time + OM_HRTF_BLOCK, sizeof(float) * OM_HRTF_BLOCK);
+	pffft_transform(s_hrtf.setup, accL, Hrtf_Time(), Hrtf_Work(), PFFFT_BACKWARD);
+	memcpy(outL, Hrtf_Time() + OM_HRTF_BLOCK, sizeof(float) * OM_HRTF_BLOCK);
+	pffft_transform(s_hrtf.setup, accR, Hrtf_Time(), Hrtf_Work(), PFFFT_BACKWARD);
+	memcpy(outR, Hrtf_Time() + OM_HRTF_BLOCK, sizeof(float) * OM_HRTF_BLOCK);
 }
 
 omHrtfVoice_t *OmHrtf_VoiceAlloc(void)
@@ -1494,6 +1585,7 @@ void OmHrtf_VoiceReset(omHrtfVoice_t *hv)
 	hv->fdlPos     = 0;
 	hv->cur        = 0;
 	hv->zeroRun    = s_hrtf.parts + 1;
+	memset(hv->slotZero, 1, sizeof(hv->slotZero));
 	hv->hasFilter  = qfalse;
 	hv->filtDir[0] = 0.0f;
 	hv->filtDir[1] = 0.0f;
@@ -1560,28 +1652,42 @@ void OmHrtf_VoiceProcess(omHrtfVoice_t *hv, const float dir[3], const float *in,
 			float *slot = hv->fdl + hv->fdlPos * OM_HRTF_FFT;
 
 			memcpy(hv->inBuf + OM_HRTF_BLOCK, in + b, sizeof(float) * OM_HRTF_BLOCK);
-			pffft_transform(s_hrtf.setup, hv->inBuf, slot, s_hrtf.work, PFFFT_FORWARD);
+			pffft_transform(s_hrtf.setup, hv->inBuf, slot, Hrtf_Work(), PFFFT_FORWARD);
 			memcpy(hv->inBuf, hv->inBuf + OM_HRTF_BLOCK, sizeof(float) * OM_HRTF_BLOCK);
+			hv->slotZero[hv->fdlPos] = Hrtf_BlockIsZero(in + b) ? 1 : 0;
 		}
 
-		for (ear = 0; ear < 2; ear++) {
-			if (skipConvolve) {
+		if (skipConvolve) {
+			for (ear = 0; ear < 2; ear++) {
 				memset(wet, 0, sizeof(wet));
-			} else {
-				Hrtf_ConvolveBlock(hv->fdl, hv->fdlPos, hv->filt[hv->cur] + ear * specs, blockOld);
-				if (fade) {
-					const float step = 1.0f / (float)OM_HRTF_BLOCK;
-					Hrtf_ConvolveBlock(hv->fdl, hv->fdlPos, hv->filt[hv->cur ^ 1] + ear * specs, blockNew);
-					for (i = 0; i < OM_HRTF_BLOCK; i++) {
-						const float mu = (float)(i + 1) * step;
-						wet[i]         = blockOld[i] + (blockNew[i] - blockOld[i]) * mu;
-					}
-				} else {
-					memcpy(wet, blockOld, sizeof(wet));
-				}
+				Hrtf_DelayBlock(hv, ear, wet, outs[ear] + b);
 			}
-			/* Crossfade aligned filters, then apply a single smoothed ITD. */
-			Hrtf_DelayBlock(hv, ear, wet, outs[ear] + b);
+		} else if (!fade) {
+			Hrtf_ConvolveBlockStereo(
+				hv->fdl, hv->fdlPos, hv->slotZero, hv->filt[hv->cur], hv->filt[hv->cur] + specs, blockOld, blockNew
+			);
+			Hrtf_DelayBlock(hv, 0, blockOld, outs[0] + b);
+			Hrtf_DelayBlock(hv, 1, blockNew, outs[1] + b);
+		} else {
+			float newL[OM_HRTF_BLOCK];
+			float newR[OM_HRTF_BLOCK];
+			const float step = 1.0f / (float)OM_HRTF_BLOCK;
+			Hrtf_ConvolveBlockStereo(
+				hv->fdl, hv->fdlPos, hv->slotZero, hv->filt[hv->cur], hv->filt[hv->cur] + specs, blockOld, blockNew
+			);
+			Hrtf_ConvolveBlockStereo(
+				hv->fdl, hv->fdlPos, hv->slotZero, hv->filt[hv->cur ^ 1], hv->filt[hv->cur ^ 1] + specs, newL, newR
+			);
+			for (i = 0; i < OM_HRTF_BLOCK; i++) {
+				const float mu = (float)(i + 1) * step;
+				wet[i]         = blockOld[i] + (newL[i] - blockOld[i]) * mu;
+			}
+			Hrtf_DelayBlock(hv, 0, wet, outs[0] + b);
+			for (i = 0; i < OM_HRTF_BLOCK; i++) {
+				const float mu = (float)(i + 1) * step;
+				wet[i]         = blockNew[i] + (newR[i] - blockNew[i]) * mu;
+			}
+			Hrtf_DelayBlock(hv, 1, wet, outs[1] + b);
 		}
 		if (fade) {
 			hv->cur ^= 1;
@@ -1643,6 +1749,7 @@ void OmHrtf_Unload(void)
 	Hrtf_Free(&s_hrtf.work);
 	Hrtf_Free(&s_hrtf.time);
 	Hrtf_Free(&s_hrtf.acc);
+	Hrtf_Free(&s_hrtf.accB);
 	Hrtf_Free(&s_hrtf.padded);
 	Hrtf_Free(&s_hrtf.shifted);
 	Hrtf_Free(&s_hrtf.irL);
@@ -1721,6 +1828,7 @@ qboolean OmHrtf_Load(const void *data, int size, int sampleRate, const char *lab
 	s_hrtf.work    = Hrtf_Alloc(OM_HRTF_FFT);
 	s_hrtf.time    = Hrtf_Alloc(OM_HRTF_FFT);
 	s_hrtf.acc     = Hrtf_Alloc(OM_HRTF_FFT);
+	s_hrtf.accB    = Hrtf_Alloc(OM_HRTF_FFT);
 	s_hrtf.padded  = Hrtf_Alloc(OM_HRTF_FFT);
 	s_hrtf.shifted = Hrtf_Alloc(total * 2);
 	s_hrtf.irL     = Hrtf_Alloc(filterLength);
@@ -1728,7 +1836,7 @@ qboolean OmHrtf_Load(const void *data, int size, int sampleRate, const char *lab
 	s_hrtf.mpBuf   = Hrtf_Alloc(OM_DESIGN_FFT);
 	s_hrtf.mpSpec  = Hrtf_Alloc(OM_DESIGN_FFT);
 	s_hrtf.mpWork  = Hrtf_Alloc(OM_DESIGN_FFT);
-	if (!s_hrtf.setup || !s_hrtf.mpSetup || !s_hrtf.work || !s_hrtf.time || !s_hrtf.acc || !s_hrtf.padded
+	if (!s_hrtf.setup || !s_hrtf.mpSetup || !s_hrtf.work || !s_hrtf.time || !s_hrtf.acc || !s_hrtf.accB || !s_hrtf.padded
 		|| !s_hrtf.shifted || !s_hrtf.irL || !s_hrtf.irR || !s_hrtf.mpBuf || !s_hrtf.mpSpec || !s_hrtf.mpWork) {
 		Com_Printf("Sound/omaha: HRTF setup failed (out of memory)\n");
 		OmHrtf_Unload();

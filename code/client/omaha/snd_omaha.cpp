@@ -42,6 +42,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #define MAX_MUSIC_SONGS 16
 
+static void S_OMAHA_LoopHashReset(void);
+
 // Host-internal; the public sound API reaches these through s_sndHostOmaha.
 static void S_OMAHA_FadeSound(float fTime);
 static float S_OMAHA_GetBaseVolume(void);
@@ -300,6 +302,10 @@ static bool S_OMAHA_InitChannel(int idx, omaha_channel *chan)
     chan->fObstruction          = 0;
     chan->iCategory             = (int)SND_CAT_NONE;
     chan->iSpatialRoute         = -1;
+    chan->bSentPos              = qfalse;
+    chan->bSentVel              = qfalse;
+    chan->bSentGain             = qfalse;
+    chan->bTraceValid           = qfalse;
 
     chan->voiceId = g_sndRenderer->CreateVoice();
     if (chan->voiceId == SND_VOICE_NONE) {
@@ -546,6 +552,7 @@ void S_OMAHA_Shutdown()
         omaha.loop_sounds = NULL;
     }
     omaha.loop_sounds_count = omaha.loop_sounds_capacity = 0;
+    S_OMAHA_LoopHashReset();
 
     S_OMAHA_NukeContext();
     al_initialized = false;
@@ -1835,16 +1842,32 @@ static void S_OMAHA_UpdateObstruction(
         vec3_t vDelta;
         float  fDist;
         int    iInterval;
+        int    iNow;
 
+        /*
+         * Added in Omaha: demo export uses server time so two captures take the
+         * same traces. Unchanged endpoints reuse the last fraction for up to a
+         * second (movers can still close the ray after that).
+         */
+        iNow      = S_OMAHA_CaptureActive() ? cl.serverTime : cls.realtime;
         iInterval = OM_OBSTRUCT_CAL_MS;
-        pChannel->iNextObstructionCheck = cls.realtime + iInterval;
+        pChannel->iNextObstructionCheck = iNow + iInterval;
 
-        VectorSubtract(vOrigin, vListener, vDelta);
-        fDist = VectorLength(vDelta);
-        if (fDist < 32.f || (pChannel->fMaxDist > 0.f && fDist > pChannel->fMaxDist)) {
-            fObstruction = 0;
+        if (pChannel->bTraceValid && iNow - pChannel->iTraceTime < 1000
+            && VectorCompare(pChannel->vTraceListener, vListener) && VectorCompare(pChannel->vTraceOrigin, vOrigin)) {
+            fObstruction = pChannel->fObstruction;
         } else {
-            fObstruction = S_OMAHA_TraceObstruction(vListener, vOrigin);
+            VectorSubtract(vOrigin, vListener, vDelta);
+            fDist = VectorLength(vDelta);
+            if (fDist < 32.f || (pChannel->fMaxDist > 0.f && fDist > pChannel->fMaxDist)) {
+                fObstruction = 0;
+            } else {
+                fObstruction = S_OMAHA_TraceObstruction(vListener, vOrigin);
+            }
+            VectorCopy(vListener, pChannel->vTraceListener);
+            VectorCopy(vOrigin, pChannel->vTraceOrigin);
+            pChannel->iTraceTime  = iNow;
+            pChannel->bTraceValid = qtrue;
         }
     }
 
@@ -2277,6 +2300,87 @@ S_OMAHA_GrowLoopSounds
 Added in Omaha: expand loop list past the old 64-slot cap.
 ==============
 */
+/* Added in Omaha: sfx -> in-use loop slots, walked in ascending index order. */
+#define OM_LOOP_HASH 1024
+static int s_loopHashHead[OM_LOOP_HASH];
+static qboolean s_loopHashReady;
+
+static unsigned S_OMAHA_LoopHashSlot(const sfx_t *pSfx)
+{
+    uintptr_t p = (uintptr_t)pSfx;
+    return (unsigned)((p >> 4) ^ (p >> 12)) & (OM_LOOP_HASH - 1);
+}
+
+static void S_OMAHA_LoopHashEnsure(void)
+{
+    int i;
+
+    if (s_loopHashReady) {
+        return;
+    }
+    for (i = 0; i < OM_LOOP_HASH; i++) {
+        s_loopHashHead[i] = -1;
+    }
+    s_loopHashReady = qtrue;
+}
+
+static void S_OMAHA_LoopUnlink(int index)
+{
+    sfx_t   *pSfx;
+    unsigned h;
+    int     *pp;
+
+    if (index < 0 || !omaha.loop_sounds) {
+        return;
+    }
+    pSfx = omaha.loop_sounds[index].pSfx;
+    if (!pSfx) {
+        omaha.loop_sounds[index].iNextSameSfx = -1;
+        return;
+    }
+    S_OMAHA_LoopHashEnsure();
+    h  = S_OMAHA_LoopHashSlot(pSfx);
+    pp = &s_loopHashHead[h];
+    while (*pp >= 0 && *pp != index) {
+        pp = &omaha.loop_sounds[*pp].iNextSameSfx;
+    }
+    if (*pp == index) {
+        *pp = omaha.loop_sounds[index].iNextSameSfx;
+    }
+    omaha.loop_sounds[index].iNextSameSfx = -1;
+}
+
+static void S_OMAHA_LoopLink(int index)
+{
+    sfx_t   *pSfx;
+    unsigned h;
+    int     *pp;
+
+    pSfx = omaha.loop_sounds[index].pSfx;
+    if (!pSfx) {
+        return;
+    }
+    S_OMAHA_LoopHashEnsure();
+    S_OMAHA_LoopUnlink(index);
+    h  = S_OMAHA_LoopHashSlot(pSfx);
+    pp = &s_loopHashHead[h];
+    while (*pp >= 0 && *pp < index) {
+        pp = &omaha.loop_sounds[*pp].iNextSameSfx;
+    }
+    omaha.loop_sounds[index].iNextSameSfx = *pp;
+    *pp                                   = index;
+}
+
+static void S_OMAHA_LoopHashReset(void)
+{
+    int i;
+
+    for (i = 0; i < OM_LOOP_HASH; i++) {
+        s_loopHashHead[i] = -1;
+    }
+    s_loopHashReady = qtrue;
+}
+
 static int S_OMAHA_GrowLoopSounds(void)
 {
     int                  newCap;
@@ -2350,10 +2454,13 @@ void S_OMAHA_AddLoopingSound(
     }
 
     pLoopSound = &omaha.loop_sounds[iFreeLoopSound];
+    /* Unlink under the previous sfx before the slot is reused. Added in Omaha. */
+    S_OMAHA_LoopUnlink(iFreeLoopSound);
     VectorCopy(vOrigin, pLoopSound->vOrigin);
     VectorCopy(vVelocity, pLoopSound->vVelocity);
     pLoopSound->pSfx       = pSfx;
     pLoopSound->bInUse     = true;
+    S_OMAHA_LoopLink(iFreeLoopSound);
     pLoopSound->iStartTime = cls.realtime;
     /* Changed in Omaha: content ≤ 127/84 (Miles ceiling) before category mix on loops. */
     fVolume = S_OMAHA_ClampContentVolume(fVolume);
@@ -2367,7 +2474,8 @@ void S_OMAHA_AddLoopingSound(
     pLoopSound->bCombine    = VectorCompare(vVelocity, vec_zero) == 0;
 
     if (pLoopSound->bCombine) {
-        for (i = 0; i < omaha.loop_sounds_count; i++) {
+        /* Added in Omaha: same ascending-index walk as the old linear scan. */
+        for (i = s_loopHashHead[S_OMAHA_LoopHashSlot(pSfx)]; i >= 0; i = omaha.loop_sounds[i].iNextSameSfx) {
             if (omaha.loop_sounds[i].pSfx == pSfx && omaha.loop_sounds[i].bInUse) {
                 pLoopSound->iStartTime = omaha.loop_sounds[i].iStartTime;
                 if (omaha.loop_sounds[i].bPlaying) {
@@ -2398,7 +2506,7 @@ void S_OMAHA_StopLoopingSound(omaha_loop_sound_t *pLoopSound)
     pSfx     = pLoopSound->pSfx;
 
     if (pLoopSound->bCombine) {
-        for (i = 0; i < omaha.loop_sounds_count; i++) {
+        for (i = s_loopHashHead[S_OMAHA_LoopHashSlot(pSfx)]; i >= 0; i = omaha.loop_sounds[i].iNextSameSfx) {
             if (&omaha.loop_sounds[i] != pLoopSound && omaha.loop_sounds[i].pSfx == pSfx
                 && omaha.loop_sounds[i].bInUse) {
                 bMayStop = false;
@@ -2421,12 +2529,14 @@ void S_OMAHA_StopLoopingSound(omaha_loop_sound_t *pLoopSound)
             pChannel->force_free();
         }
     }
+    S_OMAHA_LoopUnlink((int)(pLoopSound - omaha.loop_sounds));
     pLoopSound->pSfx     = NULL;
     pLoopSound->bPlaying = false;
 
     if (pLoopSound->bCombine && pSfx) {
         for (i = 0; i < omaha.loop_sounds_count; i++) {
             if (omaha.loop_sounds[i].pSfx == pSfx) {
+                S_OMAHA_LoopUnlink(i);
                 omaha.loop_sounds[i].bPlaying = false;
                 omaha.loop_sounds[i].pSfx     = NULL;
             }
@@ -2809,7 +2919,8 @@ void S_OMAHA_AddLoopSounds(const vec3_t vTempAxis)
         }
 
         if (pLoopSound->bCombine) {
-            for (j = 0; j < omaha.loop_sounds_count; j++) {
+            for (j = s_loopHashHead[S_OMAHA_LoopHashSlot(pLoopSound->pSfx)]; j >= 0;
+                 j = omaha.loop_sounds[j].iNextSameSfx) {
                 omaha_loop_sound_t *pLoopSound2 = &omaha.loop_sounds[j];
 
                 if (pLoopSound2->pSfx == pLoopSound->pSfx) {
@@ -2867,7 +2978,8 @@ void S_OMAHA_AddLoopSounds(const vec3_t vTempAxis)
                 pChannel->stop();
                 pLoopSound->bPlaying = false;
                 if (pLoopSound->bCombine) {
-                    for (j = 0; j < omaha.loop_sounds_count; j++) {
+                    for (j = s_loopHashHead[S_OMAHA_LoopHashSlot(pLoopSound->pSfx)]; j >= 0;
+                         j = omaha.loop_sounds[j].iNextSameSfx) {
                         omaha_loop_sound_t *pLoopSound2 = &omaha.loop_sounds[j];
 
                         if (pLoopSound2->pSfx == pLoopSound->pSfx) {
@@ -2883,7 +2995,8 @@ void S_OMAHA_AddLoopSounds(const vec3_t vTempAxis)
         VectorClear(vLoopOrigin);
 
         if (pLoopSound->bCombine) {
-            for (j = 0; j < omaha.loop_sounds_count; j++) {
+            for (j = s_loopHashHead[S_OMAHA_LoopHashSlot(pLoopSound->pSfx)]; j >= 0;
+                 j = omaha.loop_sounds[j].iNextSameSfx) {
                 omaha_loop_sound_t *pLoopSound2 = &omaha.loop_sounds[j];
 
                 if (pLoopSound2->pSfx == pLoopSound->pSfx) {
@@ -2947,7 +3060,8 @@ void S_OMAHA_AddLoopSounds(const vec3_t vTempAxis)
         pLoopSound->iChannel = iChannel;
 
         if (pLoopSound->bCombine) {
-            for (j = 0; j < omaha.loop_sounds_count; j++) {
+            for (j = s_loopHashHead[S_OMAHA_LoopHashSlot(pLoopSound->pSfx)]; j >= 0;
+                 j = omaha.loop_sounds[j].iNextSameSfx) {
                 omaha_loop_sound_t *pLoopSound2 = &omaha.loop_sounds[j];
 
                 if (pLoopSound2->pSfx == pLoopSound->pSfx) {
@@ -3648,6 +3762,14 @@ void omaha_channel::set_velocity(float v0, float v1, float v2)
     if (voiceId == SND_VOICE_NONE) {
         return;
     }
+    /* Added in Omaha: skip a bitwise-unchanged send. */
+    if (bSentVel && fSentVel[0] == v0 && fSentVel[1] == v1 && fSentVel[2] == v2) {
+        return;
+    }
+    fSentVel[0] = v0;
+    fSentVel[1] = v1;
+    fSentVel[2] = v2;
+    bSentVel    = qtrue;
     g_sndRenderer->SetParam3f(voiceId, SND_PARAM_VELOCITY, v0, v1, v2);
 }
 
@@ -3661,6 +3783,14 @@ void omaha_channel::set_position(float v0, float v1, float v2)
     if (voiceId == SND_VOICE_NONE) {
         return;
     }
+    /* Added in Omaha: skip a bitwise-unchanged send. */
+    if (bSentPos && fSentPos[0] == v0 && fSentPos[1] == v1 && fSentPos[2] == v2) {
+        return;
+    }
+    fSentPos[0] = v0;
+    fSentPos[1] = v1;
+    fSentPos[2] = v2;
+    bSentPos    = qtrue;
     g_sndRenderer->SetParam3f(voiceId, SND_PARAM_POSITION, v0, v1, v2);
 }
 
@@ -3674,6 +3804,12 @@ void omaha_channel::set_gain(float gain)
     if (voiceId == SND_VOICE_NONE) {
         return;
     }
+    /* Added in Omaha: max gain is constant; skip when the gain bits did not change. */
+    if (bSentGain && fSentGain == gain) {
+        return;
+    }
+    fSentGain = gain;
+    bSentGain = qtrue;
     /* Fixed in Omaha: lift the 1.0 max gain so volume > 1 (e.g. hit notify 2.0) takes effect. */
     g_sndRenderer->SetParamf(voiceId, SND_PARAM_MAX_GAIN, 16.0f);
     g_sndRenderer->SetParamf(voiceId, SND_PARAM_GAIN, gain);
@@ -5121,6 +5257,9 @@ static qboolean S_StreamEnsureVoice(omaha_channel *chan)
         if (chan->voiceId == SND_VOICE_NONE) {
             return qfalse;
         }
+        chan->bSentPos  = qfalse;
+        chan->bSentVel  = qfalse;
+        chan->bSentGain = qfalse;
         g_sndRenderer->SetParami(chan->voiceId, SND_PARAM_SOURCE_RELATIVE, 1);
         g_sndRenderer->SetParamf(chan->voiceId, SND_PARAM_ROLLOFF_FACTOR, 0);
     }

@@ -58,9 +58,23 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include <atomic>
+#include <condition_variable>
 #include <deque>
+#include <memory>
 #include <mutex>
+#include <thread>
 #include <vector>
+
+#if defined(__SSE2__) || defined(_M_X64) || defined(_M_IX86)
+#	include <immintrin.h>
+#	define OM_HAVE_SSE2 1
+#else
+#	define OM_HAVE_SSE2 0
+#endif
+#if defined(__aarch64__)
+#	include <arm_neon.h>
+#endif
 
 #include "miniaudio.h"
 
@@ -269,6 +283,30 @@ struct omVoice_t {
 	omHrtfVoice_t *hrtf;
 	qboolean       hrtfDirect;
 	float          hrtfDir[3];
+
+	/* Added in Omaha: index in s_voices, stable for the deque. */
+	int selfId;
+
+	/* Added in Omaha: cached one-pole when fc is bitwise unchanged. */
+	float    cachedFc;
+	float    cachedLpA;
+	float    cachedMakeup;
+	qboolean fcValid;
+
+	/* Added in Omaha: skip CalcSpatial when every input bit matches. */
+	float    keyPos[3];
+	float    keyVel[3];
+	float    keyGain, keyMaxGain, keyPitch, keyRolloff, keyRef, keyMax;
+	int      keyRelative, keyDirect, keyRoute, keyRate, keyChannels, keyAllow;
+	uint32_t keyListener;
+	int      keyHrtf;
+	qboolean spatialValid;
+	float    spBase;
+	float    spDir[3];
+	float    spRear;
+	qboolean spHasDir;
+	qboolean spDirect;
+	float    cachedTargets[2][OM_MAX_OUT];
 };
 
 /* Added in Omaha: Om_CalcSpatial output, consumed by Om_CalcTargets. */
@@ -280,10 +318,159 @@ struct omSpatial_t {
 	float    rear;     /* Added in Omaha: stereo-mode rear-cue amount, 0 side/front .. 1 behind */
 };
 
-static std::vector<omBuffer_t> s_buffers;
-static std::vector<omVoice_t>  s_voices;
-static std::vector<omTail_t>   s_tails;
-static std::mutex              s_mixMutex;
+static std::deque<omBuffer_t> s_buffers;
+static std::deque<omVoice_t>  s_voices;
+static std::vector<omTail_t>  s_tails;
+/* Added in Omaha: short lock for the command queue. The mix itself does not hold it. */
+static std::mutex s_cmdMutex;
+static std::mutex s_mixMutex;
+
+/* Added in Omaha: active mix indices, ascending, so bus adds stay in slot order. */
+static std::vector<int> s_mixList;
+
+static std::atomic<uint64_t> s_cmdIssued{0};
+static std::atomic<uint64_t> s_cmdConsumed{0};
+
+/* Added in Omaha: one mix line of listener / smoother values shared by every voice. */
+struct omLineCtx_t {
+	float    U[3], V[3], N[3];
+	float    lvel[3];
+	float    obsSmooth;
+	float    rearSmooth;
+	float    rearA;
+	int      allowFilter;
+	uint32_t listenerSerial;
+};
+
+static uint32_t s_listenerSerial;
+static float    s_rearA = 1.f;
+
+/* Added in Omaha: limiter calibration cache and sliding-window maximum. */
+static int   s_limDelayLen;
+static float s_limPreTrim  = 1.f;
+static float s_limThresh   = 1.f;
+static float s_limMakeup   = 1.f;
+static float s_limCeiling  = 1.f;
+static int   s_limCalibMod = -1;
+static float s_limPeaks[OM_LIMITER_MAX_DELAY + 1];
+static int   s_limPeakN;
+static int   s_limDq[OM_LIMITER_MAX_DELAY + 2];
+static int   s_limDqH, s_limDqT;
+
+static void Om_LimDqClear(void)
+{
+	s_limPeakN = 0;
+	s_limDqH   = 0;
+	s_limDqT   = 0;
+}
+
+static void Om_LimDqPush(float peak)
+{
+	const int cap = OM_LIMITER_MAX_DELAY + 1;
+	const int win = s_limDelayLen + 1;
+	const int abs = s_limPeakN;
+
+	s_limPeaks[abs % cap] = peak;
+	s_limPeakN++;
+	while (s_limDqT != s_limDqH) {
+		int back = (s_limDqT + cap - 1) % cap;
+		/* Same strict > as the old scan: an equal peak does not replace. */
+		if (!(peak > s_limPeaks[s_limDq[back] % cap])) {
+			break;
+		}
+		s_limDqT = back;
+	}
+	s_limDq[s_limDqT] = abs;
+	s_limDqT          = (s_limDqT + 1) % cap;
+	while (s_limDqH != s_limDqT && s_limPeakN - s_limDq[s_limDqH] > win) {
+		s_limDqH = (s_limDqH + 1) % cap;
+	}
+}
+
+static float Om_LimDqMax(void)
+{
+	if (s_limDqH == s_limDqT) {
+		return 0.f;
+	}
+	return s_limPeaks[s_limDq[s_limDqH] % (OM_LIMITER_MAX_DELAY + 1)];
+}
+
+/* Added in Omaha: direct-HRTF jobs summed after the voice loop (phase 9). */
+struct omHrtfJob_t {
+	omHrtfVoice_t *hv;
+	float          dir[3];
+	int            inOff;
+	int            outOff;
+	int            count;
+};
+
+static std::vector<omHrtfJob_t> s_hrtfJobs;
+static std::vector<float>       s_hrtfArena;
+static std::vector<std::thread> s_hrtfWorkers;
+static std::mutex               s_jobMutex;
+static std::condition_variable  s_jobCv;
+static std::condition_variable  s_jobDoneCv;
+static std::atomic<int>         s_jobNext{0};
+static std::atomic<int>         s_jobDone{0};
+static int                      s_jobCount;
+static bool                     s_jobQuit;
+static bool                     s_jobRun;
+
+struct omCmd_t {
+	int                       op;
+	int                       id;
+	int                       i0, i1, i2;
+	float                     f0, f1, f2;
+	float                     a[12];
+	int                       flags;
+	uint64_t                  gen;
+	std::shared_ptr<omPcm_t>  pcm;
+};
+
+static thread_local int s_applying;
+
+enum {
+	OM_CMD_PARAMF = 1,
+	OM_CMD_PARAM3F,
+	OM_CMD_PARAMI,
+	OM_CMD_BUFFER,
+	OM_CMD_CLEARBUF,
+	OM_CMD_PLAY,
+	OM_CMD_PAUSE,
+	OM_CMD_STOP,
+	OM_CMD_OFFSET,
+	OM_CMD_LOOP,
+	OM_CMD_QUEUE,
+	OM_CMD_UNQUEUE,
+	OM_CMD_LISTENER,
+	OM_CMD_GAIN,
+	OM_CMD_DESTROY_VOICE,
+	OM_CMD_DESTROY_BUF
+};
+
+static std::vector<omCmd_t> s_cmds;
+
+struct omPub_t {
+	uint64_t localGen;
+	int      localState;
+	unsigned localOffset;
+	int      pubState;
+	unsigned pubOffset;
+	int      pubQueued;
+	int      pubProcessed;
+	int      dQueued;
+	int      dProcessed;
+	uint64_t dGen;
+	float    pubPos[3];
+	float    gain;
+	float    pitch;
+};
+
+static std::deque<omPub_t> s_pub;
+
+static void Om_SetMixing(omVoice_t *v, qboolean on);
+static qboolean Om_QueueCmd(omCmd_t c);
+static void Om_CompactMixList(void);
 
 static ma_context s_context;
 static qboolean   s_contextReady;
@@ -368,7 +555,6 @@ static cvar_t  *s_hf_duck_thresh;  /* Added in Omaha: sidechain dB where ducking
 static cvar_t  *s_hf_duck_sc_boost; /* Added in Omaha: sidechain make-up dB before envelope */
 static cvar_t  *s_mix; /* Added in Omaha: host mix-policy cvar; HF duck requires it on */
 static float    s_limDelay[OM_LIMITER_MAX_DELAY][2];
-static int      s_limDelayLen;
 static int      s_limHoldLen;
 static int      s_limHoldLeft;
 static int      s_limWrite;
@@ -394,6 +580,7 @@ static void Om_LimiterReset(void)
 	s_limFilled    = 0;
 	s_limGain      = 1.f;
 	s_limHoldLeft  = 0;
+	Om_LimDqClear(); /* Added in Omaha */
 	s_limDelayLen =
 		(int)(OM_LIMITER_LOOKAHEAD_MS * 0.001f * (float)s_sampleRate + 0.5f);
 	if (s_limDelayLen < 1) {
@@ -860,14 +1047,22 @@ static void Om_ApplyMaster(float *interleaved, int frames)
  * brickwall level below the fixed ceiling, plus opposite makeup so peaks land
  * at OM_LIMITER_CEILING_DB. Pre-trim is fixed (demo headroom calibration).
  */
-static void Om_LimiterCalibrate(float *preTrimLin, float *threshLin, float *makeupLin)
+/* Added in Omaha: powf only when the threshold cvar actually changes. */
+static void Om_LimiterEnsureCalib(void)
 {
-	float thrDb = s_limiter_threshold ? s_limiter_threshold->value : OM_LIMITER_THRESHOLD_DB;
+	int   mod   = s_limiter_threshold ? s_limiter_threshold->modificationCount : 0;
+	float thrDb;
 
-	thrDb = Om_Clamp(thrDb, OM_LIMITER_THRESHOLD_MIN_DB, OM_LIMITER_THRESHOLD_MAX_DB);
-	*preTrimLin = powf(10.f, OM_LIMITER_PRE_TRIM_DB * 0.05f);
-	*threshLin  = powf(10.f, (OM_LIMITER_CEILING_DB + thrDb) * 0.05f);
-	*makeupLin  = thrDb >= 0.f ? 1.f : powf(10.f, -thrDb * 0.05f);
+	if (mod == s_limCalibMod && s_limCalibMod >= 0) {
+		return;
+	}
+	s_limCalibMod = mod;
+	thrDb         = s_limiter_threshold ? s_limiter_threshold->value : OM_LIMITER_THRESHOLD_DB;
+	thrDb         = Om_Clamp(thrDb, OM_LIMITER_THRESHOLD_MIN_DB, OM_LIMITER_THRESHOLD_MAX_DB);
+	s_limPreTrim  = powf(10.f, OM_LIMITER_PRE_TRIM_DB * 0.05f);
+	s_limThresh   = powf(10.f, (OM_LIMITER_CEILING_DB + thrDb) * 0.05f);
+	s_limMakeup   = thrDb >= 0.f ? 1.f : powf(10.f, -thrDb * 0.05f);
+	s_limCeiling  = powf(10.f, OM_LIMITER_CEILING_DB * 0.05f);
 }
 
 /*
@@ -878,23 +1073,18 @@ static void Om_LimiterCalibrate(float *preTrimLin, float *threshLin, float *make
  */
 static void Om_ApplyLimiter(float *interleaved, int frames)
 {
-	float preTrimLin;
-	float threshLin;
-	float makeupLin;
-	float ceilingLin;
-	int   i;
+	int i;
 
 	if (!s_limiter || !s_limiter->integer || s_limDelayLen < 1) {
 		return;
 	}
 
-	Om_LimiterCalibrate(&preTrimLin, &threshLin, &makeupLin);
-	ceilingLin = powf(10.f, OM_LIMITER_CEILING_DB * 0.05f);
+	Om_LimiterEnsureCalib();
 
 	for (i = 0; i < frames; i++) {
 		/* Changed in Omaha: headroom trim before the delay / GR sidechain. */
-		const float inL    = interleaved[i * 2 + 0] * preTrimLin;
-		const float inR    = interleaved[i * 2 + 1] * preTrimLin;
+		const float inL    = interleaved[i * 2 + 0] * s_limPreTrim;
+		const float inR    = interleaved[i * 2 + 1] * s_limPreTrim;
 		const float inPeak = fmaxf(fabsf(inL), fabsf(inR));
 		float       outL;
 		float       outR;
@@ -903,6 +1093,7 @@ static void Om_ApplyLimiter(float *interleaved, int frames)
 		int         j;
 
 		if (s_limFilled < s_limDelayLen) {
+			Om_LimDqPush(inPeak);
 			s_limDelay[s_limWrite][0] = inL;
 			s_limDelay[s_limWrite][1] = inR;
 			s_limWrite++;
@@ -915,16 +1106,11 @@ static void Om_ApplyLimiter(float *interleaved, int frames)
 			continue;
 		}
 
-		/* Window = every sample still in the delay + the new one about to enter. */
-		windowPeak = inPeak;
-		for (j = 0; j < s_limDelayLen; j++) {
-			const float p = fmaxf(fabsf(s_limDelay[j][0]), fabsf(s_limDelay[j][1]));
-			if (p > windowPeak) {
-				windowPeak = p;
-			}
-		}
+		/* Added in Omaha: sliding-window max, same strict > as the old scan. */
+		Om_LimDqPush(inPeak);
+		windowPeak = Om_LimDqMax();
 
-		needed = windowPeak > threshLin ? (threshLin / windowPeak) : 1.f;
+		needed = windowPeak > s_limThresh ? (s_limThresh / windowPeak) : 1.f;
 		if (needed < s_limGain) {
 			s_limGain     = needed;
 			s_limHoldLeft = s_limHoldLen;
@@ -938,11 +1124,11 @@ static void Om_ApplyLimiter(float *interleaved, int frames)
 			}
 		}
 
-		outL = s_limDelay[s_limWrite][0] * s_limGain * makeupLin;
-		outR = s_limDelay[s_limWrite][1] * s_limGain * makeupLin;
+		outL = s_limDelay[s_limWrite][0] * s_limGain * s_limMakeup;
+		outR = s_limDelay[s_limWrite][1] * s_limGain * s_limMakeup;
 		/* Added in Omaha: float-safe ceiling after makeup (exact math already lands here). */
-		outL = Om_Clamp(outL, -ceilingLin, ceilingLin);
-		outR = Om_Clamp(outR, -ceilingLin, ceilingLin);
+		outL = Om_Clamp(outL, -s_limCeiling, s_limCeiling);
+		outR = Om_Clamp(outR, -s_limCeiling, s_limCeiling);
 
 		s_limDelay[s_limWrite][0] = inL;
 		s_limDelay[s_limWrite][1] = inR;
@@ -1007,6 +1193,61 @@ static void Om_ResampleCubic(const float *src, unsigned frac, unsigned increment
 	}
 }
 
+#if OM_HAVE_SSE2
+/* Added in Omaha: 4 taps via SSE mul+add. Horizontal sum is ((p0+p1)+p2)+p3. */
+static float Om_Cubic1SSE(const float *v, unsigned frac)
+{
+	const unsigned   pi  = frac >> OM_CUBIC_DIFF_BITS;
+	const float      pf  = (float)(frac & OM_CUBIC_DIFF_MASK) * (1.0f / OM_CUBIC_DIFF_ONE);
+	const omCubic_t *fil = &s_spline[pi];
+	__m128           ck, pr;
+	float            tmp[4];
+
+	ck = _mm_add_ps(
+		_mm_loadu_ps(fil->coeffs), _mm_mul_ps(_mm_set1_ps(pf), _mm_loadu_ps(fil->deltas))
+	);
+	pr = _mm_mul_ps(ck, _mm_loadu_ps(v));
+	_mm_storeu_ps(tmp, pr);
+	return (tmp[0] + tmp[1]) + tmp[2] + tmp[3];
+}
+
+static void Om_ResampleCubic4(const float *src, unsigned frac, unsigned increment, float *dst, int count)
+{
+	size_t pos = 0;
+	int    i   = 0;
+
+	for (; i + 3 < count; i += 4) {
+		unsigned f = frac;
+		size_t   p = pos;
+		int      k;
+
+		for (k = 0; k < 4; k++) {
+			dst[i + k] = Om_Cubic1SSE(src + p, f);
+			f += increment;
+			p += f >> OM_FRAC_BITS;
+			f &= OM_FRAC_MASK;
+		}
+		frac = f;
+		pos  = p;
+	}
+	for (; i < count; i++) {
+		dst[i] = Om_Cubic1SSE(src + pos, frac);
+		frac += increment;
+		pos += frac >> OM_FRAC_BITS;
+		frac &= OM_FRAC_MASK;
+	}
+}
+#endif
+
+static void Om_ResampleDispatch(const float *src, unsigned frac, unsigned increment, float *dst, int count)
+{
+#if OM_HAVE_SSE2
+	Om_ResampleCubic4(src, frac, increment, dst, count);
+#else
+	Om_ResampleCubic(src, frac, increment, dst, count);
+#endif
+}
+
 /* core/mixer/mixer_c.cpp MixLine; out is one bus line. */
 static void Om_MixLine(const float *in, float *out, float *curGain, float target, int counter, int count)
 {
@@ -1035,6 +1276,57 @@ static void Om_MixLine(const float *in, float *out, float *curGain, float target
 	}
 	for (; i < count; i++) {
 		out[i] += in[i] * target;
+	}
+}
+
+/* Added in Omaha: one walk of the source, several bus taps. Same per-tap math as Om_MixLine. */
+static void Om_MixLineMulti(
+	const float *in, float **outs, float *curGain, const float *target, int nOut, int counter, int count
+)
+{
+	const float delta   = counter > 0 ? 1.0f / (float)counter : 0.0f;
+	const int   fadeLen = counter < count ? counter : count;
+	float       step[OM_MAX_OUT];
+	float       gain[OM_MAX_OUT];
+	int         k, i;
+
+	if (nOut > OM_MAX_OUT) {
+		nOut = OM_MAX_OUT;
+	}
+	for (k = 0; k < nOut; k++) {
+		step[k] = (target[k] - curGain[k]) * delta;
+		gain[k] = curGain[k];
+	}
+	for (i = 0; i < count; i++) {
+		const float s = in[i];
+		for (k = 0; k < nOut; k++) {
+			float g;
+			if (fabsf(step[k]) > FLT_EPSILON) {
+				if (i < fadeLen) {
+					g = gain[k] + step[k] * (float)i;
+				} else if (fadeLen < counter) {
+					continue;
+				} else {
+					g = target[k];
+					if (!(fabsf(g) > OM_GAIN_SILENCE)) {
+						continue;
+					}
+				}
+			} else {
+				g = target[k];
+				if (!(fabsf(g) > OM_GAIN_SILENCE)) {
+					continue;
+				}
+			}
+			outs[k][i] += s * g;
+		}
+	}
+	for (k = 0; k < nOut; k++) {
+		if (fabsf(step[k]) > FLT_EPSILON && fadeLen < counter) {
+			curGain[k] = gain[k] + step[k] * (float)fadeLen;
+		} else {
+			curGain[k] = target[k];
+		}
 	}
 }
 
@@ -1193,7 +1485,7 @@ static qboolean Om_VoiceIsStatic(const omVoice_t *v)
  * gain directly. Sets the fixed-point step and lastDist; fills base gain and the
  * unscaled listener-space direction (mono 3D sources only).
  */
-static void Om_CalcSpatial(omVoice_t *v, const omPcm_t *pcm, omSpatial_t *sp)
+static void Om_CalcSpatial(omVoice_t *v, const omPcm_t *pcm, omSpatial_t *sp, const omLineCtx_t *ctx)
 {
 	const float freqRatio = (float)pcm->rate / (float)s_sampleRate;
 
@@ -1218,7 +1510,10 @@ static void Om_CalcSpatial(omVoice_t *v, const omPcm_t *pcm, omSpatial_t *sp)
 		float dryGainBase = v->gain;
 		float pitch = v->pitch;
 
-		Om_ListenerMatrix(U, V, N);
+		/* Added in Omaha: basis was built once for this line. */
+		U[0] = ctx->U[0]; U[1] = ctx->U[1]; U[2] = ctx->U[2];
+		V[0] = ctx->V[0]; V[1] = ctx->V[1]; V[2] = ctx->V[2];
+		N[0] = ctx->N[0]; N[1] = ctx->N[1]; N[2] = ctx->N[2];
 		if (!v->relative) {
 			float rel[3];
 			rel[0] = v->pos[0] - s_listenerPos[0];
@@ -1227,8 +1522,7 @@ static void Om_CalcSpatial(omVoice_t *v, const omPcm_t *pcm, omSpatial_t *sp)
 			Om_Transform(U, V, N, rel, position);
 			Om_Transform(U, V, N, v->vel, velocity);
 		} else {
-			float lvel[3];
-			Om_Transform(U, V, N, s_listenerVel, lvel);
+			const float *lvel = ctx->lvel;
 			position[0] = v->pos[0];
 			position[1] = v->pos[1];
 			position[2] = v->pos[2];
@@ -1258,10 +1552,9 @@ static void Om_CalcSpatial(omVoice_t *v, const omPcm_t *pcm, omSpatial_t *sp)
 		sp->base    = fminf(dryGainBase * 1.0f, OM_GAIN_MIX_MAX);
 
 		{
-			float lvel[3];
+			const float *lvel = ctx->lvel;
 			float vss, vls;
 
-			Om_Transform(U, V, N, s_listenerVel, lvel);
 			vss = (velocity[0] * toSource[0] + velocity[1] * toSource[1] + velocity[2] * toSource[2]) * -1.0f;
 			vls = (lvel[0] * toSource[0] + lvel[1] * toSource[1] + lvel[2] * toSource[2]) * -1.0f;
 			if (!(vls < OM_SPEED_OF_SOUND)) {
@@ -1420,8 +1713,13 @@ static void Om_LoadSamples(const omVoice_t *v, int ch, int posInt, int queueCur,
 		if (!v->looping) {
 			if (len > p) {
 				const size_t remaining = (count < len - p) ? count : len - p;
-				for (; done < remaining; done++) {
-					dst[done] = pcm->data[(p + done) * nch + ch];
+				if (nch == 1) {
+					memcpy(dst, pcm->data.data() + p, remaining * sizeof(float));
+					done = remaining;
+				} else {
+					for (; done < remaining; done++) {
+						dst[done] = pcm->data[(p + done) * nch + ch];
+					}
 				}
 				lastSample = dst[remaining - 1];
 			}
@@ -1439,8 +1737,12 @@ static void Om_LoadSamples(const omVoice_t *v, int ch, int posInt, int queueCur,
 		while (done < count) {
 			const size_t n = (count - done < loopEnd - p) ? count - done : loopEnd - p;
 			size_t       i;
-			for (i = 0; i < n; i++) {
-				dst[done + i] = pcm->data[(p + i) * nch + ch];
+			if (nch == 1) {
+				memcpy(dst + done, pcm->data.data() + p, n * sizeof(float));
+			} else {
+				for (i = 0; i < n; i++) {
+					dst[done + i] = pcm->data[(p + i) * nch + ch];
+				}
 			}
 			done += n;
 			p = loopStart;
@@ -1461,8 +1763,12 @@ static void Om_LoadSamples(const omVoice_t *v, int ch, int posInt, int queueCur,
 			} else {
 				const size_t remaining = (count - done < len - p) ? count - done : len - p;
 				size_t       i;
-				for (i = 0; i < remaining; i++) {
-					dst[done + i] = pcm->data[(p + i) * pcm->channels + ch];
+				if (pcm->channels == 1) {
+					memcpy(dst + done, pcm->data.data() + p, remaining * sizeof(float));
+				} else {
+					for (i = 0; i < remaining; i++) {
+						dst[done + i] = pcm->data[(p + i) * pcm->channels + ch];
+					}
 				}
 				done += remaining;
 				lastSample = dst[done - 1];
@@ -1526,7 +1832,7 @@ static void Om_ResampleChannel(omVoice_t *v, int ch, qboolean ended, qboolean st
 	if (v->step == OM_FRAC_ONE && v->posFrac == 0) {
 		memcpy(out, buf, sizeof(float) * count);
 	} else {
-		Om_ResampleCubic(data + OM_EDGE - 1, v->posFrac, v->step, out, count);
+		Om_ResampleDispatch(data + OM_EDGE - 1, v->posFrac, v->step, out, count);
 	}
 
 	if (storeHistory) {
@@ -1637,7 +1943,48 @@ static void Om_ReleaseHrtfLocked(void)
 }
 
 /* core/voice.cpp Voice::mix for one line of at most OM_LINE_SIZE samples. */
-static void Om_MixVoice(omVoice_t *v, int count)
+static void Om_SetMixing(omVoice_t *v, qboolean on)
+{
+	if ((qboolean)v->mixing == on) {
+		return;
+	}
+	v->mixing = on;
+	if (on) {
+		std::vector<int>::iterator it = std::lower_bound(s_mixList.begin(), s_mixList.end(), v->selfId);
+		if (it == s_mixList.end() || *it != v->selfId) {
+			s_mixList.insert(it, v->selfId);
+		}
+	}
+}
+
+static void Om_CompactMixList(void)
+{
+	size_t w = 0;
+	size_t i;
+
+	for (i = 0; i < s_mixList.size(); i++) {
+		const int id = s_mixList[i];
+		if (id >= 0 && (size_t)id < s_voices.size() && s_voices[id].used && s_voices[id].mixing) {
+			s_mixList[w++] = id;
+		}
+	}
+	s_mixList.resize(w);
+}
+
+static qboolean Om_GainsSilent(const omVoice_t *v, const float targets[2][OM_MAX_OUT])
+{
+	int c, k;
+	for (c = 0; c < 2; c++) {
+		for (k = 0; k < OM_MAX_OUT; k++) {
+			if (v->curGains[c][k] != 0.0f || targets[c][k] != 0.0f) {
+				return qfalse;
+			}
+		}
+	}
+	return qtrue;
+}
+
+static void Om_MixVoice(omVoice_t *v, int count, const omLineCtx_t *ctx)
 {
 	const omPcm_t *pcm = Om_VoiceFirstPcm(v);
 	float          targets[2][OM_MAX_OUT];
@@ -1645,26 +1992,49 @@ static void Om_MixVoice(omVoice_t *v, int count)
 	int            channels, counter, c, k;
 
 	if (!pcm) {
-		v->mixing = qfalse;
+		Om_SetMixing(v, qfalse);
 		v->state  = SND_STATE_STOPPED;
 		return;
 	}
 	channels = pcm->channels > 2 ? 2 : pcm->channels;
 
-	Om_CalcSpatial(v, pcm, &sp);
-	if (!s_hrtfOn) {
-		Om_CalcTargets(v, pcm, &sp, qfalse, targets);
-	} else {
+	{
+		qboolean allowDirect = qfalse;
+		qboolean hit;
+
+		if (s_hrtfOn && v->route == SND_ROUTE_DIRECT && channels == 1 && !v->hrtf) {
+			v->hrtf = OmHrtf_VoiceAlloc();
+		}
+		if (s_hrtfOn) {
+			allowDirect = (v->route == SND_ROUTE_DIRECT && v->hrtf) ? qtrue : qfalse;
+		}
+		hit = v->spatialValid && v->keyListener == ctx->listenerSerial && v->keyHrtf == (int)s_hrtfOn
+			&& v->keyAllow == (int)allowDirect && v->keyChannels == channels && v->keyRate == pcm->rate
+			&& v->keyRelative == v->relative && v->keyDirect == v->directChannels && v->keyRoute == v->route
+			&& v->keyGain == v->gain && v->keyMaxGain == v->maxGain && v->keyPitch == v->pitch
+			&& v->keyRolloff == v->rolloff && v->keyRef == v->refDist && v->keyMax == v->maxDist
+			&& v->keyPos[0] == v->pos[0] && v->keyPos[1] == v->pos[1] && v->keyPos[2] == v->pos[2]
+			&& v->keyVel[0] == v->vel[0] && v->keyVel[1] == v->vel[1] && v->keyVel[2] == v->vel[2];
+		if (hit) {
+			v->hrtfDirect = v->spDirect;
+			sp.base    = v->spBase;
+			sp.dir[0]  = v->spDir[0];
+			sp.dir[1]  = v->spDir[1];
+			sp.dir[2]  = v->spDir[2];
+			sp.hasDir  = v->spHasDir;
+			sp.direct  = v->spDirect;
+			sp.rear    = v->spRear;
+			memcpy(targets, v->cachedTargets, sizeof(targets));
+		} else if (!s_hrtfOn) {
+			Om_CalcSpatial(v, pcm, &sp, ctx);
+			Om_CalcTargets(v, pcm, &sp, qfalse, targets);
+		} else {
 		/* Added in Omaha: the direct filter is allocated on the first DIRECT mix. */
 		const int      prevBase   = v->outBase;
 		const int      prevCount  = v->outCount;
 		const qboolean prevDirect = v->hrtfDirect;
-		qboolean       allowDirect;
 
-		if (v->route == SND_ROUTE_DIRECT && channels == 1 && !v->hrtf) {
-			v->hrtf = OmHrtf_VoiceAlloc();
-		}
-		allowDirect = (v->route == SND_ROUTE_DIRECT && v->hrtf) ? qtrue : qfalse;
+		Om_CalcSpatial(v, pcm, &sp, ctx);
 		Om_CalcTargets(v, pcm, &sp, allowDirect, targets);
 
 		/* Route changed mid-sound: fade the old outputs out as a tail, fade the new ones in. */
@@ -1673,6 +2043,41 @@ static void Om_MixVoice(omVoice_t *v, int count)
 			memset(v->curGains, 0, sizeof(v->curGains));
 		}
 		v->hrtfDirect = sp.direct;
+		}
+		if (!hit) {
+			v->spatialValid = qtrue;
+			v->keyListener  = ctx->listenerSerial;
+			v->keyHrtf      = (int)s_hrtfOn;
+			v->keyAllow     = (int)allowDirect;
+			v->keyChannels  = channels;
+			v->keyRate      = pcm->rate;
+			v->keyRelative  = v->relative;
+			v->keyDirect    = v->directChannels;
+			v->keyRoute     = v->route;
+			v->keyGain      = v->gain;
+			v->keyMaxGain   = v->maxGain;
+			v->keyPitch     = v->pitch;
+			v->keyRolloff   = v->rolloff;
+			v->keyRef       = v->refDist;
+			v->keyMax       = v->maxDist;
+			v->keyPos[0]    = v->pos[0];
+			v->keyPos[1]    = v->pos[1];
+			v->keyPos[2]    = v->pos[2];
+			v->keyVel[0]    = v->vel[0];
+			v->keyVel[1]    = v->vel[1];
+			v->keyVel[2]    = v->vel[2];
+			v->spBase       = sp.base;
+			v->spDir[0]     = sp.dir[0];
+			v->spDir[1]     = sp.dir[1];
+			v->spDir[2]     = sp.dir[2];
+			v->spHasDir     = sp.hasDir;
+			v->spDirect     = sp.direct;
+			v->spRear       = sp.rear;
+			memcpy(v->cachedTargets, targets, sizeof(v->cachedTargets));
+			if (s_hrtfOn) {
+				v->hrtfDirect = sp.direct;
+			}
+		}
 	}
 
 	/*
@@ -1682,16 +2087,14 @@ static void Om_MixVoice(omVoice_t *v, int count)
 	 */
 	{
 		const qboolean spatial = v->directChannels == SND_DIRECT_CHANNELS_OFF ? qtrue : qfalse;
-		const qboolean allowFilter =
-			s_obstruction && s_obstruction->integer ? qtrue : qfalse;
+		const qboolean allowFilter = ctx->allowFilter ? qtrue : qfalse;
 		float          lpA     = 1.0f;
 		qboolean       filter  = qfalse;
 
 		if (!allowFilter) {
 			v->obstructCur = 0.0f;
 		} else {
-			const float smoothSamples = OM_OBSTRUCT_SMOOTH_MS * 0.001f * (float)s_sampleRate;
-			v->obstructCur += (v->obstructTarget - v->obstructCur) * (1.0f - expf(-(float)count / smoothSamples));
+			v->obstructCur += (v->obstructTarget - v->obstructCur) * ctx->obsSmooth;
 			if (fabsf(v->obstructTarget - v->obstructCur) < 0.0005f) {
 				v->obstructCur = v->obstructTarget;
 			}
@@ -1719,19 +2122,54 @@ static void Om_MixVoice(omVoice_t *v, int count)
 			 * barely-engaged filter does not get a full boost (no AGC).
 			 */
 			if (needFilter > 0.0f && fc < (float)s_sampleRate * 0.45f) {
-				int         kk;
-				float       makeup;
-				const float aSafe = fmaxf(lpA = 1.0f - expf(-2.0f * (float)M_PI * fmaxf(fc, 20.0f) / (float)s_sampleRate),
-										  1.0e-4f);
-				/* Tempered white-noise restore: ((2-a)/a)^0.25 */
-				makeup = sqrtf(sqrtf((2.0f - aSafe) / aSafe));
-				makeup = Om_Clamp(makeup, 1.0f, OM_OBSTRUCT_MAKEUP_MAX);
+				int   kk;
+				float makeup;
+				float aSafe;
+				/* Added in Omaha: same expression, cached while fc is bitwise unchanged. */
+				if (v->fcValid && v->cachedFc == fc) {
+					lpA    = v->cachedLpA;
+					makeup = v->cachedMakeup;
+				} else {
+					aSafe = fmaxf(lpA = 1.0f - expf(-2.0f * (float)M_PI * fmaxf(fc, 20.0f) / (float)s_sampleRate),
+								  1.0e-4f);
+					/* Tempered white-noise restore: ((2-a)/a)^0.25 */
+					makeup = sqrtf(sqrtf((2.0f - aSafe) / aSafe));
+					makeup = Om_Clamp(makeup, 1.0f, OM_OBSTRUCT_MAKEUP_MAX);
+					v->cachedFc     = fc;
+					v->cachedLpA    = lpA;
+					v->cachedMakeup = makeup;
+					v->fcValid      = qtrue;
+				}
 				filter = qtrue;
 				for (c = 0; c < 2; c++) {
 					for (kk = 0; kk < OM_MAX_OUT; kk++) {
 						targets[c][kk] *= makeup;
 					}
 				}
+			}
+		}
+
+		/*
+		 * Added in Omaha: a voice whose gains are exactly zero and whose one-pole
+		 * is not engaged only needs its read head and history moved.
+		 */
+		if (!sp.direct && !v->pausing && !filter && v->step == OM_FRAC_ONE && v->posFrac == 0
+			&& Om_GainsSilent(v, targets) && v->rearCur == 0.0f && sp.rear == 0.0f) {
+			uint64_t frac = (uint64_t)v->posFrac + (uint64_t)v->step * (uint64_t)count;
+			int      newPos = v->posInt + (int)(frac >> OM_FRAC_BITS);
+			qboolean ok     = qtrue;
+			for (c = 0; c < channels; c++) {
+				if (newPos < OM_EDGE) {
+					ok = qfalse;
+					break;
+				}
+				Om_LoadSamples(v, c, newPos - OM_EDGE, v->queueCur, v->history[c], OM_PADDING);
+				v->lpZ[c] = v->history[c][OM_PADDING - 1];
+			}
+			if (ok) {
+				v->rearZ = v->history[0][OM_PADDING - 1];
+				v->fading = qtrue;
+				goto om_advance;
 			}
 		}
 
@@ -1755,15 +2193,14 @@ static void Om_MixVoice(omVoice_t *v, int count)
 
 	/* Added in Omaha: rear head-shadow shelf (stereo mode, mono 3D sources only). */
 	if (channels == 1) {
-		const float smoothSamples = OM_REAR_SMOOTH_MS * 0.001f * (float)s_sampleRate;
-		float      *buf           = s_resampled[0];
+		float *buf = s_resampled[0];
 
-		v->rearCur += (sp.rear - v->rearCur) * (1.0f - expf(-(float)count / smoothSamples));
+		v->rearCur += (sp.rear - v->rearCur) * ctx->rearSmooth;
 		if (fabsf(sp.rear - v->rearCur) < 0.0005f) {
 			v->rearCur = sp.rear;
 		}
 		if (v->rearCur > 0.001f) {
-			const float a  = 1.0f - expf(-2.0f * (float)M_PI * OM_REAR_SHELF_HZ / (float)s_sampleRate);
+			const float a  = ctx->rearA;
 			const float hf = Om_Lerp(1.0f, OM_REAR_SHELF_HF, v->rearCur);
 			float       z  = v->rearZ;
 			for (k = 0; k < count; k++) {
@@ -1789,14 +2226,36 @@ static void Om_MixVoice(omVoice_t *v, int count)
 
 		memset(s_hrtfMono, 0, sizeof(float) * count);
 		Om_MixLine(s_resampled[0], s_hrtfMono, &v->curGains[0][0], target, counter, count);
-		OmHrtf_VoiceProcess(v->hrtf, sp.dir, s_hrtfMono, s_bus[OM_BUS_L], s_bus[OM_BUS_R], count);
+		/* Added in Omaha: direct HRTF is convolved after the voice loop so it can run in parallel. */
+		{
+			omHrtfJob_t job;
+			int         base;
+			memset(&job, 0, sizeof(job));
+			if ((int)s_hrtfArena.size() < (s_jobCount + 1) * count * 3) {
+				s_hrtfArena.resize((size_t)(s_jobCount + 8) * (size_t)count * 3, 0.f);
+			}
+			base = s_jobCount * count * 3;
+			memcpy(s_hrtfArena.data() + base, s_hrtfMono, sizeof(float) * (size_t)count);
+			job.hv     = v->hrtf;
+			job.dir[0] = sp.dir[0];
+			job.dir[1] = sp.dir[1];
+			job.dir[2] = sp.dir[2];
+			job.inOff  = base;
+			job.outOff = base + count;
+			job.count  = count;
+			s_hrtfJobs.push_back(job);
+			s_jobCount++;
+		}
 		VectorCopy(sp.dir, v->hrtfDir);
 	} else {
 		for (c = 0; c < channels; c++) {
+			float *outs[OM_MAX_OUT];
+			float  tgt[OM_MAX_OUT];
 			for (k = 0; k < v->outCount; k++) {
-				const float target = v->pausing ? 0.0f : targets[c][k];
-				Om_MixLine(s_resampled[c], s_bus[v->outBase + k], &v->curGains[c][k], target, counter, count);
+				outs[k] = s_bus[v->outBase + k];
+				tgt[k]  = v->pausing ? 0.0f : targets[c][k];
 			}
+			Om_MixLineMulti(s_resampled[c], outs, v->curGains[c], tgt, v->outCount, counter, count);
 		}
 	}
 	v->fading = qtrue;
@@ -1807,10 +2266,11 @@ static void Om_MixVoice(omVoice_t *v, int count)
 			Om_QueueTail(v, channels);
 		}
 		v->pausing = qfalse;
-		v->mixing  = qfalse;
+		Om_SetMixing(v, qfalse);
 		return;
 	}
 
+om_advance:
 	{
 		uint64_t frac = (uint64_t)v->posFrac + (uint64_t)v->step * (uint64_t)count;
 		v->posInt += (int)(frac >> OM_FRAC_BITS);
@@ -1847,14 +2307,143 @@ static void Om_MixVoice(omVoice_t *v, int count)
 	}
 
 	/* Out of data: the source stops now, the voice fades out next line. */
-	v->state  = SND_STATE_STOPPED;
-	v->mixing = qfalse;
+	v->state = SND_STATE_STOPPED;
+	Om_SetMixing(v, qfalse);
 	Om_QueueTail(v, channels);
+}
+
+static void Om_HrtfWorkerMain(void);
+
+static void Om_StartHrtfWorkers(void)
+{
+	int n, i;
+
+	if (!s_hrtfWorkers.empty()) {
+		return;
+	}
+	n = (int)std::thread::hardware_concurrency();
+	if (n > 4) {
+		n = 4;
+	}
+	n -= 1;
+	if (n < 1) {
+		return;
+	}
+	s_jobQuit = false;
+	s_jobRun  = false;
+	for (i = 0; i < n; i++) {
+		s_hrtfWorkers.emplace_back(Om_HrtfWorkerMain);
+	}
+}
+
+static void Om_StopHrtfWorkers(void)
+{
+	{
+		std::lock_guard<std::mutex> lock(s_jobMutex);
+		s_jobQuit = true;
+		s_jobRun  = true;
+	}
+	s_jobCv.notify_all();
+	for (size_t i = 0; i < s_hrtfWorkers.size(); i++) {
+		if (s_hrtfWorkers[i].joinable()) {
+			s_hrtfWorkers[i].join();
+		}
+	}
+	s_hrtfWorkers.clear();
+}
+
+static void Om_HrtfWorkerMain(void)
+{
+	float *work = NULL, *acc = NULL, *accB = NULL, *time = NULL;
+	OmHrtf_AllocScratch(&work, &acc, &accB, &time);
+	OmHrtf_SetThreadScratch(work, acc, accB, time);
+	for (;;) {
+		int job;
+		{
+			std::unique_lock<std::mutex> lock(s_jobMutex);
+			s_jobCv.wait(lock, [] { return s_jobQuit || s_jobRun; });
+			if (s_jobQuit) {
+				OmHrtf_FreeScratch(work, acc, accB, time);
+				return;
+			}
+		}
+		while ((job = s_jobNext.fetch_add(1, std::memory_order_relaxed)) < s_jobCount) {
+			omHrtfJob_t *j = &s_hrtfJobs[(size_t)job];
+			float       *in = s_hrtfArena.data() + j->inOff;
+			float       *outL = s_hrtfArena.data() + j->outOff;
+			float       *outR = outL + j->count;
+			memset(outL, 0, sizeof(float) * (size_t)j->count * 2);
+			OmHrtf_VoiceProcess(j->hv, j->dir, in, outL, outR, j->count);
+		}
+		if (s_jobDone.fetch_add(1, std::memory_order_acq_rel) + 1 >= (int)s_hrtfWorkers.size()) {
+			std::lock_guard<std::mutex> lock(s_jobMutex);
+			s_jobRun = false;
+			s_jobDoneCv.notify_one();
+		}
+	}
+}
+
+static void Om_RunHrtfJobs(void)
+{
+	int i;
+
+	if (s_jobCount <= 0) {
+		return;
+	}
+	/* Capture stays serial so the float dump does not depend on worker scheduling. */
+	if (s_captureActive || s_jobCount < 4 || s_hrtfWorkers.empty()) {
+		for (i = 0; i < s_jobCount; i++) {
+			omHrtfJob_t *j = &s_hrtfJobs[(size_t)i];
+			float       *in = s_hrtfArena.data() + j->inOff;
+			float       *outL = s_hrtfArena.data() + j->outOff;
+			float       *outR = outL + j->count;
+			memset(outL, 0, sizeof(float) * (size_t)j->count * 2);
+			OmHrtf_VoiceProcess(j->hv, j->dir, in, outL, outR, j->count);
+		}
+	} else {
+		{
+			std::lock_guard<std::mutex> lock(s_jobMutex);
+			s_jobNext.store(0, std::memory_order_relaxed);
+			s_jobDone.store(0, std::memory_order_relaxed);
+			s_jobRun = true;
+		}
+		s_jobCv.notify_all();
+		{
+			std::unique_lock<std::mutex> lock(s_jobMutex);
+			s_jobDoneCv.wait(lock, [] { return !s_jobRun; });
+		}
+	}
+	for (i = 0; i < s_jobCount; i++) {
+		omHrtfJob_t *j = &s_hrtfJobs[(size_t)i];
+		const float *outL = s_hrtfArena.data() + j->outOff;
+		const float *outR = outL + j->count;
+		int          n;
+		for (n = 0; n < j->count; n++) {
+			s_bus[OM_BUS_L][n] += outL[n];
+			s_bus[OM_BUS_R][n] += outR[n];
+		}
+	}
+}
+
+static void Om_FillLineCtx(omLineCtx_t *ctx, int count)
+{
+	float smooth;
+
+	Om_ListenerMatrix(ctx->U, ctx->V, ctx->N);
+	Om_Transform(ctx->U, ctx->V, ctx->N, s_listenerVel, ctx->lvel);
+	smooth = OM_OBSTRUCT_SMOOTH_MS * 0.001f * (float)s_sampleRate;
+	ctx->obsSmooth = 1.0f - expf(-(float)count / smooth);
+	smooth = OM_REAR_SMOOTH_MS * 0.001f * (float)s_sampleRate;
+	ctx->rearSmooth = 1.0f - expf(-(float)count / smooth);
+	ctx->rearA = s_rearA;
+	ctx->allowFilter = (s_obstruction && s_obstruction->integer) ? 1 : 0;
+	ctx->listenerSerial = s_listenerSerial;
 }
 
 static void Om_MixLineBlock(float *out, int count)
 {
 	const int busCount = OM_BUS_AMBI + (s_hrtfOn ? OM_AMBI_CHANNELS : 3);
+	omLineCtx_t ctx;
 	size_t    i;
 	int       o, j;
 
@@ -1862,13 +2451,19 @@ static void Om_MixLineBlock(float *out, int count)
 		memset(s_bus[o], 0, sizeof(float) * count);
 	}
 
+	s_hrtfJobs.clear();
+	s_jobCount = 0;
+	Om_FillLineCtx(&ctx, count);
+
 	Om_MixTails(count);
-	for (i = 0; i < s_voices.size(); i++) {
-		if (s_voices[i].used && s_voices[i].mixing) {
-			Om_MixVoice(&s_voices[i], count);
+	for (i = 0; i < s_mixList.size(); i++) {
+		omVoice_t *v = &s_voices[s_mixList[i]];
+		if (v->used && v->mixing) {
+			Om_MixVoice(v, count, &ctx);
 		}
 	}
-
+	Om_CompactMixList();
+	Om_RunHrtfJobs();
 	if (s_hrtfOn) {
 		/* Added in Omaha: binaural decode of the 3rd-order bus, on top of direct HRTF and dry L/R. */
 		float *ambi[OM_AMBI_CHANNELS];
@@ -1876,23 +2471,32 @@ static void Om_MixLineBlock(float *out, int count)
 			ambi[o] = s_bus[OM_BUS_AMBI + o];
 		}
 		OmHrtf_AmbiDecode(ambi, s_bus[OM_BUS_L], s_bus[OM_BUS_R], count);
-	} else
-	/* BFormatDec single-band: add each ambisonic input into the real outputs. */
-	for (o = 0; o < 2; o++) {
-		float *real = s_bus[OM_BUS_L + o];
-		int    a;
+	} else {
+	/* BFormatDec single-band: both speakers, one walk. Added in Omaha. */
+	float       gL[3], gR[3];
+	const float *inA[3];
+	int         a;
+	for (a = 0; a < 3; a++) {
+		gL[a]  = s_stereoDecoder[0][a];
+		gR[a]  = s_stereoDecoder[1][a];
+		inA[a] = s_bus[OM_BUS_W + a];
+	}
+	for (j = 0; j < count; j++) {
+		float l = s_bus[OM_BUS_L][j];
+		float r = s_bus[OM_BUS_R][j];
 		for (a = 0; a < 3; a++) {
-			const float  g  = s_stereoDecoder[o][a];
-			const float *in = s_bus[OM_BUS_W + a];
-			if (!(fabsf(g) > OM_GAIN_SILENCE)) {
-				continue;
+			const float s = inA[a][j];
+			if (fabsf(gL[a]) > OM_GAIN_SILENCE) {
+				l += s * gL[a];
 			}
-			for (j = 0; j < count; j++) {
-				real[j] += in[j] * g;
+			if (fabsf(gR[a]) > OM_GAIN_SILENCE) {
+				r += s * gR[a];
 			}
 		}
+		s_bus[OM_BUS_L][j] = l;
+		s_bus[OM_BUS_R][j] = r;
 	}
-
+	}
 	for (j = 0; j < count; j++) {
 		out[j * 2 + 0] = s_bus[OM_BUS_L][j];
 		out[j * 2 + 1] = s_bus[OM_BUS_R][j];
@@ -1913,9 +2517,55 @@ static void Om_MixLineBlock(float *out, int count)
 	Om_ApplyMaster(out, count);
 }
 
+struct OmFtzGuard {
+	unsigned old;
+	bool     on;
+	OmFtzGuard() : old(0), on(false)
+	{
+#if OM_HAVE_SSE2
+		old = _mm_getcsr();
+		_mm_setcsr(old | 0x8040); /* FTZ | DAZ. Added in Omaha. */
+		on = true;
+#elif defined(__aarch64__)
+		unsigned long fpcr;
+		__asm__ __volatile__("mrs %0, fpcr" : "=r"(fpcr));
+		old = (unsigned)fpcr;
+		__asm__ __volatile__("msr fpcr, %0" : : "r"(fpcr | (1ul << 24)));
+		on = true;
+#endif
+	}
+	~OmFtzGuard()
+	{
+#if OM_HAVE_SSE2
+		if (on) {
+			_mm_setcsr(old);
+		}
+#elif defined(__aarch64__)
+		if (on) {
+			unsigned long fpcr = old;
+			__asm__ __volatile__("msr fpcr, %0" : : "r"(fpcr));
+		}
+#endif
+	}
+};
+
+static void Om_DrainCmds(void);
+static void Om_PublishVoices(void);
+
 static void Om_Mix(float *out, int frames)
 {
+	OmFtzGuard ftz;
+	/* The game thread does not hold this. It only keeps the device callback and capture pull from mixing at once. */
 	std::lock_guard<std::mutex> lock(s_mixMutex);
+	s_applying = 1;
+	Om_DrainCmds();
+	struct ApplyScope {
+		~ApplyScope()
+		{
+			Om_PublishVoices();
+			s_applying = 0;
+		}
+	} applyScope;
 	if (s_hrtfOn) {
 		/* Added in Omaha: whole HRTF blocks per line; the remainder waits in the stash. */
 		while (frames > 0) {
@@ -2131,6 +2781,8 @@ static qboolean Om_Init(const sndDeviceConfig_t *cfg)
 	Om_InitSplineTable();
 
 	s_sampleRate = cfg && cfg->sampleRate > 0 ? cfg->sampleRate : 44100;
+	/* Added in Omaha: rear-shelf coefficient depends only on the device rate. */
+	s_rearA = 1.0f - expf(-2.0f * (float)M_PI * OM_REAR_SHELF_HZ / (float)s_sampleRate);
 	s_hrtfOn     = qfalse;
 	OmHrtf_Unload();
 	if (cfg && cfg->speakerType == 1) {
@@ -2222,6 +2874,7 @@ static qboolean Om_Init(const sndDeviceConfig_t *cfg)
 	}
 
 	s_deviceReady = qtrue;
+	Om_StartHrtfWorkers();
 	Com_Printf(
 		"Sound/omaha: '%s' started (%d Hz %s f32, limiter %s thr %.1f dB, lookahead %.1f ms)\n",
 		s_device.playback.name,
@@ -2236,6 +2889,7 @@ static qboolean Om_Init(const sndDeviceConfig_t *cfg)
 
 static void Om_Shutdown(void)
 {
+	Om_StopHrtfWorkers();
 	if (s_deviceReady) {
 		ma_device_uninit(&s_device);
 		s_deviceReady = qfalse;
@@ -2355,8 +3009,16 @@ static sndVoiceId_t Om_CreateVoice(void)
 	v.hrtfDir[0] = 0.f;
 	v.hrtfDir[1] = 0.f;
 	v.hrtfDir[2] = -1.f;
-	std::lock_guard<std::mutex> lock(s_mixMutex);
-	s_voices.push_back(std::move(v));
+	v.spatialValid = qfalse;
+	v.fcValid      = qfalse;
+	v.selfId       = (int)s_voices.size();
+	{
+		std::lock_guard<std::mutex> lock(s_cmdMutex);
+		s_voices.push_back(std::move(v));
+		s_pub.push_back(omPub_t());
+		memset(&s_pub.back(), 0, sizeof(omPub_t));
+		s_pub.back().pubState = SND_STATE_INITIAL;
+	}
 	return (sndVoiceId_t)(s_voices.size() - 1);
 }
 
@@ -2374,6 +3036,7 @@ static void Om_StopLocked(omVoice_t *v)
 	if (v->mixing) {
 		Om_QueueTail(v, Om_VoiceChannels(v));
 	}
+	Om_SetMixing(v, qfalse);
 	v->mixing           = qfalse;
 	v->pausing          = qfalse;
 	v->posInt           = 0;
@@ -2388,8 +3051,17 @@ static void Om_StopLocked(omVoice_t *v)
 
 static void Om_DestroyVoice(sndVoiceId_t id)
 {
-	std::lock_guard<std::mutex> lock(s_mixMutex);
-	omVoice_t                  *v = Om_Voice(id);
+	if (!s_applying) {
+		omCmd_t c = {};
+		c.op = OM_CMD_DESTROY_VOICE;
+		c.id = id;
+		if (Om_QueueCmd(std::move(c)) && id >= 0 && (size_t)id < s_pub.size()) {
+			s_pub[(size_t)id].localState = SND_STATE_STOPPED;
+			s_pub[(size_t)id].localGen   = s_cmdIssued.load(std::memory_order_relaxed);
+		}
+		return;
+	}
+	omVoice_t *v = Om_Voice(id);
 	if (!v) {
 		return;
 	}
@@ -2403,8 +3075,15 @@ static void Om_DestroyVoice(sndVoiceId_t id)
 
 static void Om_SetBuffer(sndVoiceId_t id, sndBufferId_t b)
 {
-	std::lock_guard<std::mutex> lock(s_mixMutex);
-	omVoice_t                  *v = Om_Voice(id);
+	if (!s_applying) {
+		omCmd_t c = {};
+		c.op = OM_CMD_BUFFER;
+		c.id = id;
+		c.i0 = b;
+		Om_QueueCmd(std::move(c));
+		return;
+	}
+	omVoice_t *v = Om_Voice(id);
 	if (!v) {
 		return;
 	}
@@ -2422,10 +3101,29 @@ static void Om_ClearBuffer(sndVoiceId_t v)
 	Om_SetBuffer(v, SND_BUFFER_NONE);
 }
 
+static qboolean Om_QueueCmd(omCmd_t c)
+{
+	if (s_applying) {
+		return qfalse;
+	}
+	std::lock_guard<std::mutex> lock(s_cmdMutex);
+	c.gen = s_cmdIssued.fetch_add(1, std::memory_order_relaxed) + 1;
+	s_cmds.push_back(std::move(c));
+	return qtrue;
+}
+
 static void Om_SetParamf(sndVoiceId_t id, sndParam_t p, float x)
 {
-	std::lock_guard<std::mutex> lock(s_mixMutex);
-	omVoice_t                  *v = Om_Voice(id);
+	if (!s_applying) {
+		omCmd_t c = {};
+		c.op = OM_CMD_PARAMF;
+		c.id = id;
+		c.i0 = (int)p;
+		c.f0 = x;
+		Om_QueueCmd(std::move(c));
+		return;
+	}
+	omVoice_t *v = Om_Voice(id);
 	if (!v) {
 		return;
 	}
@@ -2458,8 +3156,18 @@ static void Om_SetParamf(sndVoiceId_t id, sndParam_t p, float x)
 
 static void Om_SetParam3f(sndVoiceId_t id, sndParam_t p, float x, float y, float z)
 {
-	std::lock_guard<std::mutex> lock(s_mixMutex);
-	omVoice_t                  *v = Om_Voice(id);
+	if (!s_applying) {
+		omCmd_t c = {};
+		c.op = OM_CMD_PARAM3F;
+		c.id = id;
+		c.i0 = (int)p;
+		c.f0 = x;
+		c.f1 = y;
+		c.f2 = z;
+		Om_QueueCmd(std::move(c));
+		return;
+	}
+	omVoice_t *v = Om_Voice(id);
 	if (!v) {
 		return;
 	}
@@ -2476,8 +3184,16 @@ static void Om_SetParam3f(sndVoiceId_t id, sndParam_t p, float x, float y, float
 
 static void Om_SetParami(sndVoiceId_t id, sndParam_t p, int x)
 {
-	std::lock_guard<std::mutex> lock(s_mixMutex);
-	omVoice_t                  *v = Om_Voice(id);
+	if (!s_applying) {
+		omCmd_t c = {};
+		c.op = OM_CMD_PARAMI;
+		c.id = id;
+		c.i0 = (int)p;
+		c.i1 = x;
+		Om_QueueCmd(std::move(c));
+		return;
+	}
+	omVoice_t *v = Om_Voice(id);
 	if (!v) {
 		return;
 	}
@@ -2515,8 +3231,19 @@ static void Om_SetParami(sndVoiceId_t id, sndParam_t p, int x)
 
 static float Om_GetParamf(sndVoiceId_t id, sndParam_t p)
 {
-	std::lock_guard<std::mutex> lock(s_mixMutex);
-	omVoice_t                  *v = Om_Voice(id);
+	if (!s_applying) {
+		if (id < 0 || (size_t)id >= s_pub.size()) {
+			return 0;
+		}
+		if (p == SND_PARAM_GAIN) {
+			return s_pub[(size_t)id].gain;
+		}
+		if (p == SND_PARAM_PITCH) {
+			return s_pub[(size_t)id].pitch;
+		}
+		return 0;
+	}
+	omVoice_t *v = Om_Voice(id);
 	if (!v) {
 		return 0;
 	}
@@ -2532,8 +3259,16 @@ static float Om_GetParamf(sndVoiceId_t id, sndParam_t p)
 /* Added in Omaha: Miles/Soft partial loop region (sample frames). */
 static void Om_SetLoopPoints(sndVoiceId_t id, int startSample, int endSample)
 {
-	std::lock_guard<std::mutex> lock(s_mixMutex);
-	omVoice_t                  *v = Om_Voice(id);
+	if (!s_applying) {
+		omCmd_t c = {};
+		c.op = OM_CMD_LOOP;
+		c.id = id;
+		c.i0 = startSample;
+		c.i1 = endSample;
+		Om_QueueCmd(std::move(c));
+		return;
+	}
+	omVoice_t *v = Om_Voice(id);
 	if (!v) {
 		return;
 	}
@@ -2595,15 +3330,26 @@ static void Om_StartFreshVoice(omVoice_t *v, qboolean useOffset, unsigned offset
 			v->fading = qtrue;
 		}
 	}
-	v->mixing = qtrue;
-	v->state  = SND_STATE_PLAYING;
+	v->spatialValid = qfalse;
+	v->fcValid      = qfalse;
+	Om_SetMixing(v, qtrue);
+	v->state = SND_STATE_PLAYING;
 }
 
 /* al/source.cpp StartSources. */
 static void Om_Play(sndVoiceId_t id)
 {
-	std::lock_guard<std::mutex> lock(s_mixMutex);
-	omVoice_t                  *v = Om_Voice(id);
+	if (!s_applying) {
+		omCmd_t c = {};
+		c.op = OM_CMD_PLAY;
+		c.id = id;
+		if (Om_QueueCmd(std::move(c)) && id >= 0 && (size_t)id < s_pub.size()) {
+			s_pub[(size_t)id].localState = SND_STATE_PLAYING;
+			s_pub[(size_t)id].localGen   = s_cmdIssued.load(std::memory_order_relaxed);
+		}
+		return;
+	}
+	omVoice_t *v = Om_Voice(id);
 	if (!v) {
 		return;
 	}
@@ -2616,8 +3362,8 @@ static void Om_Play(sndVoiceId_t id)
 	if (v->state == SND_STATE_PAUSED) {
 		/* Same voice resumes; it fades back in from the paused (silent) gains. */
 		v->pausing = qfalse;
-		v->mixing  = qtrue;
-		v->state   = SND_STATE_PLAYING;
+		Om_SetMixing(v, qtrue);
+		v->state = SND_STATE_PLAYING;
 		return;
 	}
 
@@ -2631,8 +3377,17 @@ static void Om_Play(sndVoiceId_t id)
 
 static void Om_Pause(sndVoiceId_t id)
 {
-	std::lock_guard<std::mutex> lock(s_mixMutex);
-	omVoice_t                  *v = Om_Voice(id);
+	if (!s_applying) {
+		omCmd_t c = {};
+		c.op = OM_CMD_PAUSE;
+		c.id = id;
+		if (Om_QueueCmd(std::move(c)) && id >= 0 && (size_t)id < s_pub.size()) {
+			s_pub[(size_t)id].localState = SND_STATE_PAUSED;
+			s_pub[(size_t)id].localGen   = s_cmdIssued.load(std::memory_order_relaxed);
+		}
+		return;
+	}
+	omVoice_t *v = Om_Voice(id);
 	if (v && v->state == SND_STATE_PLAYING) {
 		v->state = SND_STATE_PAUSED;
 		if (v->mixing) {
@@ -2643,8 +3398,17 @@ static void Om_Pause(sndVoiceId_t id)
 
 static void Om_Stop(sndVoiceId_t id)
 {
-	std::lock_guard<std::mutex> lock(s_mixMutex);
-	omVoice_t                  *v = Om_Voice(id);
+	if (!s_applying) {
+		omCmd_t c = {};
+		c.op = OM_CMD_STOP;
+		c.id = id;
+		if (Om_QueueCmd(std::move(c)) && id >= 0 && (size_t)id < s_pub.size()) {
+			s_pub[(size_t)id].localState = SND_STATE_STOPPED;
+			s_pub[(size_t)id].localGen   = s_cmdIssued.load(std::memory_order_relaxed);
+		}
+		return;
+	}
+	omVoice_t *v = Om_Voice(id);
 	if (!v) {
 		return;
 	}
@@ -2657,8 +3421,17 @@ static void Om_Stop(sndVoiceId_t id)
 
 static int Om_GetState(sndVoiceId_t id)
 {
-	std::lock_guard<std::mutex> lock(s_mixMutex);
-	omVoice_t                  *v = Om_Voice(id);
+	if (!s_applying) {
+		if (id < 0 || (size_t)id >= s_pub.size()) {
+			return SND_STATE_STOPPED;
+		}
+		const omPub_t *p = &s_pub[(size_t)id];
+		if (p->localGen > s_cmdConsumed.load(std::memory_order_acquire)) {
+			return p->localState;
+		}
+		return p->pubState;
+	}
+	omVoice_t *v = Om_Voice(id);
 	if (!v) {
 		return SND_STATE_STOPPED;
 	}
@@ -2668,8 +3441,17 @@ static int Om_GetState(sndVoiceId_t id)
 /* AL_SAMPLE_OFFSET: frames from the start of the queue, including processed buffers. */
 static unsigned Om_GetSampleOffset(sndVoiceId_t id)
 {
-	std::lock_guard<std::mutex> lock(s_mixMutex);
-	omVoice_t                  *v = Om_Voice(id);
+	if (!s_applying) {
+		if (id < 0 || (size_t)id >= s_pub.size()) {
+			return 0;
+		}
+		const omPub_t *p = &s_pub[(size_t)id];
+		if (p->localGen > s_cmdConsumed.load(std::memory_order_acquire)) {
+			return p->localOffset;
+		}
+		return p->pubOffset;
+	}
+	omVoice_t *v = Om_Voice(id);
 	unsigned                    offset = 0;
 	int                         i;
 
@@ -2686,8 +3468,18 @@ static unsigned Om_GetSampleOffset(sndVoiceId_t id)
 
 static void Om_SetSampleOffset(sndVoiceId_t id, unsigned off)
 {
-	std::lock_guard<std::mutex> lock(s_mixMutex);
-	omVoice_t                  *v = Om_Voice(id);
+	if (!s_applying) {
+		omCmd_t c = {};
+		c.op = OM_CMD_OFFSET;
+		c.id = id;
+		c.i0 = (int)off;
+		if (Om_QueueCmd(std::move(c)) && id >= 0 && (size_t)id < s_pub.size()) {
+			s_pub[(size_t)id].localOffset = off;
+			s_pub[(size_t)id].localGen    = s_cmdIssued.load(std::memory_order_relaxed);
+		}
+		return;
+	}
+	omVoice_t *v = Om_Voice(id);
 	if (!v) {
 		return;
 	}
@@ -2722,28 +3514,61 @@ static void Om_QueueStreamBuffer(
 		return;
 	}
 
-	std::lock_guard<std::mutex> lock(s_mixMutex);
-	omVoice_t                  *v = Om_Voice(id);
+	if (!s_applying) {
+		omCmd_t c = {};
+		c.op  = OM_CMD_QUEUE;
+		c.id  = id;
+		c.pcm = std::make_shared<omPcm_t>(std::move(pcm));
+		if (Om_QueueCmd(std::move(c)) && id >= 0 && (size_t)id < s_pub.size()) {
+			s_pub[(size_t)id].dQueued++;
+			s_pub[(size_t)id].dGen = s_cmdIssued.load(std::memory_order_relaxed);
+		}
+		return;
+	}
+	omVoice_t *v = Om_Voice(id);
 	if (!v) {
 		return;
 	}
 	if (v->queue.empty()) {
 		v->buffer = SND_BUFFER_NONE;
 	}
+	if (s_applying) {
+		/* The deferred path owns the PCM; this call is the apply. */
+	}
 	v->queue.push_back(std::move(pcm));
 }
 
 static int Om_StreamBuffersQueued(sndVoiceId_t id)
 {
-	std::lock_guard<std::mutex> lock(s_mixMutex);
-	omVoice_t                  *v = Om_Voice(id);
+	if (!s_applying) {
+		if (id < 0 || (size_t)id >= s_pub.size()) {
+			return 0;
+		}
+		const omPub_t *p = &s_pub[(size_t)id];
+		if (p->dGen > s_cmdConsumed.load(std::memory_order_acquire)) {
+			int n = p->pubQueued + p->dQueued - p->dProcessed;
+			return n > 0 ? n : 0;
+		}
+		return p->pubQueued;
+	}
+	omVoice_t *v = Om_Voice(id);
 	return v ? (int)v->queue.size() : 0;
 }
 
 static int Om_StreamBuffersProcessed(sndVoiceId_t id)
 {
-	std::lock_guard<std::mutex> lock(s_mixMutex);
-	omVoice_t                  *v = Om_Voice(id);
+	if (!s_applying) {
+		if (id < 0 || (size_t)id >= s_pub.size()) {
+			return 0;
+		}
+		const omPub_t *p = &s_pub[(size_t)id];
+		if (p->dGen > s_cmdConsumed.load(std::memory_order_acquire)) {
+			int n = p->pubProcessed - p->dProcessed;
+			return n > 0 ? n : 0;
+		}
+		return p->pubProcessed;
+	}
+	omVoice_t *v = Om_Voice(id);
 	if (!v) {
 		return 0;
 	}
@@ -2758,8 +3583,18 @@ static int Om_StreamBuffersProcessed(sndVoiceId_t id)
 
 static void Om_UnqueueProcessed(sndVoiceId_t id, int count)
 {
-	std::lock_guard<std::mutex> lock(s_mixMutex);
-	omVoice_t                  *v = Om_Voice(id);
+	if (!s_applying) {
+		omCmd_t c = {};
+		c.op = OM_CMD_UNQUEUE;
+		c.id = id;
+		c.i0 = count;
+		if (Om_QueueCmd(std::move(c)) && id >= 0 && (size_t)id < s_pub.size()) {
+			s_pub[(size_t)id].dProcessed += count;
+			s_pub[(size_t)id].dGen = s_cmdIssued.load(std::memory_order_relaxed);
+		}
+		return;
+	}
+	omVoice_t *v = Om_Voice(id);
 	int                         processed;
 	if (!v || count <= 0) {
 		return;
@@ -2779,30 +3614,193 @@ static void Om_UnqueueProcessed(sndVoiceId_t id, int count)
 
 static void Om_SetListener(const float pos[3], const float vel[3], const float at[3], const float up[3])
 {
-	std::lock_guard<std::mutex> lock(s_mixMutex);
-	if (pos) {
+	if (!s_applying) {
+		omCmd_t c = {};
+		c.op = OM_CMD_LISTENER;
+		if (pos) {
+			c.flags |= 1;
+			c.a[0] = pos[0];
+			c.a[1] = pos[1];
+			c.a[2] = pos[2];
+		}
+		if (vel) {
+			c.flags |= 2;
+			c.a[3] = vel[0];
+			c.a[4] = vel[1];
+			c.a[5] = vel[2];
+		}
+		if (at && up) {
+			c.flags |= 4;
+			c.a[6] = at[0];
+			c.a[7] = at[1];
+			c.a[8] = at[2];
+			c.a[9] = up[0];
+			c.a[10] = up[1];
+			c.a[11] = up[2];
+		}
+		Om_QueueCmd(std::move(c));
+		return;
+	}
+	std::lock_guard<std::mutex> lock(s_cmdMutex);
+	qboolean changed = qfalse;
+	if (pos && memcmp(s_listenerPos, pos, sizeof(s_listenerPos))) {
 		memcpy(s_listenerPos, pos, sizeof(s_listenerPos));
+		changed = qtrue;
 	}
-	if (vel) {
+	if (vel && memcmp(s_listenerVel, vel, sizeof(s_listenerVel))) {
 		memcpy(s_listenerVel, vel, sizeof(s_listenerVel));
+		changed = qtrue;
 	}
-	if (at && up) {
+	if (at && up && (memcmp(s_listenerAt, at, sizeof(s_listenerAt)) || memcmp(s_listenerUp, up, sizeof(s_listenerUp)))) {
 		memcpy(s_listenerAt, at, sizeof(s_listenerAt));
 		memcpy(s_listenerUp, up, sizeof(s_listenerUp));
+		changed = qtrue;
+	}
+	if (changed) {
+		s_listenerSerial++;
 	}
 }
 
 static void Om_SetListenerGain(float g)
 {
-	std::lock_guard<std::mutex> lock(s_mixMutex);
+	if (!s_applying) {
+		omCmd_t c = {};
+		c.op = OM_CMD_GAIN;
+		c.f0 = g;
+		Om_QueueCmd(std::move(c));
+		return;
+	}
 	s_listenerGain = g;
 }
 
 static void Om_GetListenerPosition(float out[3])
 {
-	std::lock_guard<std::mutex> lock(s_mixMutex);
-	if (out) {
-		memcpy(out, s_listenerPos, sizeof(s_listenerPos));
+	if (!out) {
+		return;
+	}
+	std::lock_guard<std::mutex> lock(s_cmdMutex);
+	memcpy(out, s_listenerPos, sizeof(s_listenerPos));
+}
+
+/* Added in Omaha: apply the game thread's command list before mixing, then publish reads. */
+static void Om_DrainCmds(void)
+{
+	std::vector<omCmd_t> local;
+	uint64_t             upto;
+	size_t               i;
+
+	{
+		std::lock_guard<std::mutex> lock(s_cmdMutex);
+		local.swap(s_cmds);
+		upto = s_cmdIssued.load(std::memory_order_relaxed);
+	}
+	s_applying = 1;
+	for (i = 0; i < local.size(); i++) {
+		omCmd_t   *c = &local[i];
+		omVoice_t *v;
+		switch (c->op) {
+		case OM_CMD_PARAMF:
+			Om_SetParamf((sndVoiceId_t)c->id, (sndParam_t)c->i0, c->f0);
+			break;
+		case OM_CMD_PARAM3F:
+			Om_SetParam3f((sndVoiceId_t)c->id, (sndParam_t)c->i0, c->f0, c->f1, c->f2);
+			break;
+		case OM_CMD_PARAMI:
+			Om_SetParami((sndVoiceId_t)c->id, (sndParam_t)c->i0, c->i1);
+			break;
+		case OM_CMD_BUFFER:
+			Om_SetBuffer((sndVoiceId_t)c->id, (sndBufferId_t)c->i0);
+			break;
+		case OM_CMD_PLAY:
+			Om_Play((sndVoiceId_t)c->id);
+			break;
+		case OM_CMD_PAUSE:
+			Om_Pause((sndVoiceId_t)c->id);
+			break;
+		case OM_CMD_STOP:
+			Om_Stop((sndVoiceId_t)c->id);
+			break;
+		case OM_CMD_OFFSET:
+			Om_SetSampleOffset((sndVoiceId_t)c->id, (unsigned)c->i0);
+			break;
+		case OM_CMD_LOOP:
+			Om_SetLoopPoints((sndVoiceId_t)c->id, c->i0, c->i1);
+			break;
+		case OM_CMD_QUEUE:
+			v = Om_Voice((sndVoiceId_t)c->id);
+			if (v && c->pcm) {
+				if (v->queue.empty()) {
+					v->buffer = SND_BUFFER_NONE;
+				}
+				v->queue.push_back(std::move(*c->pcm));
+			}
+			break;
+		case OM_CMD_UNQUEUE:
+			Om_UnqueueProcessed((sndVoiceId_t)c->id, c->i0);
+			break;
+		case OM_CMD_LISTENER: {
+			float pos[3], vel[3], at[3], up[3];
+			memcpy(pos, c->a + 0, sizeof(pos));
+			memcpy(vel, c->a + 3, sizeof(vel));
+			memcpy(at, c->a + 6, sizeof(at));
+			memcpy(up, c->a + 9, sizeof(up));
+			Om_SetListener((c->flags & 1) ? pos : NULL, (c->flags & 2) ? vel : NULL, (c->flags & 4) ? at : NULL,
+						   (c->flags & 4) ? up : NULL);
+			break;
+		}
+		case OM_CMD_GAIN:
+			Om_SetListenerGain(c->f0);
+			break;
+		case OM_CMD_DESTROY_VOICE:
+			Om_DestroyVoice((sndVoiceId_t)c->id);
+			break;
+		default:
+			break;
+		}
+		if (c->id >= 0 && (size_t)c->id < s_pub.size() && (v = Om_Voice((sndVoiceId_t)c->id)) != NULL) {
+			s_pub[(size_t)c->id].pubState = v->state;
+			s_pub[(size_t)c->id].gain     = v->gain;
+			s_pub[(size_t)c->id].pitch    = v->pitch;
+		}
+	}
+	{
+		std::lock_guard<std::mutex> lock(s_cmdMutex);
+		size_t n;
+		for (n = 0; n < s_pub.size(); n++) {
+			if (s_pub[n].dGen <= upto) {
+				s_pub[n].dQueued    = 0;
+				s_pub[n].dProcessed = 0;
+			}
+		}
+	}
+	s_cmdConsumed.store(upto, std::memory_order_release);
+}
+
+static void Om_PublishVoices(void)
+{
+	size_t i;
+	std::lock_guard<std::mutex> lock(s_cmdMutex);
+	for (i = 0; i < s_voices.size() && i < s_pub.size(); i++) {
+		omVoice_t *v = &s_voices[i];
+		omPub_t   *p = &s_pub[i];
+		int        processed;
+		if (!v->used) {
+			continue;
+		}
+		p->pubState = v->state;
+		p->gain     = v->gain;
+		p->pitch    = v->pitch;
+		p->pubQueued = (int)v->queue.size();
+		if (v->state == SND_STATE_STOPPED) {
+			processed = (int)v->queue.size();
+		} else if (v->state == SND_STATE_INITIAL) {
+			processed = 0;
+		} else {
+			processed = v->queueCur < (int)v->queue.size() ? v->queueCur : (int)v->queue.size();
+		}
+		p->pubProcessed = processed;
+		p->pubOffset    = (unsigned)(v->posInt > 0 ? v->posInt : 0);
+		memcpy(p->pubPos, s_listenerPos, sizeof(p->pubPos));
 	}
 }
 
@@ -2816,6 +3814,10 @@ static qboolean Om_BeginCapture(int sampleRate)
 	if (s_deviceReady) {
 		ma_device_stop(&s_device);
 	}
+	/* Added in Omaha: drop whatever the live callback had already mixed. */
+	s_hrtfStashPos = 0;
+	s_hrtfStashLen = 0;
+	Om_LimiterReset();
 	s_captureActive = qtrue;
 	return qtrue;
 }

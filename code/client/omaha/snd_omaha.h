@@ -72,6 +72,9 @@ typedef struct {
     float fMinDist;
     float fMaxDist;
     int   iFlags;
+
+    /* Added in Omaha: next in-use slot with the same sfx, or -1. Chain order is ascending index. */
+    int iNextSameSfx;
 } omaha_loop_sound_t;
 
 struct omaha_channel {
@@ -118,6 +121,20 @@ struct omaha_channel {
 
     /* Added in Omaha: last SND_PARAM_SPATIAL_ROUTE sent to the renderer (-1 = never). */
     int iSpatialRoute;
+
+    /* Added in Omaha: last values actually sent, so an unchanged frame skips the renderer. */
+    float    fSentPos[3];
+    float    fSentVel[3];
+    float    fSentGain;
+    qboolean bSentPos;
+    qboolean bSentVel;
+    qboolean bSentGain;
+
+    /* Added in Omaha: last obstruction trace endpoints (bitwise) and time. */
+    vec3_t vTraceListener;
+    vec3_t vTraceOrigin;
+    int    iTraceTime;
+    qboolean bTraceValid;
 
 public:
     void         play();

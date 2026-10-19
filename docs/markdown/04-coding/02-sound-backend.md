@@ -181,7 +181,7 @@ Voice-policy, routing and layout checks:
 
 ## Known limits
 
-- The mixer callback takes a mutex for parameter snapshots (not lock-free yet).
+- The device callback and a capture pull both mix, so `Om_Mix` holds `s_mixMutex` for that whole mix. Game-thread setters do not take it: they enqueue `omCmd_t` under `s_cmdMutex`, and the mixer drains the queue at the start of `Om_Mix`.
 - Categories come from the global alias list (cgame resolves aliases to files
   before `S_StartSound`). A file shared by aliases of different categories is
   decided by its path; in retail scripts that affects under 0.3% of aliases,

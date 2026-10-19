@@ -74,3 +74,7 @@ void OmHrtf_AmbiCoeffs(const float dir[3], float coeffs[OM_AMBI_CHANNELS]);
 void OmHrtf_AmbiReset(void);
 /* Convolve the bus with the decoder filters and add to outL / outR. */
 void OmHrtf_AmbiDecode(float *const ambi[OM_AMBI_CHANNELS], float *outL, float *outR, int count);
+/* Added in Omaha: per-worker FFT scratch so direct voices convolve in parallel. */
+void OmHrtf_SetThreadScratch(float *work, float *acc, float *accB, float *time);
+void OmHrtf_AllocScratch(float **work, float **acc, float **accB, float **time);
+void OmHrtf_FreeScratch(float *work, float *acc, float *accB, float *time);
