@@ -918,9 +918,10 @@ void CL_CreateNewCommands( void ) {
 	}
 
 	// Added in Omaha: wait for 1000/cl_cmdfps ms of serverTime (a stalled clock while
-	// connecting must not block cmds; unsigned also passes a backwards map_restart)
+	// connecting must not block cmds; unsigned also passes a backwards map_restart).
+	// Changed in Omaha: cl_cmdfps defaults to 125 and is clamped to 85-250.
 	if ( clc.state == CA_ACTIVE && (unsigned)( cl.serverTime - cl.cmds[cl.cmdNumber & CMD_MASK].serverTime )
-			< (unsigned)( 1000 / Com_Clamp( 85, 125, cl_cmdfps->integer ) ) ) {
+			< (unsigned)( 1000 / (int)Com_Clamp( 85, 250, cl_cmdfps->integer ) ) ) {
 		return;
 	}
 
@@ -1446,7 +1447,8 @@ void CL_InitInput( void ) {
 
 	cl_nodelta = Cvar_Get ("cl_nodelta", "0", 0);
 	cl_debugMove = Cvar_Get ("cl_debugMove", "0", 0);
-	cl_cmdfps = Cvar_Get ("cl_cmdfps", "125", CVAR_ARCHIVE);
+	/* Changed in Omaha: user-set command rate, default 125, used clamped to 85-250. */
+	cl_cmdfps = Cvar_Get( "cl_cmdfps", "125", CVAR_ARCHIVE );
 	// Added in Omaha: late mouse before cgame view
 	cl_lowLatencyInput = Cvar_Get( "cl_lowLatencyInput", "0", CVAR_ARCHIVE );
 }

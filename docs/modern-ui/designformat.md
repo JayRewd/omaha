@@ -507,7 +507,7 @@ Notable sources:
 | `menu-map-views` | Menu backdrop BSP + camera fields (see pipeline doc §E) |
 | `crosshair-shape` | Settings picker for `cg_crosshair_mode` (`none` / `open` / `solid` / `dot`) |
 | `crosshair-mode` / `crosshair-style` | Sibling catalogs in `sources.xml` (not wired to the gameplay panel) |
-| `player-models-allies` / `axis` | Profile model picker |
+| `player-models-allies` / `axis` | Host-backed profile model picker (`models/player/*.tik`, same team split as the classic picker) |
 | `screen-catalog` | Compare / lab screen picker |
 | `hud-packs` | Host-backed HUD picker (`queryCollectionItems`; not in XML `<sources>`) |
 | `hitmarker-sounds` | Host-backed `sound/prom/hitmarkers/*.wav` picker for `cg_hitmarker_sound` |

@@ -4554,6 +4554,150 @@ static int uid_query_collection_demo_frags(
 	return written;
 }
 
+#define UIR_PLAYER_MODEL_CAP 512
+
+typedef struct {
+	char value[96];
+	char label[96];
+	char key[16];
+} uir_player_model_slot_t;
+
+static uir_player_model_slot_t g_uirPlayerModelSlots[UIR_PLAYER_MODEL_CAP];
+
+static int uir_player_model_label_cmp(const void *a, const void *b)
+{
+	const uir_player_model_slot_t *sa = (const uir_player_model_slot_t *)a;
+	const uir_player_model_slot_t *sb = (const uir_player_model_slot_t *)b;
+
+	return Q_stricmp(sa->label, sb->label);
+}
+
+/*
+ * Added in Omaha: models/player/*.tik for the main-menu dropdowns.
+ * Same skip and Axis prefix rules as the classic picker. Cap is the collection
+ * limit (512), not the 64-slot option buffer.
+ */
+static int uir_scan_player_models(qboolean axis, uint64_t *outRev)
+{
+	char   **fileList;
+	int      numFiles;
+	int         count;
+	int         i;
+	uint64_t    rev;
+	const char *s;
+
+	count = 0;
+	rev = 1469598103934665603ull;
+	fileList = FS_ListFiles("models/player", ".tik", qfalse, &numFiles);
+	if (fileList) {
+		for (i = 0; i < numFiles && count < UIR_PLAYER_MODEL_CAP; i++) {
+			char        work[128];
+			const char *label;
+			int         len;
+
+			if (!fileList[i] || PM_IsSkippedPlayerModelFile(fileList[i])) {
+				continue;
+			}
+			if (PM_IsAxisPlayerModel(fileList[i]) != axis) {
+				continue;
+			}
+			Q_strncpyz(work, fileList[i], sizeof(work));
+			len = (int)strlen(work);
+			if (len > 4 && !Q_stricmp(work + len - 4, ".tik")) {
+				work[len - 4] = '\0';
+			}
+			label = PM_FilenameToDisplayname(work);
+			Q_strncpyz(g_uirPlayerModelSlots[count].value, work, sizeof(g_uirPlayerModelSlots[count].value));
+			Q_strncpyz(
+				g_uirPlayerModelSlots[count].label,
+				(label && label[0]) ? label : work,
+				sizeof(g_uirPlayerModelSlots[count].label)
+			);
+			count++;
+		}
+		FS_FreeFileList(fileList);
+	}
+	if (count > 1) {
+		qsort(g_uirPlayerModelSlots, (size_t)count, sizeof(g_uirPlayerModelSlots[0]), uir_player_model_label_cmp);
+	}
+	for (i = 0; i < count; i++) {
+		Com_sprintf(g_uirPlayerModelSlots[i].key, sizeof(g_uirPlayerModelSlots[i].key), "%d", i);
+		for (s = g_uirPlayerModelSlots[i].value; s && *s; s++) {
+			rev ^= (unsigned char)*s;
+			rev *= 1099511628211ull;
+		}
+		rev ^= (unsigned char)'|';
+		rev *= 1099511628211ull;
+	}
+	if (outRev) {
+		*outRev = rev ^ (uint64_t)count ^ (axis ? 0x41584953ull : 0x414C4C59ull);
+	}
+	return count;
+}
+
+static int uid_fill_player_model_options(qboolean axis, char **values, char **labels, int max)
+{
+	int count;
+	int i;
+	int n;
+
+	if (!values || !labels || max <= 0) {
+		return 0;
+	}
+	count = uir_scan_player_models(axis, NULL);
+	n = count < max ? count : max;
+	for (i = 0; i < n; i++) {
+		values[i] = g_uirPlayerModelSlots[i].value;
+		labels[i] = g_uirPlayerModelSlots[i].label;
+	}
+	return n;
+}
+
+static int uid_query_collection_player_models(
+	qboolean axis,
+	int offset,
+	int limit,
+	int *outTotal,
+	uint64_t *outRevision,
+	uid_collection_item_t *out,
+	int max
+)
+{
+	int      count;
+	int      written;
+	int      i;
+	uint64_t rev;
+
+	count = uir_scan_player_models(axis, &rev);
+	if (outTotal) {
+		*outTotal = count;
+	}
+	if (outRevision) {
+		*outRevision = rev;
+	}
+	if (!out || max <= 0) {
+		return 0;
+	}
+	if (offset < 0) {
+		offset = 0;
+	}
+	if (limit <= 0) {
+		limit = max;
+	}
+	written = 0;
+	for (i = offset; i < count && written < max && written < limit; i++) {
+		out[written].key = g_uirPlayerModelSlots[i].key;
+		out[written].value = g_uirPlayerModelSlots[i].value;
+		out[written].label = g_uirPlayerModelSlots[i].label;
+		out[written].nfields = 0;
+		out[written].fieldNames = NULL;
+		out[written].fieldValues = NULL;
+		out[written].flags = 0;
+		written++;
+	}
+	return written;
+}
+
 static int uid_query_collection_items(const uid_collection_query_t *query, uid_collection_item_t *out, int max)
 {
 	if (!query) {
@@ -4623,6 +4767,14 @@ static int uid_query_collection_items(const uid_collection_query_t *query, uid_c
 	case UID_COLHOST_PRACTICE_NODES:
 		return CL_PracticeEditor_QueryNodes(
 			query->offset, query->limit, query->outTotal, query->outRevision, out, max
+		);
+	case UID_COLHOST_PLAYER_MODELS_ALLIES:
+		return uid_query_collection_player_models(
+			qfalse, query->offset, query->limit, query->outTotal, query->outRevision, out, max
+		);
+	case UID_COLHOST_PLAYER_MODELS_AXIS:
+		return uid_query_collection_player_models(
+			qtrue, query->offset, query->limit, query->outTotal, query->outRevision, out, max
 		);
 	default:
 		break;
@@ -4711,6 +4863,17 @@ static int uid_query_collection_items(const uid_collection_query_t *query, uid_c
 			query->offset, query->limit, query->outTotal, query->outRevision, out, max
 		);
 	}
+	if (!Q_stricmp(query->source, "player-models-allies") || !Q_stricmp(query->source, "player-models-axis")) {
+		return uid_query_collection_player_models(
+			!Q_stricmp(query->source, "player-models-axis") ? qtrue : qfalse,
+			query->offset,
+			query->limit,
+			query->outTotal,
+			query->outRevision,
+			out,
+			max
+		);
+	}
 	return uid_query_collection_options(
 		query->source,
 		query->offset,
@@ -4754,15 +4917,6 @@ static int uid_query_options(const char *source, char **values, char **labels, i
 	static const char *const lodScale[] = {"0.5", "Performance", "1.1", "Balanced", "1.5", "High Detail"};
 	static const char *const drawViewmodel[] = {"0", "Off", "1", "Weapon only", "2", "Weapon and hands"};
 	static const char *const weaponsBar[] = {"0", "Off", "1", "On", "2", "Fade"};
-	static const char *const alliesModels[] = {
-		"allied_manon", "Manon", "allied_airborne", "Airborne", "allied_pilot", "Pilot", "allied_sas", "SAS",
-		"american_army", "American Army", "american_ranger", "American Ranger",
-	};
-	static const char *const axisModels[] = {
-		"german_afrika_officer", "Afrika Officer", "german_afrika_private", "Afrika Private",
-		"german_elite_officer", "Elite Officer", "german_wehrmacht_officer", "Wehrmacht Officer",
-		"german_wehrmacht_soldier", "Wehrmacht Soldier", "german_waffen_officer", "Waffen Officer",
-	};
 	const int bufCount = (int)(sizeof(valueBuf) / sizeof(valueBuf[0]));
 
 	if (!source || !values || !labels || max <= 0) {
@@ -4797,8 +4951,10 @@ static int uid_query_options(const char *source, char **values, char **labels, i
 	UID_OPT_SRC("lod-scale", lodScale);
 	UID_OPT_SRC("draw-viewmodel", drawViewmodel);
 	UID_OPT_SRC("weapons-bar", weaponsBar);
-	UID_OPT_SRC("player-models-allies", alliesModels);
-	UID_OPT_SRC("player-models-axis", axisModels);
+	/* Added in Omaha: allies/axis models come from the models/player scan. */
+	if (!Q_stricmp(source, "player-models-allies") || !Q_stricmp(source, "player-models-axis")) {
+		return uid_fill_player_model_options(!Q_stricmp(source, "player-models-axis"), values, labels, max);
+	}
 #undef UID_OPT_SRC
 
 	return 0;
@@ -7965,7 +8121,7 @@ qboolean CL_UIR_KeyEvent(int key, qboolean down, unsigned time)
 	 * open (plain arrows stay with the input's submit history). Compose already
 	 * owns keys, so this never shadows gameplay arrow binds.
 	 */
-	if (down && g_hudChatOpen && Key_IsDown(K_CTRL)) {
+	if (down && g_hudChatOpen && (Key_IsDown(K_CTRL) || Key_IsDown(K_RCTRL))) {
 		if (key == K_UPARROW || key == K_KP_UPARROW) {
 			UIR_HudChat_ScrollBy(1);
 			return qtrue;

@@ -67,7 +67,7 @@ Manual / CI checklist (code paths covered by this implementation):
      sets visibility on panel_play / panel_settings / settings_page_* for capture loops.
    - Host invokes used by design: refresh-servers, join-selected, apply-profile,
      settings-defaults, settings-apply, apply-video, restart-video, quit.
-   - Option sources: video-modes, player-models-allies, player-models-axis.
+   - Option sources: video-modes. player-models-allies / player-models-axis are host-backed scans of models/player.
    - Tools: tools/ui_compare.py (mask + % fail gate), tools/ui_capture_html.py
      (Chromium/Playwright/placeholder HTML reference capture).
 

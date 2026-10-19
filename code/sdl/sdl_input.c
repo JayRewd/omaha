@@ -259,29 +259,39 @@ static keyNum_t IN_TranslateSDLToQ3Key( SDL_Keysym *keysym, qboolean down )
 			case SDLK_F13:          key = K_F13;           break;
 			case SDLK_F14:          key = K_F14;           break;
 			case SDLK_F15:          key = K_F15;           break;
+			case SDLK_F16:          key = K_F16;           break;
+			case SDLK_F17:          key = K_F17;           break;
+			case SDLK_F18:          key = K_F18;           break;
+			case SDLK_F19:          key = K_F19;           break;
+			case SDLK_F20:          key = K_F20;           break;
+			case SDLK_F21:          key = K_F21;           break;
+			case SDLK_F22:          key = K_F22;           break;
+			case SDLK_F23:          key = K_F23;           break;
+			case SDLK_F24:          key = K_F24;           break;
 
 			case SDLK_BACKSPACE:    key = K_BACKSPACE;     break;
 			case SDLK_KP_PERIOD:    key = K_KP_DEL;        break;
 			case SDLK_DELETE:       key = K_DEL;           break;
 			case SDLK_PAUSE:        key = K_PAUSE;         break;
 
-			case SDLK_LSHIFT:
-			case SDLK_RSHIFT:       key = K_SHIFT;         break;
+			case SDLK_LSHIFT:       key = K_SHIFT;         break;
+			case SDLK_RSHIFT:       key = K_RSHIFT;        break;
 
-			case SDLK_LCTRL:
-			case SDLK_RCTRL:        key = K_CTRL;          break;
+			case SDLK_LCTRL:        key = K_CTRL;          break;
+			case SDLK_RCTRL:        key = K_RCTRL;         break;
 
 #ifdef __APPLE__
-			case SDLK_RGUI:
 			case SDLK_LGUI:         key = K_COMMAND;       break;
+			case SDLK_RGUI:         key = K_RSUPER;        break;
 #else
-			case SDLK_RGUI:
 			case SDLK_LGUI:         key = K_SUPER;         break;
+			case SDLK_RGUI:         key = K_RSUPER;        break;
 #endif
 
-			case SDLK_RALT:
 			case SDLK_LALT:         key = K_ALT;           break;
+			case SDLK_RALT:         key = K_RALT;          break;
 
+			case SDLK_KP_EQUALS:    key = K_KP_EQUALS;     break;
 			case SDLK_KP_5:         key = K_KP_5;          break;
 			case SDLK_INSERT:       key = K_INS;           break;
 			case SDLK_KP_0:         key = K_KP_INS;        break;
@@ -1109,7 +1119,7 @@ static void IN_ProcessEvents( void )
 					Com_QueueEvent( in_eventTime, SE_CHAR, CTRL('h'), 0, 0, NULL );
 				else if (key == K_ENTER || key == K_TAB || key == K_ESCAPE) // Added in OPM: mostly used by UINotepad
 					Com_QueueEvent( in_eventTime, SE_CHAR, key, 0, 0, NULL);
-				else if( keys[K_CTRL].down && key >= 'a' && key <= 'z' )
+				else if( (keys[K_CTRL].down || keys[K_RCTRL].down) && key >= 'a' && key <= 'z' )
 					Com_QueueEvent( in_eventTime, SE_CHAR, CTRL(key), 0, 0, NULL );
 
 				lastKeyDown = key;
@@ -1209,6 +1219,16 @@ static void IN_ProcessEvents( void )
 				{
 					Com_QueueEvent( in_eventTime, SE_KEY, K_MWHEELDOWN, qtrue, 0, NULL );
 					Com_QueueEvent( in_eventTime, SE_KEY, K_MWHEELDOWN, qfalse, 0, NULL );
+				}
+				if( e.wheel.x > 0 )
+				{
+					Com_QueueEvent( in_eventTime, SE_KEY, K_MWHEELRIGHT, qtrue, 0, NULL );
+					Com_QueueEvent( in_eventTime, SE_KEY, K_MWHEELRIGHT, qfalse, 0, NULL );
+				}
+				else if( e.wheel.x < 0 )
+				{
+					Com_QueueEvent( in_eventTime, SE_KEY, K_MWHEELLEFT, qtrue, 0, NULL );
+					Com_QueueEvent( in_eventTime, SE_KEY, K_MWHEELLEFT, qfalse, 0, NULL );
 				}
 				break;
 

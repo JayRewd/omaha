@@ -240,17 +240,36 @@ static int xhair_push_rect(
 	}
 
 	if (pass == XHAIR_PASS_OUTLINE) {
+		float oxf;
+		float oyf;
+		int   ox;
+		int   oy;
+
 		if (outline <= 0.0f) {
 			return count;
 		}
-		{
-			const int ox = (int)ceilf(outline * scaleX);
-			const int oy = (int)ceilf(outline * scaleY);
-			x -= (float)ox;
-			y -= (float)oy;
-			w += (float)(ox * 2);
-			h += (float)(oy * 2);
+		/* Changed in Omaha: outline stays a black edge, but no thicker than half
+		 * the fill on that axis, so a small style does not read as a black shape. */
+		oxf = outline * scaleX;
+		oyf = outline * scaleY;
+		if (oxf > w * 0.5f) {
+			oxf = w * 0.5f;
 		}
+		if (oyf > h * 0.5f) {
+			oyf = h * 0.5f;
+		}
+		ox = (int)floorf(oxf);
+		oy = (int)floorf(oyf);
+		if (ox < 0) {
+			ox = 0;
+		}
+		if (oy < 0) {
+			oy = 0;
+		}
+		x -= (float)ox;
+		y -= (float)oy;
+		w += (float)(ox * 2);
+		h += (float)(oy * 2);
 		r = 0.0f;
 		g = 0.0f;
 		b = 0.0f;
@@ -389,6 +408,13 @@ static int xhair_emit_crisp_disc(
 		outlineW = frame->outline * frame->scaleX;
 		if (outlineW < cell) {
 			outlineW = cell;
+		}
+		/* Changed in Omaha: ring at most half the fill radius so the color stays the core. */
+		if (outlineW > fillR * 0.5f) {
+			outlineW = fillR * 0.5f;
+		}
+		if (outlineW < 0.0f) {
+			outlineW = 0.0f;
 		}
 		r = 0.0f;
 		g = 0.0f;

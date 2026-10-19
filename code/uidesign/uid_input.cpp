@@ -33,6 +33,8 @@ source tree, or write to the Free Software Foundation, Inc.,
 #include "uid_scrollbar.h"
 #include "uid_value.h"
 
+#include "../client/keycodes.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -1356,6 +1358,24 @@ void UID_HandlePointer(
 	scratch.lastButtons = buttons;
 }
 
+/* Added in Omaha: true while a keybind control is waiting for the next key. */
+static bool UID_AnyKeybindCapturing(const uid_document_t *doc)
+{
+	size_t n;
+	size_t i;
+
+	if (!doc) {
+		return false;
+	}
+	n = doc->nodes.size() < doc->states.size() ? doc->nodes.size() : doc->states.size();
+	for (i = 0; i < n; ++i) {
+		if (doc->nodes[i].kind == UID_NODE_KEYBIND && doc->states[i].capturing) {
+			return true;
+		}
+	}
+	return false;
+}
+
 bool UID_HandleKey(uid_document_t *doc, int key, bool down, unsigned time, const uid_backend_t *backend)
 {
 	(void)time;
@@ -1365,7 +1385,8 @@ bool UID_HandleKey(uid_document_t *doc, int key, bool down, unsigned time, const
 	EnsureStates(doc);
 	uid_input_scratch_t &scratch = doc->inputScratch;
 
-	if (key == UID_KEY_SHIFT) {
+	/* Changed in Omaha: Shift is only a modifier when no keybind is capturing. */
+	if ((key == UID_KEY_SHIFT || key == K_RSHIFT) && !UID_AnyKeybindCapturing(doc)) {
 		scratch.shiftDown = down;
 		return false;
 	}

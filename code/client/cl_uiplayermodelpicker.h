@@ -59,3 +59,6 @@ public:
 
 const char *PM_FilenameToDisplayname(const char *fileName);
 const char *PM_DisplaynameToFilename(const char *displayName);
+/* Added in Omaha: shared with the modern model dropdown scan. */
+qboolean    PM_IsSkippedPlayerModelFile(const char *fileName);
+qboolean    PM_IsAxisPlayerModel(const char *fileName);

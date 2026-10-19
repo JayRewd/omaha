@@ -177,15 +177,6 @@
 			<item value="2" label="Fade"/>
 		</source>
 
-		<source id="player-models-allies" default="allied_manon">
-			<item value="allied_manon" label="Manon"/>
-			<item value="allied_airborne" label="Airborne"/>
-			<item value="allied_pilot" label="Pilot"/>
-			<item value="allied_sas" label="SAS"/>
-			<item value="american_army" label="American Army"/>
-			<item value="american_ranger" label="American Ranger"/>
-		</source>
-
 		<source id="menu-map-views" default="remagen">
 			<!-- Eye Z = spec origin Z + 82 (DEFAULT_VIEWHEIGHT); fog from BSP worldspawn; see docs/LLM-helpers/ui-rendering-pipeline.md §E -->
 			<item value="southern-france" label="Southern France"
@@ -223,15 +214,6 @@
 			      vieworg="-1602.08,1145.62,235.83"
 			      pitch="-0.83" yaw="130.96" roll="0"
 			      fov="80"/>
-		</source>
-
-		<source id="player-models-axis" default="german_wehrmacht_soldier">
-			<item value="german_afrika_officer" label="Afrika Officer"/>
-			<item value="german_afrika_private" label="Afrika Private"/>
-			<item value="german_elite_officer" label="Elite Officer"/>
-			<item value="german_wehrmacht_officer" label="Wehrmacht Officer"/>
-			<item value="german_wehrmacht_soldier" label="Wehrmacht Soldier"/>
-			<item value="german_waffen_officer" label="Waffen Officer"/>
 		</source>
 
 		<!-- Added in Omaha: classic dm_pause hit catalogs (cmd → cbuf; labels required). -->

@@ -3517,7 +3517,11 @@ void UI_MenuEscape(const char *name)
     }
 
     if (CL_UIMenu_IsOpen(CL_UIR_ScoreboardMenuId()) && clc.state == CA_ACTIVE) {
-        return;
+        /* Changed in Omaha: the end-of-match scoreboard is forced open every frame.
+         * Escape still opens pause. A Tab-held scoreboard keeps swallowing Escape. */
+        if (!(cl.snap.valid && (cl.snap.ps.pm_flags & PMF_INTERMISSION))) {
+            return;
+        }
     }
 
     if (menuManager.CurrentMenu()) {
@@ -4150,6 +4154,19 @@ IsKeyDown
 */
 int IsKeyDown(int key)
 {
+    if (key < 0 || key >= MAX_KEYS) {
+        return 0;
+    }
+    /* Changed in Omaha: UI shortcuts treat either side as the modifier. Binds stay per key. */
+    if (key == K_SHIFT) {
+        return keys[K_SHIFT].down || keys[K_RSHIFT].down;
+    }
+    if (key == K_CTRL) {
+        return keys[K_CTRL].down || keys[K_RCTRL].down;
+    }
+    if (key == K_ALT) {
+        return keys[K_ALT].down || keys[K_RALT].down;
+    }
     return keys[key].down;
 }
 

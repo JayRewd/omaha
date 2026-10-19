@@ -142,6 +142,34 @@ const char *PM_DisplaynameToFilename(const char *displayName)
     return displayName;
 }
 
+/* Added in Omaha: viewmodels and underscore names stay out of both pickers. */
+qboolean PM_IsSkippedPlayerModelFile(const char *fileName)
+{
+    if (!fileName || !fileName[0]) {
+        return qtrue;
+    }
+    if (fileName[0] == '_') {
+        return qtrue;
+    }
+    if (strstr(fileName, "_fps")) {
+        return qtrue;
+    }
+    return qfalse;
+}
+
+/* Added in Omaha: same team split the classic picker uses (german/axis/it/sc). */
+qboolean PM_IsAxisPlayerModel(const char *fileName)
+{
+    if (!fileName || !fileName[0]) {
+        return qfalse;
+    }
+    if (!Q_stricmpn(fileName, "german", 6) || !Q_stricmpn(fileName, "axis", 4) || !Q_stricmpn(fileName, "it", 2)
+        || !Q_stricmpn(fileName, "sc", 2)) {
+        return qtrue;
+    }
+    return qfalse;
+}
+
 CLASS_DECLARATION(USignal, PlayerModelPickerClass, NULL) {
     {&EV_UIListBase_ItemSelected,       &PlayerModelPickerClass::FileSelected },
     {&EV_UIListBase_ItemDoubleClicked,  &PlayerModelPickerClass::FileChosen   },
@@ -244,13 +272,8 @@ void PlayerModelPickerClass::SetupFiles(void)
     for (i = 0; i < numfiles; i++) {
         Q_strncpyz(work, filenames[i], sizeof(work));
 
-        if (strstr(work, "_fps")) {
-            // ignore view models
-            continue;
-        }
-
-        if (work[0] == '_') {
-            // ignore hidden models
+        /* Changed in Omaha: same skip and team rules as the modern dropdown. */
+        if (PM_IsSkippedPlayerModelFile(work)) {
             continue;
         }
 
@@ -259,8 +282,7 @@ void PlayerModelPickerClass::SetupFiles(void)
         //    continue;
         //}
 
-        bIsGerman = !Q_stricmpn(work, "german", 6u) || !Q_stricmpn(work, "axis", 4u) || !Q_stricmpn(work, "it", 2u)
-                 || !Q_stricmpn(work, "sc", 2u);
+        bIsGerman = PM_IsAxisPlayerModel(work);
 
         if (m_bGermanModels != bIsGerman) {
             continue;

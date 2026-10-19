@@ -295,6 +295,24 @@ typedef enum {
 	K_PAD0_PADDLE4,  /* Xbox Elite paddle P4 */
 	K_PAD0_TOUCHPAD, /* PS4/PS5 touchpad button */
 
+	/* Added in Omaha: side-specific modifiers and keys the menu could not bind.
+	 * Appended before K_CONSOLE so existing key numbers stay put. */
+	K_RSHIFT,
+	K_RCTRL,
+	K_RALT,
+	K_RSUPER,
+	K_F16,
+	K_F17,
+	K_F18,
+	K_F19,
+	K_F20,
+	K_F21,
+	K_F22,
+	K_F23,
+	K_F24,
+	K_MWHEELLEFT,
+	K_MWHEELRIGHT,
+
 	// Pseudo-key that brings the console down
 	K_CONSOLE,
 

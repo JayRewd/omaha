@@ -71,6 +71,10 @@ keyname_t keynames[] = {
     {"ALT",                   K_ALT                  },
     {"CTRL",                  K_CTRL                 },
     {"SHIFT",                 K_SHIFT                },
+    {"RSHIFT",                K_RSHIFT               },
+    {"RCTRL",                 K_RCTRL                },
+    {"RALT",                  K_RALT                 },
+    {"RSUPER",                K_RSUPER               },
 
     {"COMMAND",               K_COMMAND              },
 
@@ -91,6 +95,15 @@ keyname_t keynames[] = {
     {"F13",                   K_F13                  },
     {"F14",                   K_F14                  },
     {"F15",                   K_F15                  },
+    {"F16",                   K_F16                  },
+    {"F17",                   K_F17                  },
+    {"F18",                   K_F18                  },
+    {"F19",                   K_F19                  },
+    {"F20",                   K_F20                  },
+    {"F21",                   K_F21                  },
+    {"F22",                   K_F22                  },
+    {"F23",                   K_F23                  },
+    {"F24",                   K_F24                  },
 
     {"INS",                   K_INS                  },
     {"DEL",                   K_DEL                  },
@@ -107,6 +120,8 @@ keyname_t keynames[] = {
 
     {"MWHEELUP",              K_MWHEELUP             },
     {"MWHEELDOWN",            K_MWHEELDOWN           },
+    {"MWHEELLEFT",            K_MWHEELLEFT           },
+    {"MWHEELRIGHT",           K_MWHEELRIGHT          },
 
     {"JOY1",                  K_JOY1                 },
     {"JOY2",                  K_JOY2                 },
@@ -331,6 +346,7 @@ keyname_t keynames[] = {
     {"LALT",                  K_ALT                  },
     {"LCTRL",                 K_CTRL                 },
     {"LSHIFT",                K_SHIFT                },
+    {"RWINDOWS",              K_RSUPER               },
 
     {NULL,                    0                      }
 };
@@ -1097,12 +1113,13 @@ void CL_KeyEvent(int key, qboolean down, unsigned time)
 
     if (clc.state > CA_DISCONNECTED && cge && !Key_GetCatcher() && cge->CG_CheckCaptureKey(key, down, time)
         && key != K_ESCAPE) {
-        if (key != K_CONSOLE && (!keys[K_SHIFT].down || key != K_ESCAPE)) {
+        /* Changed in Omaha: either Shift lets Shift+Escape through to the console. */
+        if (key != K_CONSOLE && (!(keys[K_SHIFT].down || keys[K_RSHIFT].down) || key != K_ESCAPE)) {
             return;
         }
     }
 
-    if (key == K_CONSOLE || (keys[K_SHIFT].down && key == K_ESCAPE)) {
+    if (key == K_CONSOLE || ((keys[K_SHIFT].down || keys[K_RSHIFT].down) && key == K_ESCAPE)) {
         if (!down) {
             return;
         }
@@ -1132,7 +1149,7 @@ void CL_KeyEvent(int key, qboolean down, unsigned time)
 
     if (key == K_ENTER) {
         if (down) {
-            if (keys[K_ALT].down) {
+            if (keys[K_ALT].down || keys[K_RALT].down) {
                 Key_ClearStates();
                 Cvar_SetValue("r_fullscreen", !Cvar_VariableIntegerValue("r_fullscreen"));
                 return;

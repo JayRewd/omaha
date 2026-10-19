@@ -943,7 +943,9 @@ bool IsHostCollectionSource(const char *sourceId)
 		std::strcmp(sourceId, "demo-frags") == 0 || /* Added in Omaha: demo playback overlay. */
 		std::strcmp(sourceId, "practice") == 0 ||
 		std::strcmp(sourceId, "practice-maps") == 0 || /* Added in Omaha: practice browser. */
-		std::strcmp(sourceId, "practice-nodes") == 0; /* Added in Omaha: practice editor node list. */
+		std::strcmp(sourceId, "practice-nodes") == 0 || /* Added in Omaha: practice editor node list. */
+		std::strcmp(sourceId, "player-models-allies") == 0 || /* Added in Omaha: models/player scan. */
+		std::strcmp(sourceId, "player-models-axis") == 0;
 }
 
 bool ValidateCollectionSources(uid_document_t *doc, uid_diag_list_t *diags)

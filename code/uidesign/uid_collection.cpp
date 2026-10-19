@@ -89,6 +89,12 @@ int UID_CollectionHostIdFromName(const char *source)
 		}
 		break;
 	case 'p':
+		if (std::strcmp(source, "player-models-allies") == 0) {
+			return UID_COLHOST_PLAYER_MODELS_ALLIES;
+		}
+		if (std::strcmp(source, "player-models-axis") == 0) {
+			return UID_COLHOST_PLAYER_MODELS_AXIS;
+		}
 		if (std::strcmp(source, "practice") == 0) {
 			return UID_COLHOST_PRACTICE;
 		}
