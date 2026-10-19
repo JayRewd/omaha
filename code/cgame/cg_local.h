@@ -659,6 +659,15 @@ extern "C" {
     void CG_ViewModelAnimation(refEntity_t *pModel);
     void CG_ViewModelAnimationEx(refEntity_t *pModel, const cgVMAnimOverride_t *ovr);
     void CG_CalcViewModelMovement(float fViewBobPhase, float fViewBobAmp, vec_t *vVelocity, vec_t *vMovement);
+    void CG_CalcViewModelMovementFor(
+        float    fViewBobPhase,
+        float    fViewBobAmp,
+        vec_t   *vVelocity,
+        vec_t   *vMovement,
+        qboolean walking,
+        qboolean crouching,
+        float    leanAngle
+    );
 
     //
     // cg_spectate_fp.c
@@ -672,6 +681,11 @@ extern "C" {
     int         CG_SpectateFP_ZoomFov(void);
     float       CG_SpectateFP_LeanAngle(void);
     qboolean    CG_SpectateFP_CalcEye(vec3_t outOrigin, vec3_t outAngles);
+    /* Added in Omaha: followed player's hands and held weapon in FP spectate. */
+    qboolean    CG_SpectateFP_DrawArms(const centity_t *cent);
+    qboolean    CG_SpectateFP_DrawHeldWeapon(const centity_t *cent);
+    qboolean    CG_SpectateFP_ArmsReady(void);
+    void        CG_SpectateFP_ArmsModel(centity_t *cent, refEntity_t *model);
     /* Added in Omaha: covert ghost-spectate helpers (cg_spectate_fp.c). */
     qboolean    CG_GhostSpec_IsLocalGhost(void);
     qboolean    CG_GhostSpec_SuppressWeaponSelect(void);

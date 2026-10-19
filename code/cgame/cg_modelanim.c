@@ -1067,6 +1067,8 @@ void CG_ModelAnim(centity_t *cent, qboolean bDoShaderTime)
     int            iAnimFlags;
     qboolean       bThirdPerson   = qfalse;
     qboolean       spectateFpHide = qfalse;
+    qboolean       spectateFpArms = qfalse;
+    qboolean       spectateFpHeld = qfalse;
 
     s1 = &cent->currentState;
 
@@ -1084,8 +1086,12 @@ void CG_ModelAnim(centity_t *cent, qboolean bDoShaderTime)
      */
     if (CG_SpectateFP_Active()) {
         const int followClient = CG_SpectateFP_FollowClient();
-        if (s1->number == followClient || s1->parent == followClient
-            || s1->number == cg.snap->ps.clientNum || s1->parent == cg.snap->ps.clientNum) {
+        /* Added in Omaha: draw the followed player's hands and the gun they hold. */
+        spectateFpArms = CG_SpectateFP_DrawArms(cent);
+        spectateFpHeld = CG_SpectateFP_DrawHeldWeapon(cent);
+        if (!spectateFpArms && !spectateFpHeld
+            && (s1->number == followClient || s1->parent == followClient || s1->number == cg.snap->ps.clientNum
+                || s1->parent == cg.snap->ps.clientNum)) {
             spectateFpHide = qtrue;
         }
     }
@@ -1219,7 +1225,8 @@ void CG_ModelAnim(centity_t *cent, qboolean bDoShaderTime)
     model.hOldModel = 0;
     model.tiki      = cgi.R_Model_GetHandle(cgs.model_draw[s1->modelindex]);
 
-    if (s1->number != cg.snap->ps.clientNum && (s1->eType == ET_PLAYER || (s1->eFlags & EF_DEAD))) {
+    /* Changed in Omaha: FP spectate hands use the followed player's own _fps model. */
+    if (!spectateFpArms && s1->number != cg.snap->ps.clientNum && (s1->eType == ET_PLAYER || (s1->eFlags & EF_DEAD))) {
         if (cg_forceModel->integer && cg_forceModelAllowed) {
             //CG_UpdateForceModels();
 
@@ -1282,7 +1289,8 @@ void CG_ModelAnim(centity_t *cent, qboolean bDoShaderTime)
             return;
         }
 
-        if (s1->parent != cg.snap->ps.clientNum || bThirdPerson) {
+        /* Added in Omaha: the followed weapon attaches to the spectate hands, not the world model. */
+        if (!spectateFpHeld && (s1->parent != cg.snap->ps.clientNum || bThirdPerson)) {
             // attach the model to the world model
 
             // Fixed in OPM
@@ -1308,20 +1316,21 @@ void CG_ModelAnim(centity_t *cent, qboolean bDoShaderTime)
 
             // attach to the first person model
             {
-                cgTikiTagCache_t *tags = CG_GetTikiTagCache(tiki);
-
                 if (cg.pLastPlayerWorldModel) {
                     szTagName = cgi.Tag_NameForNum(cg.pLastPlayerWorldModel, s1->tag_num & TAG_MASK);
                 } else {
                     szTagName = cgi.Tag_NameForNum(tiki, s1->tag_num & TAG_MASK);
                 }
 
-                iTagNum = szTagName ? cgi.Tag_NumForName(tiki, szTagName) : -1;
-
-                /* Added in Omaha: compare cached tag indices instead of Q_stricmp */
-                if (tags && iTagNum == tags->eyes) {
+                /* Fixed in Omaha: match the tag name, as stock does. A cached bone
+                 * index of -1 from the first lookup hid the weapon for the life of
+                 * the _fps model. */
+                if (szTagName && !Q_stricmp(szTagName, "eyes bone")) {
+                    iTagNum = cgi.Tag_NumForName(tiki, szTagName);
                     CG_AttachEyeEntity(&model, parent, tiki, iTagNum & TAG_MASK, s1->attach_use_angles, s1->attach_offset);
-                } else if (tags && (iTagNum == tags->weapR || iTagNum == tags->weapL)) {
+                } else if (szTagName
+                           && (!Q_stricmp(szTagName, "tag_weapon_right") || !Q_stricmp(szTagName, "tag_weapon_left"))) {
+                    iTagNum = cgi.Tag_NumForName(tiki, szTagName);
                     CG_AttachEntity(&model, parent, tiki, iTagNum & TAG_MASK, s1->attach_use_angles, s1->attach_offset);
                 } else {
                     // Don't show the model at all
@@ -1460,8 +1469,13 @@ void CG_ModelAnim(centity_t *cent, qboolean bDoShaderTime)
         cent->bFootOnGround_Right = qtrue;
     }
 
-    if (cent->currentState.eType == ET_PLAYER && !(cent->currentState.eFlags & EF_DEAD)) {
+    if (!spectateFpArms && cent->currentState.eType == ET_PLAYER && !(cent->currentState.eFlags & EF_DEAD)) {
         CG_PlayerTeamIcon(&model, &cent->currentState);
+    }
+
+    /* Added in Omaha: replace the followed body with their first-person hands and weapon pose. */
+    if (spectateFpArms) {
+        CG_SpectateFP_ArmsModel(cent, &model);
     }
 
     if (s1->number == cg.snap->ps.clientNum) {
@@ -1630,6 +1644,22 @@ void CG_ModelAnim(centity_t *cent, qboolean bDoShaderTime)
     }
 
     CG_UpdateEntityEmitters(s1->number, &model, cent);
+
+    {
+        /* Added in Omaha: dropping spectate hands must not replay viewmodel frame commands on the body. */
+        static int s_spectateArmsClient = -1;
+
+        if (spectateFpArms) {
+            s_spectateArmsClient = s1->number;
+        } else if (s_spectateArmsClient >= 0 && s1->number == s_spectateArmsClient) {
+            for (i = 0; i < MAX_FRAMEINFOS; i++) {
+                cent->animLast[i] = -1;
+            }
+            cent->animLastWeight     = 0;
+            cent->usageIndexLast     = 0;
+            s_spectateArmsClient     = -1;
+        }
+    }
 
     if (s1->usageIndex == cent->usageIndexLast) {
         // process the exit commands of the last animations

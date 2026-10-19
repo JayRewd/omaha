@@ -68,6 +68,23 @@ typedef enum {
 
 static uir_scoreboard_sort_t g_scoreboardSortKey = UIR_SCOREBOARD_SORT_KILLS;
 static qboolean              g_scoreboardSortAsc = qfalse;
+/* Added in Omaha: set once the player picks a column. */
+static qboolean              g_scoreboardSortChosen = qfalse;
+
+/*
+ * Added in Omaha: column actually used to order rows.
+ * In rounds, objective, TOW, and liberation the server stores match kills in the
+ * deaths field (stock names that column Total). Until a column is picked, sort
+ * by that total. K/D is meaningless there, so that choice sorts by the total too.
+ */
+static uir_scoreboard_sort_t UIR_Scoreboard_ActiveSortKey(void)
+{
+	if (g_scoreboardMeta.roundMode &&
+	    (!g_scoreboardSortChosen || g_scoreboardSortKey == UIR_SCOREBOARD_SORT_KD)) {
+		return UIR_SCOREBOARD_SORT_DEATHS;
+	}
+	return g_scoreboardSortKey;
+}
 
 static const char *UIR_Scoreboard_ResolveServerName(void)
 {
@@ -164,10 +181,12 @@ static int UIR_Scoreboard_CompareRows(const uir_scoreboard_row_t *a, const uir_s
 {
 	int cmp = 0;
 
+	const uir_scoreboard_sort_t key = UIR_Scoreboard_ActiveSortKey();
+
 	if (!a || !b) {
 		return 0;
 	}
-	switch (g_scoreboardSortKey) {
+	switch (key) {
 	case UIR_SCOREBOARD_SORT_NAME:
 		cmp = Q_stricmp(a->name, b->name);
 		break;
@@ -189,6 +208,10 @@ static int UIR_Scoreboard_CompareRows(const uir_scoreboard_row_t *a, const uir_s
 	default:
 		cmp = 0;
 		break;
+	}
+	/* Added in Omaha: equal totals break by this round's kills, as on the stock board. */
+	if (cmp == 0 && key == UIR_SCOREBOARD_SORT_DEATHS && g_scoreboardMeta.roundMode) {
+		cmp = atoi(a->kills) - atoi(b->kills);
 	}
 	if (cmp == 0) {
 		cmp = Q_stricmp(a->name, b->name);
@@ -238,7 +261,7 @@ static void UIR_Scoreboard_SortRowsInPlace(void)
 
 static void UIR_Scoreboard_PublishSortCvars(void)
 {
-	CL_UIVar_Set("ui_om_scoreboard_sort", UIR_Scoreboard_SortColumnName(g_scoreboardSortKey));
+	CL_UIVar_Set("ui_om_scoreboard_sort", UIR_Scoreboard_SortColumnName(UIR_Scoreboard_ActiveSortKey()));
 	CL_UIVar_Set("ui_om_scoreboard_sort_asc", g_scoreboardSortAsc ? "1" : "0");
 }
 
@@ -415,12 +438,15 @@ void UIR_Scoreboard_ApplySortColumn(const char *column)
 {
 	const uir_scoreboard_sort_t next = UIR_Scoreboard_SortFromColumn(column);
 
-	if (next == g_scoreboardSortKey) {
+	/* Changed in Omaha: compare with the column in use. Round modes show Total
+	 * while the stored key may still be the default kills sort. */
+	if (next == UIR_Scoreboard_ActiveSortKey()) {
 		g_scoreboardSortAsc = g_scoreboardSortAsc ? qfalse : qtrue;
 	} else {
-		g_scoreboardSortKey = next;
 		g_scoreboardSortAsc = (next == UIR_SCOREBOARD_SORT_NAME) ? qtrue : qfalse;
 	}
+	g_scoreboardSortKey = next;
+	g_scoreboardSortChosen = qtrue;
 	UIR_Scoreboard_SortRowsInPlace();
 	g_scoreboardRevision++;
 	g_publishedMeta = g_scoreboardMeta;
@@ -444,16 +470,22 @@ void UIR_Scoreboard_CycleSort(void)
 		UIR_SCOREBOARD_SORT_NAME,
 	};
 	const int count = (int)(sizeof(order) / sizeof(order[0]));
+	const uir_scoreboard_sort_t current = UIR_Scoreboard_ActiveSortKey();
 	int       i;
 	int       idx = 0;
 
 	for (i = 0; i < count; i++) {
-		if (order[i] == g_scoreboardSortKey) {
+		if (order[i] == current) {
 			idx = i;
 			break;
 		}
 	}
-	UIR_Scoreboard_ApplySortColumn(UIR_Scoreboard_SortColumnName(order[(idx + 1) % count]));
+	idx = (idx + 1) % count;
+	/* Added in Omaha: no K/D column in rounds, objective, TOW, or liberation. */
+	if (g_scoreboardMeta.roundMode && order[idx] == UIR_SCOREBOARD_SORT_KD) {
+		idx = (idx + 1) % count;
+	}
+	UIR_Scoreboard_ApplySortColumn(UIR_Scoreboard_SortColumnName(order[idx]));
 }
 
 void UIR_Scoreboard_UpdateLayoutForViewport(int logicalHeight)

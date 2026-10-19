@@ -56,8 +56,13 @@
 					       halign="start" visible="{cvar.ui_om_scoreboard_team_mode == 1}">#</label>
 					<use template="scoreboard-sort-header" label="NAME" column="name" width="fill" halign="start"/>
 					<use template="scoreboard-sort-header" label="KILLS" column="kills" width="10%" halign="start"/>
-					<use template="scoreboard-sort-header" label="DEATHS" column="deaths" width="10%" halign="start"/>
-					<use template="scoreboard-sort-header" label="K/D" column="kd" width="10%" halign="start"/>
+					<!-- Changed in Omaha: gametype >= 3 (rounds, objective, TOW, liberation) stores match kills in the deaths field. -->
+					<use template="scoreboard-sort-header" label="DEATHS" column="deaths" width="10%" halign="start"
+					     visible="{cvar.ui_om_scoreboard_gametype &lt; 3}"/>
+					<use template="scoreboard-sort-header" label="TOTAL" column="deaths" width="10%" halign="start"
+					     visible="{cvar.ui_om_scoreboard_gametype >= 3}"/>
+					<use template="scoreboard-sort-header" label="K/D" column="kd" width="10%" halign="start"
+					     visible="{cvar.ui_om_scoreboard_gametype &lt; 3}"/>
 					<use template="scoreboard-sort-header" label="TIME" column="time" width="14%" halign="start"/>
 					<use template="scoreboard-sort-header" label="PING" column="ping" width="10%" halign="start"/>
 				</container>
@@ -72,8 +77,12 @@
 				           valign="center" halign="end">
 					<use template="scoreboard-sort-header" label="PING" column="ping" width="10%" halign="end"/>
 					<use template="scoreboard-sort-header" label="TIME" column="time" width="14%" halign="end"/>
-					<use template="scoreboard-sort-header" label="K/D" column="kd" width="10%" halign="end"/>
-					<use template="scoreboard-sort-header" label="DEATHS" column="deaths" width="10%" halign="end"/>
+					<use template="scoreboard-sort-header" label="K/D" column="kd" width="10%" halign="end"
+					     visible="{cvar.ui_om_scoreboard_gametype &lt; 3}"/>
+					<use template="scoreboard-sort-header" label="DEATHS" column="deaths" width="10%" halign="end"
+					     visible="{cvar.ui_om_scoreboard_gametype &lt; 3}"/>
+					<use template="scoreboard-sort-header" label="TOTAL" column="deaths" width="10%" halign="end"
+					     visible="{cvar.ui_om_scoreboard_gametype >= 3}"/>
 					<use template="scoreboard-sort-header" label="KILLS" column="kills" width="10%" halign="end"/>
 					<use template="scoreboard-sort-header" label="NAME" column="name" width="fill" halign="end"/>
 					<label width="6%" font="control" font-size="{var.text-caption}" color="{var.color-muted}"
@@ -152,7 +161,8 @@
 						       font-size="{var.text-body}"
 						       font-weight="{item.field.is_local == 1 ? 600 : 400}"
 						       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
-						       halign="start" valign="center">{item.field.kd}</label>
+						       halign="start" valign="center"
+						       visible="{cvar.ui_om_scoreboard_gametype &lt; 3}">{item.field.kd}</label>
 						<label width="14%" height="100%" font="body"
 						       font-size="{var.text-body}"
 						       font-weight="{item.field.is_local == 1 ? 600 : 400}"
@@ -209,7 +219,8 @@
 					       font-size="{var.text-body}"
 					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
 					       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
-					       halign="start" valign="center">{item.field.kd}</label>
+					       halign="start" valign="center"
+					       visible="{cvar.ui_om_scoreboard_gametype &lt; 3}">{item.field.kd}</label>
 					<label width="14%" height="100%" font="body"
 					       font-size="{var.text-body}"
 					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
@@ -252,7 +263,8 @@
 					       font-size="{var.text-body}"
 					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
 					       color="{item.field.is_dead == 1 ? var.color-muted : var.color-primary}"
-					       halign="end" valign="center">{item.field.kd}</label>
+					       halign="end" valign="center"
+					       visible="{cvar.ui_om_scoreboard_gametype &lt; 3}">{item.field.kd}</label>
 					<label width="10%" height="100%" font="body"
 					       font-size="{var.text-body}"
 					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
@@ -309,7 +321,8 @@
 					<label width="10%" height="100%" font="body"
 					       font-size="{var.text-body}"
 					       font-weight="{item.field.is_local == 1 ? 600 : 400}"
-					       color="{var.color-primary}" halign="start" valign="center">{item.field.kd}</label>
+					       color="{var.color-primary}" halign="start" valign="center"
+					       visible="{cvar.ui_om_scoreboard_gametype &lt; 3}">{item.field.kd}</label>
 					<label width="14%" height="100%" font="body"
 					       font-size="{var.text-body}"
 					       font-weight="{item.field.is_local == 1 ? 600 : 400}"

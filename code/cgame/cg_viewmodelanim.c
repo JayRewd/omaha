@@ -247,13 +247,9 @@ void CG_VMAnimWeaponDisplayName(int prefixIndex, char *out, int outSize)
     Q_strncpyz(out, AnimPrefixDisplayName[prefixIndex], outSize);
 }
 
-int CG_GetVMAnimPrefixIndex()
+/* Added in Omaha: prefix from an explicit class and name (FP spectate hands). */
+static int CG_VMAnimPrefixIndexFor(int iWeaponClass, const char *szWeaponName)
 {
-    const char *szWeaponName;
-    int         iWeaponClass;
-
-    iWeaponClass = cg.snap->ps.stats[STAT_EQUIPPED_WEAPON];
-    szWeaponName = CG_ConfigString(CS_WEAPONS + cg.snap->ps.activeItems[1]);
 
     if (iWeaponClass & WEAPON_CLASS_ANY_ITEM) {
         if (!Q_stricmp(szWeaponName, "Papers")) {
@@ -440,6 +436,13 @@ int CG_GetVMAnimPrefixIndex()
     return WPREFIX_UNARMED;
 }
 
+int CG_GetVMAnimPrefixIndex()
+{
+    return CG_VMAnimPrefixIndexFor(
+        cg.snap->ps.stats[STAT_EQUIPPED_WEAPON], CG_ConfigString(CS_WEAPONS + cg.snap->ps.activeItems[1])
+    );
+}
+
 void CG_ViewModelAnimation(refEntity_t *pModel)
 {
     CG_ViewModelAnimationEx(pModel, NULL);
@@ -491,6 +494,9 @@ void CG_ViewModelAnimationEx(refEntity_t *pModel, const cgVMAnimOverride_t *ovr)
     } else {
         if (ovr && ovr->valid && ovr->animPrefixIndex > 0) {
             iAnimPrefixIndex = ovr->animPrefixIndex;
+        } else if (ovr && ovr->valid) {
+            /* Added in Omaha: spectate hands use the followed weapon, not the local snap. */
+            iAnimPrefixIndex = CG_VMAnimPrefixIndexFor(equippedStat, activeItem);
         } else {
             iAnimPrefixIndex = CG_GetVMAnimPrefixIndex();
         }
@@ -696,6 +702,28 @@ void CG_ViewModelAnimationEx(refEntity_t *pModel, const cgVMAnimOverride_t *ovr)
 
 void CG_CalcViewModelMovement(float fViewBobPhase, float fViewBobAmp, vec_t *vVelocity, vec_t *vMovement)
 {
+    /* Added in Omaha: live view reads the predicted player; spectate hands pass their own. */
+    CG_CalcViewModelMovementFor(
+        fViewBobPhase,
+        fViewBobAmp,
+        vVelocity,
+        vMovement,
+        cg.predicted_player_state.walking,
+        cg.predicted_player_state.viewheight == CROUCH_EYE_HEIGHT,
+        cg.predicted_player_state.fLeanAngle
+    );
+}
+
+void CG_CalcViewModelMovementFor(
+    float    fViewBobPhase,
+    float    fViewBobAmp,
+    vec_t   *vVelocity,
+    vec_t   *vMovement,
+    qboolean walking,
+    qboolean crouching,
+    float    leanAngle
+)
+{
     int    i;
     float  fPhase, fDelta;
     vec3_t vTargOfs;
@@ -708,8 +736,8 @@ void CG_CalcViewModelMovement(float fViewBobPhase, float fViewBobAmp, vec_t *vVe
     fPhase       = sin(fViewBobPhase - 0.94 + fViewBobPhase - 0.94 + M_PI);
     vMovement[2] = (sin((fViewBobPhase - 0.94) * 4.0 + M_PI / 2) * 0.125 + fPhase) * fViewBobAmp * vm_sway_up->value;
 
-    if (cg.predicted_player_state.walking) {
-        if (cg.predicted_player_state.viewheight == CROUCH_EYE_HEIGHT) {
+    if (walking) {
+        if (crouching) {
             if (cgi.anim->g_iLastAnimPrefixIndex == WPREFIX_BAZOOKA
                 || cgi.anim->g_iLastAnimPrefixIndex == WPREFIX_PANZERSCHRECK) {
                 vTargOfs[0] = vm_offset_rocketcrouch_front->value;
@@ -733,7 +761,7 @@ void CG_CalcViewModelMovement(float fViewBobPhase, float fViewBobAmp, vec_t *vVe
         vTargOfs[2] = vm_offset_air_up->value;
     }
 
-    if (cg.predicted_player_state.walking) {
+    if (walking) {
         fDelta = VectorLength(vVelocity) - vm_offset_vel_base->value;
         if (fDelta > 0.0) {
             if (fDelta > 250.0 - vm_offset_vel_base->value) {
@@ -765,8 +793,8 @@ void CG_CalcViewModelMovement(float fViewBobPhase, float fViewBobAmp, vec_t *vVe
     }
 
     VectorAdd(vMovement, cgi.anim->g_vCurrentVMPosOffset, vMovement);
-    if (cg.predicted_player_state.fLeanAngle) {
-        vMovement[2] -= fabs(cg.predicted_player_state.fLeanAngle) * vm_lean_lower->value;
+    if (leanAngle) {
+        vMovement[2] -= fabs(leanAngle) * vm_lean_lower->value;
     }
 
     if (VectorNormalize2(vMovement, vNorm) > vm_offset_max->value) {
