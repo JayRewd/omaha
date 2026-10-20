@@ -35,6 +35,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "snd_stream_async.h"
 #include "snd_category.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <vector>
@@ -93,9 +94,6 @@ static void S_OMAHA_StopMovieAudio(void);
 static void S_OMAHA_SetupMovieAudio(const char *pszMovieName);
 static int S_OMAHA_CurrentMoviePosition(void);
 
-static int   s_iReverbType         = 0;
-static float s_fReverbLevel        = 0;
-static bool  s_bReverbChanged      = false;
 static bool  s_bFading             = false;
 static float s_fFadeVolume         = 1.f;
 static float s_fVelocityScale      = 0.005f;
@@ -169,6 +167,12 @@ static float    music_volume_fade_time  = 0;
 static long int music_volume_start_time = 0;
 static int      music_volume_direction  = 0;
 static int      music_volume_changed    = 0;
+/* Added in Omaha: voice sidechain. 1 = full music, smaller = dipped. */
+static float    s_musicDuck             = 1.f;
+static float    s_musicDuckHeld         = 1.f;
+static float    s_musicDuckSent         = 1.f;
+static int      s_musicDuckHoldUntil    = 0;
+static int      s_musicDuckTime         = 0;
 static int      music_loaded            = 0;
 static int      music_numsongs          = 0;
 static int      music_currentsong       = 0;
@@ -185,7 +189,6 @@ static void S_OMAHA_Pitch();
 static int
 S_OMAHA_SpatializeStereoSound(const vec3_t listener_origin, const vec3_t listener_left, const vec3_t origin);
 static void S_OMAHA_ApplyListenerGain(qboolean bForce);
-static void S_OMAHA_reverb(int iChannel, int iReverbType, float fReverbLevel);
 static void S_OMAHA_UpdateObstruction(
     omaha_channel *pChannel, const vec3_t vListener, const vec3_t vOrigin, bool bWorld, bool bForce
 );
@@ -296,6 +299,7 @@ static bool S_OMAHA_InitChannel(int idx, omaha_channel *chan)
     chan->loopBlockEnd    = -1;
     chan->iNextObstructionCheck = 0;
     chan->fObstruction          = 0;
+    chan->fOcclusion            = 0;
     chan->iCategory             = (int)SND_CAT_NONE;
     chan->iSpatialRoute         = -1;
     memset(&chan->cur, 0, sizeof(chan->cur));
@@ -306,6 +310,7 @@ static bool S_OMAHA_InitChannel(int idx, omaha_channel *chan)
     chan->cur.route   = OM_ROUTE_BUS;
     chan->sent        = chan->cur;
     chan->sentOk      = qfalse;
+    chan->startOffset = 0;
     chan->bTraceValid = qfalse;
     return true;
 }
@@ -1765,6 +1770,56 @@ static float S_OMAHA_TraceObstruction(const vec3_t vListener, const vec3_t vOrig
 
 /*
 ==============
+S_OMAHA_ListenerArea
+
+Added in Omaha: BSP area of the listener, once per origin. Solid leafs are area 0.
+==============
+*/
+static int S_OMAHA_ListenerArea(const vec3_t vListener)
+{
+    static int     s_area = -1;
+    static vec3_t  s_pos;
+    static qboolean s_valid;
+    vec3_t         vPoint;
+
+    if (s_valid && VectorCompare(s_pos, vListener)) {
+        return s_area;
+    }
+    VectorCopy(vListener, vPoint);
+    VectorCopy(vListener, s_pos);
+    s_area  = CM_AreaForPoint(vPoint);
+    s_valid = qtrue;
+    return s_area;
+}
+
+/*
+==============
+S_OMAHA_AreaOcclusion
+
+Added in Omaha: 1 when a closed areaportal separates the listener and the source.
+Area 0 (solid or unassigned) does not occlude. cm_noAreas keeps every pair connected.
+==============
+*/
+static float S_OMAHA_AreaOcclusion(const vec3_t vListener, const vec3_t vOrigin)
+{
+    vec3_t vPoint;
+    int    iListener;
+    int    iSource;
+
+    iListener = S_OMAHA_ListenerArea(vListener);
+    VectorCopy(vOrigin, vPoint);
+    iSource = CM_AreaForPoint(vPoint);
+    if (iListener <= 0 || iSource <= 0) {
+        return 0.f;
+    }
+    if (CM_AreasConnected(iListener, iSource)) {
+        return 0.f;
+    }
+    return 1.f;
+}
+
+/*
+==============
 S_OMAHA_UpdateObstruction
 
 Added in Omaha: obstruction target for one channel on the omaha mixer. bWorld
@@ -1777,6 +1832,7 @@ static void S_OMAHA_UpdateObstruction(
 )
 {
     float fObstruction;
+    float fOcclusion;
     int   iRoute;
 
     /* Added in Omaha: HRTF route refreshes at the same start/update points as obstruction. */
@@ -1785,9 +1841,11 @@ static void S_OMAHA_UpdateObstruction(
     pChannel->iSpatialRoute = iRoute;
 
     fObstruction = pChannel->fObstruction;
+    fOcclusion   = pChannel->fOcclusion;
     if (!bWorld || !s_obstruction || !s_obstruction->integer || CM_NumInlineModels() <= 0
         || (!(pChannel->iFlags & CHANNEL_FLAG_NO_ENTITY) && pChannel->iEntNum == s_iListenerNumber)) {
         fObstruction = 0;
+        fOcclusion   = 0;
     } else if (bForce || cls.realtime >= pChannel->iNextObstructionCheck) {
         vec3_t vDelta;
         float  fDist;
@@ -1806,13 +1864,16 @@ static void S_OMAHA_UpdateObstruction(
         if (pChannel->bTraceValid && iNow - pChannel->iTraceTime < 1000
             && VectorCompare(pChannel->vTraceListener, vListener) && VectorCompare(pChannel->vTraceOrigin, vOrigin)) {
             fObstruction = pChannel->fObstruction;
+            fOcclusion   = pChannel->fOcclusion;
         } else {
             VectorSubtract(vOrigin, vListener, vDelta);
             fDist = VectorLength(vDelta);
             if (fDist < 32.f || (pChannel->fMaxDist > 0.f && fDist > pChannel->fMaxDist)) {
                 fObstruction = 0;
+                fOcclusion   = 0;
             } else {
                 fObstruction = S_OMAHA_TraceObstruction(vListener, vOrigin);
+                fOcclusion   = S_OMAHA_AreaOcclusion(vListener, vOrigin);
             }
             VectorCopy(vListener, pChannel->vTraceListener);
             VectorCopy(vOrigin, pChannel->vTraceOrigin);
@@ -1821,9 +1882,12 @@ static void S_OMAHA_UpdateObstruction(
         }
     }
 
-    if (fObstruction != pChannel->fObstruction || pChannel->cur.obstruction != fObstruction) {
-        pChannel->fObstruction     = fObstruction;
-        pChannel->cur.obstruction  = fObstruction;
+    if (fObstruction != pChannel->fObstruction || pChannel->cur.obstruction != fObstruction
+        || fOcclusion != pChannel->fOcclusion || pChannel->cur.occlusion != fOcclusion) {
+        pChannel->fObstruction    = fObstruction;
+        pChannel->fOcclusion      = fOcclusion;
+        pChannel->cur.obstruction = fObstruction;
+        pChannel->cur.occlusion   = fOcclusion;
         pChannel->flush_params();
     }
 }
@@ -2159,7 +2223,6 @@ void S_OMAHA_StartSound(
     // Fixed in OPM
     //  Setup the channel for 3D
     pChannel->set_3d();
-    /* Changed in Omaha: set_3d resets AL/omaha GAIN to master only — re-apply full volume after. */
     pChannel->set_gain(pChannel->fVolume);
 
     if (s_show_sounds->integer > 0) {
@@ -2229,7 +2292,9 @@ void S_OMAHA_StartSound(
         pChannel->set_sample_loop_count(1);
     }
 
-    if (!bOnlyUpdate && S_OMAHA_ShouldStart(pChannel->vOrigin, pChannel->fMinDist, pChannel->fMaxDist)) {
+    /* Fixed in Omaha: a same-sample update keeps a voice that is still playing. If it is silent, start it. */
+    if ((!bOnlyUpdate || !pChannel->is_playing())
+        && S_OMAHA_ShouldStart(pChannel->vOrigin, pChannel->fMinDist, pChannel->fMaxDist)) {
         // Fixed in OPM
         //  Make sure to set the pitch before playing the sound
         pChannel->iBaseRate = pSfx->info.rate;
@@ -2718,8 +2783,6 @@ static int S_OMAHA_Start3DLoopSound(
     );
     pChan3D->play();
 
-    S_OMAHA_reverb(iChannel, s_iReverbType, s_fReverbLevel);
-
     return iChannel;
 }
 
@@ -2794,11 +2857,6 @@ static bool S_OMAHA_UpdateLoopSound(
     S_OMAHA_UpdateObstruction(
         pChannel, vListenerOrigin, vLoopOrigin, !(pLoopSound->iFlags & LOOPSOUND_FLAG_NO_PAN), false
     );
-
-    if (s_bReverbChanged) {
-        // Make sure to update the reverb
-        S_OMAHA_reverb(pLoopSound->iChannel, s_iReverbType, s_fReverbLevel);
-    }
 
     return true;
 }
@@ -3063,7 +3121,12 @@ void S_OMAHA_Respatialize(int iEntNum, const vec3_t vHeadPos, const vec3_t vAxis
     VectorCopy(vAxis[2], alorientation[1]);
     CrossProduct(alorientation[0], alorientation[1], vRight);
     VectorScale(vRight, -1.f, vLeft);
-    g_sndRenderer->SetListener(vListenerOrigin, alorientation[0], vLeft, alorientation[1]);
+    VectorClear(vVelocity);
+    if (iEntNum >= 0 && iEntNum < MAX_GENTITIES) {
+        VectorCopy(s_entity[iEntNum].velocity, vVelocity);
+        VectorScale(vVelocity, s_fVelocityScale, vVelocity);
+    }
+    g_sndRenderer->SetListener(vListenerOrigin, vVelocity, alorientation[0], vLeft, alorientation[1]);
 
     VectorCopy(vAxis[1], vTempAxis);
     VectorCopy(vListenerOrigin, s_vObstructionListener); // Added in Omaha
@@ -3190,15 +3253,10 @@ void S_OMAHA_Respatialize(int iEntNum, const vec3_t vHeadPos, const vec3_t vAxis
         S_OMAHA_UpdateObstruction(
             pChannel, vListenerOrigin, vOrigin, !(pChannel->iFlags & CHANNEL_FLAG_LOCAL_LISTENER), false
         );
-
-		if (s_bReverbChanged) {
-			S_OMAHA_reverb(i, s_iReverbType, s_fReverbLevel);
-		}
     }
     } /* posCount scope — Added in Omaha */
 
     S_OMAHA_AddLoopSounds(vTempAxis);
-    s_bReverbChanged = false;
 }
 
 /*
@@ -3226,26 +3284,16 @@ static int S_OMAHA_SpatializeStereoSound(const vec3_t listener_origin, const vec
 
 /*
 ==============
-S_OMAHA_reverb
-==============
-*/
-static void S_OMAHA_reverb(int iChannel, int iReverbType, float fReverbLevel)
-{
-    (void)iChannel;
-    (void)iReverbType;
-    (void)fReverbLevel;
-}
-
-/*
-==============
 S_OMAHA_SetReverb
+
+The snapshot still delivers reverb_type and reverb_level. Retail maps leave
+them at generic / 0, and nothing in the mixer consumes them.
 ==============
 */
 void S_OMAHA_SetReverb(int iType, float fLevel)
 {
-    s_fReverbLevel = fLevel;
-    s_iReverbType  = iType;
-    (void)s_bReverbChanged;
+    (void)iType;
+    (void)fLevel;
 }
 
 /*
@@ -3257,6 +3305,10 @@ void S_OMAHA_Update()
 {
     int             i;
     omaha_channel *pChannel;
+
+    if (g_sndRenderer) {
+        g_sndRenderer->Update();
+    }
 
     if (cl.snap.ps.stats[STAT_CINEMATIC]) {
         S_SetGlobalAmbientVolumeLevel(0.5f);
@@ -3697,14 +3749,15 @@ void omaha_channel::flush_params()
 /*
 ==============
 omaha_channel::set_velocity
-Doppler is not part of the mixer. The argument is kept so callers stay put.
+Changed in Omaha: stored on the voice. The mixer applies it as Doppler for mono 3D.
 ==============
 */
 void omaha_channel::set_velocity(float v0, float v1, float v2)
 {
-    (void)v0;
-    (void)v1;
-    (void)v2;
+    cur.vel[0] = v0;
+    cur.vel[1] = v1;
+    cur.vel[2] = v2;
+    flush_params();
 }
 
 /*
@@ -3739,7 +3792,10 @@ omaha_channel::set_no_3d
 void omaha_channel::set_no_3d()
 {
     cur.flags |= OM_FLAG_2D;
-    cur.flags &= ~OM_FLAG_PAN;
+    cur.flags &= ~(OM_FLAG_PAN | OM_FLAG_LOOP);
+    cur.vel[0] = 0.f;
+    cur.vel[1] = 0.f;
+    cur.vel[2] = 0.f;
     flush_params();
 }
 
@@ -3750,10 +3806,10 @@ omaha_channel::set_3d
 */
 void omaha_channel::set_3d()
 {
-    cur.flags &= ~(OM_FLAG_2D | OM_FLAG_PAN | OM_FLAG_FLAT);
+    /* Changed in Omaha: distances and 3D flags only. Gain stays with the caller. */
+    cur.flags &= ~(OM_FLAG_2D | OM_FLAG_PAN | OM_FLAG_FLAT | OM_FLAG_LOOP);
     cur.minDist = fMinDist > 0.f ? fMinDist : 200.f;
     cur.maxDist = fMaxDist > 0.f ? fMaxDist : 12800.f;
-    cur.gain    = S_OMAHA_GetBaseVolume();
     flush_params();
 }
 
@@ -3794,9 +3850,10 @@ void omaha_channel::play()
         g_sndRenderer->DestroyVoice(voiceId);
         voiceId = OM_VOICE_NONE;
     }
-    voiceId = g_sndRenderer->PlayVoice(bufferId, &cur, 0);
-    sent    = cur;
-    sentOk  = qtrue;
+    voiceId     = g_sndRenderer->PlayVoice(bufferId, &cur, startOffset);
+    startOffset = 0;
+    sent        = cur;
+    sentOk      = voiceId != OM_VOICE_NONE ? qtrue : qfalse;
 }
 
 /*
@@ -3855,10 +3912,9 @@ omaha_channel::is_free
 */
 bool omaha_channel::is_free()
 {
-    if (voiceId == OM_VOICE_NONE) {
-        return true;
-    }
-    return sample_status() == OM_VOICE_STOPPED;
+    U32 state = sample_status();
+
+    return state == OM_VOICE_STOPPED || state == OM_VOICE_INITIAL;
 }
 
 /*
@@ -3967,10 +4023,11 @@ bool omaha_channel::set_sfx(sfx_t *pSfx)
         bid = (omSoundId_t)(pSfx->buffer - 1);
     }
 
-    bufferId  = bid;
-    cur.pitch = 1.f;
-    sentOk    = qfalse;
-    iBaseRate = g_sndRenderer->SoundRate(bid);
+    bufferId    = bid;
+    cur.pitch   = 1.f;
+    sentOk      = qfalse;
+    startOffset = 0;
+    iBaseRate   = g_sndRenderer->SoundRate(bid);
     return true;
 }
 
@@ -4132,7 +4189,13 @@ omaha_channel::set_sample_offset
 */
 void omaha_channel::set_sample_offset(U32 offset)
 {
-    if (!g_sndRenderer || voiceId == OM_VOICE_NONE) {
+    U32 state = sample_status();
+
+    if (!g_sndRenderer) {
+        return;
+    }
+    if (state != OM_VOICE_PLAYING && state != OM_VOICE_PAUSED) {
+        startOffset = offset;
         return;
     }
     g_sndRenderer->SetVoiceOffset(voiceId, offset);
@@ -4162,7 +4225,8 @@ void omaha_channel::set_sample_loop_count(S32 count)
     }
     cur.loopStart = loopBlockStart;
     cur.loopEnd   = loopBlockEnd;
-    stop();
+    /* Fixed in Omaha: stopping here silenced a same-sample update, which does not call play(). */
+    flush_params();
 }
 
 /*
@@ -4187,7 +4251,7 @@ omaha_channel::sample_status
 U32 omaha_channel::sample_status()
 {
     if (!g_sndRenderer || voiceId == OM_VOICE_NONE) {
-        return OM_VOICE_STOPPED;
+        return OM_VOICE_INITIAL;
     }
     return (U32)g_sndRenderer->VoiceState(voiceId);
 }
@@ -4795,6 +4859,131 @@ qboolean S_OMAHA_MUSIC_PlaySong(const char *alias)
 
 /*
 ==============
+S_OMAHA_VoiceAudibleGain
+
+Added in Omaha: gain the mixer actually plays. 2D voices are already at level.
+3D voices get the inverse distance scale.
+==============
+*/
+static float S_OMAHA_VoiceAudibleGain(const omaha_channel *pChannel, const vec3_t vListener)
+{
+    float  g, dist, minDist, maxDist, clamped;
+    vec3_t delta;
+
+    g = pChannel->cur.gain;
+    if (g <= 0.f) {
+        return 0.f;
+    }
+    if (pChannel->cur.flags & OM_FLAG_2D) {
+        return g;
+    }
+    minDist = pChannel->cur.minDist;
+    if (minDist <= 0.f) {
+        return g;
+    }
+    VectorSubtract(pChannel->cur.pos, vListener, delta);
+    dist    = VectorLength(delta);
+    maxDist = pChannel->cur.maxDist;
+    clamped = dist;
+    if (clamped < minDist) {
+        clamped = minDist;
+    }
+    if (maxDist > minDist && clamped > maxDist) {
+        clamped = maxDist;
+    }
+    return g * (minDist / clamped);
+}
+
+/*
+==============
+S_OMAHA_UpdateMusicDuck
+
+Added in Omaha: loudest voice dips music. -24 dB is a 2 dB dip, 0 dB is 10 dB.
+Attack 20 ms, hold 200 ms, release 600 ms. s_mix 0 leaves music alone.
+==============
+*/
+static float S_OMAHA_UpdateMusicDuck(void)
+{
+    float   key, ref, db, dipDb, desired, dt, tau, coeff;
+    int     i, now, posCount;
+    vec3_t  vListener;
+
+    now = cls.realtime;
+    dt  = s_musicDuckTime > 0 ? (now - s_musicDuckTime) * 0.001f : 0.f;
+    if (dt < 0.f) {
+        dt = 0.f;
+    }
+    if (dt > 0.1f) {
+        dt = 0.1f;
+    }
+    s_musicDuckTime = now;
+
+    if (!s_mix || !s_mix->integer) {
+        s_musicDuck     = 1.f;
+        s_musicDuckHeld = 1.f;
+        return 1.f;
+    }
+
+    key = 0.f;
+    if (g_sndRenderer) {
+        g_sndRenderer->GetListenerPosition(vListener);
+        posCount = omaha.position_channel_count > 0 ? omaha.position_channel_count
+                                                     : MAX_SOUNDSYSTEM_POSITION_CHANNELS;
+        for (i = 0; i < posCount; i++) {
+            omaha_channel *pChannel = S_OMAHA_GetPosChannel(i);
+            float           audible;
+
+            if (!pChannel || pChannel->iCategory != (int)SND_CAT_VOICE || !pChannel->is_playing()) {
+                continue;
+            }
+            audible = S_OMAHA_VoiceAudibleGain(pChannel, vListener);
+            if (audible > key) {
+                key = audible;
+            }
+        }
+    }
+
+    desired = 1.f;
+    ref     = S_OMAHA_GetBaseVolume() * OM_MIX_VOICE;
+    if (ref > 0.0001f && key > 0.f) {
+        db = 20.f * log10f(key / ref);
+        if (db >= 0.f) {
+            dipDb = 10.f;
+        } else if (db > -24.f) {
+            dipDb = 2.f + ((db + 24.f) / 24.f) * 8.f;
+        } else {
+            dipDb = 0.f;
+        }
+        desired = powf(10.f, -dipDb / 20.f);
+    }
+
+    if (desired < s_musicDuckHeld) {
+        s_musicDuckHeld      = desired;
+        s_musicDuckHoldUntil = now + 200;
+    } else if (now >= s_musicDuckHoldUntil) {
+        s_musicDuckHeld = desired;
+        if (desired < 1.f) {
+            s_musicDuckHoldUntil = now + 200;
+        }
+    }
+
+    tau   = s_musicDuckHeld < s_musicDuck ? 0.020f : 0.600f;
+    coeff = tau > 0.f ? (1.f - expf(-dt / tau)) : 1.f;
+    s_musicDuck += (s_musicDuckHeld - s_musicDuck) * coeff;
+    if (fabsf(s_musicDuck - s_musicDuckHeld) < 0.0005f) {
+        s_musicDuck = s_musicDuckHeld;
+    }
+    if (s_musicDuck > 1.f) {
+        s_musicDuck = 1.f;
+    }
+    if (s_musicDuck < 0.f) {
+        s_musicDuck = 0.f;
+    }
+    return s_musicDuck;
+}
+
+/*
+==============
 S_OMAHA_MUSIC_UpdateMusicVolumes
 ==============
 */
@@ -4803,8 +4992,14 @@ void S_OMAHA_MUSIC_UpdateMusicVolumes()
     int          i;
     unsigned int current_time;
     float        new_volume, max_volume;
+    float        duck;
+    qboolean     duckMove;
 
-    if (s_ambientVolume->modified || music_volume_changed) {
+    duck     = S_OMAHA_UpdateMusicDuck();
+    duckMove = fabsf(duck - s_musicDuckSent) > 0.0005f ? qtrue : qfalse;
+    s_musicDuckSent = duck;
+
+    if (s_ambientVolume->modified || music_volume_changed || duckMove) {
         s_ambientVolume->modified = false;
 
         for (i = 0; i < MAX_SOUNDSYSTEM_SONGS; i++) {
@@ -4818,7 +5013,7 @@ void S_OMAHA_MUSIC_UpdateMusicVolumes()
 
             omaha.chan_song[i].set_gain(
                 S_OMAHA_GetBaseVolume() * (music_songs[omaha.chan_song[i].song_number].volume * s_ambientVolume->value)
-                * s_fVolumeGain * music_volume
+                * s_fVolumeGain * music_volume * duck
             );
         }
     }
@@ -4835,10 +5030,10 @@ void S_OMAHA_MUSIC_UpdateMusicVolumes()
                        / (omaha.chan_song[i].fade_time * 1000.f) * max_volume;
 
             if (new_volume > max_volume) {
-                omaha.chan_song[i].set_gain(S_OMAHA_GetBaseVolume() * (max_volume * s_fVolumeGain * music_volume));
+                omaha.chan_song[i].set_gain(S_OMAHA_GetBaseVolume() * (max_volume * s_fVolumeGain * music_volume) * duck);
                 omaha.chan_song[i].fading = FADE_NONE;
             } else {
-                omaha.chan_song[i].set_gain(S_OMAHA_GetBaseVolume() * (new_volume * s_fVolumeGain * music_volume));
+                omaha.chan_song[i].set_gain(S_OMAHA_GetBaseVolume() * (new_volume * s_fVolumeGain * music_volume) * duck);
             }
             break;
         case fade_t::FADE_OUT:
@@ -4847,7 +5042,7 @@ void S_OMAHA_MUSIC_UpdateMusicVolumes()
                        / (omaha.chan_song[i].fade_time * 1000.f) * max_volume;
 
             if (new_volume > 0) {
-                omaha.chan_song[i].set_gain(S_OMAHA_GetBaseVolume() * (new_volume * s_fVolumeGain * music_volume));
+                omaha.chan_song[i].set_gain(S_OMAHA_GetBaseVolume() * (new_volume * s_fVolumeGain * music_volume) * duck);
             } else {
                 S_OMAHA_MUSIC_StopChannel(i);
             }
@@ -4857,11 +5052,11 @@ void S_OMAHA_MUSIC_UpdateMusicVolumes()
         }
     }
 
-    if (s_musicVolume->modified || music_volume_changed) {
+    if (s_musicVolume->modified || music_volume_changed || duckMove) {
         s_musicVolume->modified = false;
         if (omaha.chan_trig_music.is_playing() || omaha.chan_trig_music.is_paused()) {
             omaha.chan_trig_music.set_gain(
-                S_OMAHA_GetBaseVolume() * (omaha.chan_trig_music.fVolume * s_musicVolume->value) * s_fVolumeGain
+                S_OMAHA_GetBaseVolume() * (omaha.chan_trig_music.fVolume * s_musicVolume->value) * s_fVolumeGain * duck
             );
         }
     }
@@ -4950,12 +5145,10 @@ void S_OMAHA_TriggeredMusic_SetupHandle(const char *pszName, int iLoopCount, int
     omaha.chan_trig_music.set_sample_loop_count(iLoopCount);
     omaha.chan_trig_music.set_sample_offset(iOffset);
 
-    // Fixed in OPM
-    //  Play the sound then pause it immediately
-    //  So it can be unpaused upon loading from save
-    omaha.chan_trig_music.play();
-
-    if (!autostart) {
+    /* Changed in Omaha: the voice is already open. Pause holds it; play starts it. */
+    if (autostart) {
+        omaha.chan_trig_music.play();
+    } else {
         omaha.chan_trig_music.pause();
     }
 }
@@ -5240,8 +5433,7 @@ omaha_channel_two_d_stream::stop
 */
 void omaha_channel_two_d_stream::stop()
 {
-    omaha_channel::stop();
-
+    /* Changed in Omaha: clear_stream destroys the stream voice; a plain stop would only rewind it. */
     clear_stream();
 }
 
@@ -5282,7 +5474,6 @@ bool omaha_channel_two_d_stream::set_sfx(sfx_t *pSfx)
         streamHandle = NULL;
         return false;
     }
-    g_sndRenderer->StopVoice(voiceId);
 
     bytesToRead = Q_min(MAX_BUFFER_SAMPLES * stream->info.width * stream->info.channels, sizeof(rawData));
     /* Changed in Omaha: prefill several chunks at open so Update can drip-refill. */
@@ -5368,7 +5559,8 @@ void omaha_channel_two_d_stream::update()
     if (!streaming || is_paused() || voiceId == OM_VOICE_NONE) {
         return;
     }
-    if (sample_status() == OM_VOICE_STOPPED) {
+    /* Fixed in Omaha: only a never-played stream waits; a stopped one ran dry and needs refilling. */
+    if (sample_status() == OM_VOICE_INITIAL) {
         return;
     }
 
@@ -5697,13 +5889,15 @@ void omaha_channel_two_d_stream::clear_stream()
 {
     detachAsync(); // Added in Omaha
 
-    if (!streaming) {
-        return;
-    }
-
+    /* Changed in Omaha: the voice goes even when nothing streamed, or it would leak. */
     if (voiceId != OM_VOICE_NONE && g_sndRenderer) {
         g_sndRenderer->DestroyVoice(voiceId);
         voiceId = OM_VOICE_NONE;
+        sentOk  = qfalse;
+    }
+
+    if (!streaming) {
+        return;
     }
 
     if (streamHandle) {

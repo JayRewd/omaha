@@ -250,8 +250,7 @@ static qboolean Om_DecodePcm(omSampleFormat_t fmt, const void *data, int sizeByt
 	float *dst;
 
 	if (fmt == OM_FMT_MONO16 || fmt == OM_FMT_STEREO16) {
-		const short *s = (const short *)data;
-		n              = sizeBytes / (2 * channels);
+		n = sizeBytes / (2 * channels);
 	} else if (fmt == OM_FMT_MONO_F32 || fmt == OM_FMT_STEREO_F32) {
 		n = sizeBytes / (4 * channels);
 	} else {

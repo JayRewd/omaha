@@ -111,9 +111,10 @@ struct omaha_channel {
     int loopBlockStart;
     int loopBlockEnd;
 
-    /* Added in Omaha: omaha-mixer obstruction state. */
+    /* Added in Omaha: omaha-mixer obstruction and portal-occlusion state. */
     int   iNextObstructionCheck;
     float fObstruction;
+    float fOcclusion;
 
     /* Added in Omaha: resolved sndCategory_t of the last 3D start (overlap ducking). */
     int iCategory;
@@ -125,6 +126,9 @@ struct omaha_channel {
     omVoiceParams_t cur;
     omVoiceParams_t sent;
     qboolean        sentOk;
+
+    /* Added in Omaha: set_sample_offset before play() lands here; play() starts from it. */
+    unsigned int startOffset;
 
     /* Added in Omaha: last obstruction trace endpoints (bitwise) and time. */
     vec3_t vTraceListener;

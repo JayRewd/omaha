@@ -3006,6 +3006,7 @@ static const char *const g_uidSoundRestartCvars[] = {
 	"s_reverb",
 	"s_initsound",
 	"s_milesdriver",
+	"s_period_ms",
 	NULL
 };
 

@@ -217,7 +217,7 @@ class SoundConcurrencyTests(unittest.TestCase):
         self.assertIn("S_OMAHA_CaptureBegin", renderer)
         omaha = OMAHA.read_text()
         self.assertIn("ma_device", omaha)
-        self.assertIn("Om_Hermite", omaha)
+        self.assertIn("Om_BuildSinc", omaha)
 
     def test_host_does_not_include_the_old_audio_api(self):
         for path in (CLIENT / "omaha").iterdir():
@@ -367,6 +367,34 @@ class PocketDuckingTests(unittest.TestCase):
         self.assertLess(body.index("S_OMAHA_PocketGain("), body.index("S_OMAHA_PickChannel3D("))
         pocket = body[body.index("S_OMAHA_PocketGain("):body.index("Added in Omaha: overlap ducking")]
         self.assertNotIn("return;", pocket)
+
+
+class OpenALLeftoverTests(unittest.TestCase):
+    def test_set_3d_does_not_reset_gain(self):
+        source = HOST.read_text()
+        start = source.index("void omaha_channel::set_3d()")
+        body = source[start:source.index("\n}\n", start)]
+        self.assertNotIn("cur.gain", body)
+
+    def test_silent_triggered_music_is_paused_without_play(self):
+        source = HOST.read_text()
+        start = source.index("\nvoid S_OMAHA_TriggeredMusic_SetupHandle(")
+        body = source[start:source.index("\n}\n", start)]
+        branch = body.index("if (autostart)")
+        self.assertNotIn("play()", body[:branch])
+        self.assertLess(branch, body.index("chan_trig_music.play()"))
+        self.assertLess(body.index("chan_trig_music.play()"), body.index("chan_trig_music.pause()"))
+
+
+class MixerTableTests(unittest.TestCase):
+    def test_mixer_id_tables_are_not_fixed_caps(self):
+        source = OMAHA.read_text()
+        self.assertNotIn("OM_MAX_VOICES", source)
+        self.assertNotIn("OM_MAX_HANDLES", source)
+        self.assertNotIn("OM_MAX_SOUNDS", source)
+        self.assertIn("static qboolean Om_GrowVoices(void)", source)
+        self.assertIn("static int Om_TakeVoice(void)", source)
+        self.assertIn("c.slot = Om_TakeVoice();", source)
 
 
 if __name__ == "__main__":

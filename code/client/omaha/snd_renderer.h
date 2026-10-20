@@ -45,11 +45,12 @@ typedef int omVoiceId_t;
 #define OM_VOICE_STOPPED 0
 #define OM_VOICE_PLAYING 1
 #define OM_VOICE_PAUSED  2
+#define OM_VOICE_INITIAL 3 /* stream opened, not played yet */
 
 #define OM_FLAG_2D   1 /* no distance attenuation */
 #define OM_FLAG_LOOP 2
 #define OM_FLAG_FLAT 4 /* speakers get the channels directly; no position */
-#define OM_FLAG_PAN  8 /* cur.pan is the stereo image, -1 left .. +1 right */
+#define OM_FLAG_PAN  8 /* Miles pan: (pan-64)/127 on the unit circle behind the listener */
 
 #define OM_ROUTE_BUS    0
 #define OM_ROUTE_DIRECT 1
@@ -74,7 +75,9 @@ typedef struct omVoiceParams_s {
 	float pitch;
 	float minDist;
 	float maxDist;
-	float obstruction; /* 0 clear, 1 blocked */
+	float vel[3];      /* world units, already scaled; mono 3D Doppler */
+	float obstruction; /* 0 clear, 1 blocked by a brush in the same room */
+	float occlusion;   /* 0 same room, 1 closed portal to another BSP area */
 	float pan;         /* used when OM_FLAG_PAN */
 	int   flags;
 	int   route;
@@ -106,6 +109,11 @@ typedef struct sndRenderer_s {
 	);
 	int (*SoundRate)(omSoundId_t id);
 
+	/*
+	 * A played voice id stays valid after the sound ends (state STOPPED) until
+	 * StopVoice or DestroyVoice releases it. A stream id survives StopVoice (all
+	 * queued chunks then read as processed) and is released only by DestroyVoice.
+	 */
 	omVoiceId_t (*PlayVoice)(omSoundId_t sound, const omVoiceParams_t *params, unsigned offset);
 	omVoiceId_t (*OpenStream)(const omVoiceParams_t *params);
 	void (*UpdateVoice)(omVoiceId_t id, const omVoiceParams_t *params);
@@ -122,8 +130,10 @@ typedef struct sndRenderer_s {
 	int (*StreamProcessed)(omVoiceId_t id);
 	void (*UnqueueStream)(omVoiceId_t id, int count);
 
-	/* forward / left / up are world axes. There is no listener velocity. */
-	void (*SetListener)(const float pos[3], const float forward[3], const float left[3], const float up[3]);
+	/* forward / left / up are world axes. vel is the listener velocity in the same units as omVoiceParams_t.vel. */
+	void (*SetListener)(
+		const float pos[3], const float vel[3], const float forward[3], const float left[3], const float up[3]
+	);
 	void (*SetListenerGain)(float g);
 	void (*GetListenerPosition)(float out[3]);
 
